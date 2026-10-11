@@ -1,0 +1,56 @@
+# Supabase 免費專案在過去一週「資料庫活動不足」就會暫停（ADR 0001）。
+# 官方說法是通常每天幾次請求就夠，所以每 6 小時查詢一次正式資料庫。
+# 查詢失敗時開一張 issue（已經有未關閉的就不重複開），代表正式資料庫可能已經暫停。
+# 不靠 GitHub 的失敗通知信：那只會寄給最後改排程或重新啟用 workflow 的人，下面重新啟用的步驟會讓收件人變得不可靠。
+name: Keep Supabase awake
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  issues: write
+
+# 排程和手動執行重疊時排隊執行，避免兩個 run 同時查到「沒有 issue」而各開一張。
+concurrency:
+  group: keep-supabase-awake
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query production database
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          curl --fail-with-body --silent --show-error --retry 3 --retry-delay 30 \
+            "$SUPABASE_URL/rest/v1/conferences?select=year&limit=1" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY"
+
+      - name: Open an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: 正式資料庫查詢失敗：Supabase 專案可能已暫停
+        run: |
+          # 先存進變數：搜尋本身失敗時這一步直接失敗，不會誤以為沒有 issue 而重複開。
+          existing=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number --jq '.[].number')
+          if [ -z "$existing" ]; then
+            gh issue create --title "$TITLE" --body "「Keep Supabase awake」查詢正式資料庫失敗：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          處理方式見 docs/handover.md 的「出問題時」。恢復後手動重跑 workflow，成功再關閉這張 issue。"
+          fi
+
+      # 公開 repo 連續 60 天沒有活動時，GitHub 會自動停用排程 workflow。
+      # 淡季可能好幾個月沒有 commit，所以每次執行都重新啟用自己，重設這個計時。
+      - name: Keep this schedule enabled
+        # 查詢失敗也要執行，但 run 被取消時不執行，以免覆寫維護者手動停用 workflow 的操作。
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method PUT "repos/${{ github.repository }}/actions/workflows/keep-supabase-awake.yml/enable"

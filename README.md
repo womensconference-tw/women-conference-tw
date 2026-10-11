@@ -76,3 +76,13 @@ npm run test:watch
 **注意：每次跑測試前（包括 `test:watch` 每次重跑前）會自動執行 `supabase db reset`**，讓測試一定從 migration＋seed 的乾淨狀態開始，上次中斷留下的資料也會清掉。所以你在本機資料庫手動加的資料，跑測試後會不見；重設大約要 30 秒。
 
 測試只透過公開的介面（例如 `src/lib/conference.ts` 的 `getCurrentConference`）檢查外部行為，並以前台訪客的身分（publishable key，受 RLS 限制）呼叫；測試資料用 secret key 準備，跑完會還原。
+
+## 部署與交接
+
+正式環境部署在 Vercel，資料庫是正式 Supabase 專案，環境變數只放在 Vercel／Supabase 後台。第一次設定（或重建）正式環境時跑引導腳本：
+
+```bash
+bash scripts/setup-production.sh
+```
+
+`.github/workflows/keep-supabase-awake.yml` 每 6 小時查詢一次正式資料庫，避免免費專案因活動不足被暫停；查詢失敗會自動開 issue。換屆步驟見 [`docs/handover.md`](docs/handover.md)。
