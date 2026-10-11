@@ -191,7 +191,7 @@ finish() {
 cd "$(dirname "$0")/.."
 REPO="womensconference-tw/women-conference-tw"
 # 所有 gh 指令（包括 set_secret）都只指向正式 repo，不受執行者自己設定的 GH_REPO 影響。
-export GH_REPO="$REPO"
+export GH_REPO="${REPO}"
 # 只存在這台電腦、方便重跑時沿用；.gitignore 的 .env* 會擋住，Next.js 也不會讀這個檔。
 # 兩個值都是公開資訊（會送到訪客的瀏覽器），全部跑完可以刪掉。
 ENV_FILE=".env.production-wizard"
@@ -233,30 +233,30 @@ note "    長得像 https://abcdefghijklmnopqrst.supabase.co"
 while true; do
   ask PROD_SUPABASE_URL "貼上 Project URL："
   PROD_SUPABASE_URL="${PROD_SUPABASE_URL%/}"
-  [[ "$PROD_SUPABASE_URL" =~ ^https://[a-z]{20}\.supabase\.co$ ]] && break
+  [[ "${PROD_SUPABASE_URL}" =~ ^https://[a-z]{20}\.supabase\.co$ ]] && break
   warn "格式不對，應該是 https://<20 個小寫字母>.supabase.co，再貼一次。"
 done
 step "到 Project Settings → API Keys，複製 Publishable key（開頭是 sb_publishable_）。"
 note "    不要複製 secret key（sb_secret_），那個絕對不能外流。"
 while true; do
   ask PROD_SUPABASE_PUBLISHABLE_KEY "貼上 publishable key："
-  if [[ ! "$PROD_SUPABASE_PUBLISHABLE_KEY" =~ ^sb_publishable_[A-Za-z0-9_-]{16,}$ ]]; then
+  if [[ ! "${PROD_SUPABASE_PUBLISHABLE_KEY}" =~ ^sb_publishable_[A-Za-z0-9_-]{16,}$ ]]; then
     warn "應該是 sb_publishable_ 開頭的一整串，可能沒複製完整，再貼一次。"
     continue
   fi
   # 實際呼叫一次 Supabase，確認網址和 key 都能用（這時還沒建資料表，所以問 Auth 設定）。
   check=$(curl -s -o /dev/null -w '%{http_code}' \
-    "$PROD_SUPABASE_URL/auth/v1/settings" -H "apikey: $PROD_SUPABASE_PUBLISHABLE_KEY" || true)
-  if [[ "$check" == "200" ]]; then
-    printf '  %s✓%s 網址和 key 都能用\n' "$GREEN" "$RESET"
+    "${PROD_SUPABASE_URL}/auth/v1/settings" -H "apikey: ${PROD_SUPABASE_PUBLISHABLE_KEY}" || true)
+  if [[ "${check}" == "200" ]]; then
+    printf '  %s✓%s 網址和 key 都能用\n' "${GREEN}" "${RESET}"
     break
   fi
-  warn "用這組網址和 key 呼叫 Supabase 失敗（HTTP $check）。"
+  warn "用這組網址和 key 呼叫 Supabase 失敗（HTTP ${check}）。"
   note "    專案剛建好的話可能還在啟動，等一分鐘再貼一次；也可能 key 沒複製完整。"
   confirm "還是要用這組值繼續嗎？" && break
 done
-write_env PROD_SUPABASE_URL "$PROD_SUPABASE_URL"
-write_env PROD_SUPABASE_PUBLISHABLE_KEY "$PROD_SUPABASE_PUBLISHABLE_KEY"
+write_env PROD_SUPABASE_URL "${PROD_SUPABASE_URL}"
+write_env PROD_SUPABASE_PUBLISHABLE_KEY "${PROD_SUPABASE_PUBLISHABLE_KEY}"
 PROJECT_REF="${PROD_SUPABASE_URL#https://}"
 PROJECT_REF="${PROJECT_REF%%.*}"
 pause "按 Enter 繼續"
@@ -265,13 +265,17 @@ pause "按 Enter 繼續"
 stage "Supabase：把資料表建到正式資料庫"
 say "用 supabase/migrations/ 在正式資料庫建立資料表。不會放入本機的假資料（seed）。"
 say ""
-step "先登入 Supabase CLI。瀏覽器會打開，請確認登入的是 womensconferencetw。"
-note "    （如果你這台電腦的 Supabase CLI 原本登入個人帳號，會被換成官方帳號。）"
-pause "準備好了按 Enter"
-npx supabase login
+if npx supabase projects list -o json 2>/dev/null | grep -q "\"${PROJECT_REF}\""; then
+  printf '  %s✓%s Supabase CLI 已經登入，看得到正式專案，跳過登入\n' "$GREEN" "$RESET"
+else
+  step "先登入 Supabase CLI。瀏覽器會打開，請確認登入的是 womensconferencetw。"
+  note "    （如果你這台電腦的 Supabase CLI 原本登入個人帳號，會被換成官方帳號。）"
+  pause "準備好了按 Enter"
+  npx supabase login
+fi
 say ""
-step "連結正式專案 $PROJECT_REF。問 database password 時，貼上第 2 步記下的密碼。"
-npx supabase link --project-ref "$PROJECT_REF"
+step "連結正式專案 ${PROJECT_REF}。問 database password 時，貼上第 2 步記下的密碼。"
+npx supabase link --project-ref "${PROJECT_REF}"
 say ""
 say "以下是會套用到正式資料庫的 migration："
 npx supabase db push --linked --dry-run
@@ -279,13 +283,13 @@ if confirm "要套用到正式資料庫嗎？"; then
   npx supabase db push --linked
   # 用和防暫停 workflow 一模一樣的查詢確認一次：網址、key、資料表都正確才會回 200。
   check=$(curl -s -o /dev/null -w '%{http_code}' \
-    "$PROD_SUPABASE_URL/rest/v1/conferences?select=year&limit=1" \
-    -H "apikey: $PROD_SUPABASE_PUBLISHABLE_KEY" || true)
-  if [[ "$check" == "200" ]]; then
-    printf '  %s✓%s 用 publishable key 查得到正式資料庫\n' "$GREEN" "$RESET"
+    "${PROD_SUPABASE_URL}/rest/v1/conferences?select=year&limit=1" \
+    -H "apikey: ${PROD_SUPABASE_PUBLISHABLE_KEY}" || true)
+  if [[ "${check}" == "200" ]]; then
+    printf '  %s✓%s 用 publishable key 查得到正式資料庫\n' "${GREEN}" "${RESET}"
   else
-    warn "用 publishable key 查詢 conferences 失敗（HTTP $check），先確認第 3 步的 key 是否完整。"
-    SKIPPED+=("publishable key 查詢正式資料庫失敗（HTTP $check）")
+    warn "用 publishable key 查詢 conferences 失敗（HTTP ${check}），先確認第 3 步的 key 是否完整。"
+    SKIPPED+=("publishable key 查詢正式資料庫失敗（HTTP ${check}）")
   fi
 else
   SKIPPED+=("套用 migration：npx supabase db push --linked")
@@ -297,8 +301,8 @@ pause "按 Enter 繼續"
 stage "GitHub Actions：設定防暫停用的 secrets"
 say "「Keep Supabase awake」workflow 每 6 小時用這兩個值查詢一次正式資料庫，"
 say "免得免費專案閒置 7 天後被暫停。這一步用你電腦上的 gh 自動設定。"
-set_secret SUPABASE_URL "$PROD_SUPABASE_URL"
-set_secret SUPABASE_PUBLISHABLE_KEY "$PROD_SUPABASE_PUBLISHABLE_KEY"
+set_secret SUPABASE_URL "${PROD_SUPABASE_URL}"
+set_secret SUPABASE_PUBLISHABLE_KEY "${PROD_SUPABASE_PUBLISHABLE_KEY}"
 pause "按 Enter 繼續"
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
@@ -306,11 +310,11 @@ stage "GitHub：repo 改為 public"
 say "Vercel 免費方案不能部署組織名下的私人 repo，所以要改成 public（ADR 0001）。"
 say "已檢查過所有 commit 歷史，沒有金鑰、密碼或 .env 檔。改成 public 後，"
 say "任何人都看得到程式碼和 commit 紀錄，但 GitHub Actions secrets 仍然是保密的。"
-if [[ "$(gh repo view "$REPO" --json visibility --jq .visibility)" == "PUBLIC" ]]; then
+if [[ "$(gh repo view "${REPO}" --json visibility --jq .visibility)" == "PUBLIC" ]]; then
   note "repo 已經是 public，跳過。"
-elif confirm "確定要把 $REPO 改成 public 嗎？"; then
-  gh repo edit "$REPO" --visibility public --accept-visibility-change-consequences
-  printf '  %s✓%s repo 已改為 public\n' "$GREEN" "$RESET"
+elif confirm "確定要把 ${REPO} 改成 public 嗎？"; then
+  gh repo edit "${REPO}" --visibility public --accept-visibility-change-consequences
+  printf '  %s✓%s repo 已改為 public\n' "${GREEN}" "${RESET}"
 else
   SKIPPED+=("repo 改 public（之後 Vercel 才能部署）")
   warn "先跳過；repo 還是 private 的話，下一步 Vercel 會沒辦法部署。"
@@ -326,40 +330,40 @@ note "    Permissions」，把 Vercel 安裝到組織 womensconference-tw，允�
 step "點「Import」。Framework Preset 應該自動是 Next.js，其他維持預設。"
 step "展開「Environment Variables」，把下面兩行整段貼進第一個 Key 欄位（會自動拆成兩個）："
 printf '\n    NEXT_PUBLIC_SUPABASE_URL=%s\n    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=%s\n\n' \
-  "$PROD_SUPABASE_URL" "$PROD_SUPABASE_PUBLISHABLE_KEY"
+  "${PROD_SUPABASE_URL}" "${PROD_SUPABASE_PUBLISHABLE_KEY}"
 step "點「Deploy」，等它跑完。"
 step "完成後點進專案，複製正式網址（Domains 那一欄，像 https://women-conference-tw.vercel.app）。"
 while true; do
   ask PROD_SITE_URL "貼上正式網址："
   PROD_SITE_URL="${PROD_SITE_URL%/}"
-  [[ "$PROD_SITE_URL" =~ ^https:// ]] && break
+  [[ "${PROD_SITE_URL}" =~ ^https:// ]] && break
   warn "要以 https:// 開頭，再貼一次。"
 done
-write_env PROD_SITE_URL "$PROD_SITE_URL"
+write_env PROD_SITE_URL "${PROD_SITE_URL}"
 pause "按 Enter 繼續"
 
 # ── 8 ─────────────────────────────────────────────────────────────────────
 stage "驗收：網站、LINE、防暫停"
-status=$(curl -s -o /dev/null -w '%{http_code}' "$PROD_SITE_URL" || true)
-if [[ "$status" == "200" ]]; then
-  printf '  %s✓%s 首頁回應 200\n' "$GREEN" "$RESET"
+status=$(curl -s -o /dev/null -w '%{http_code}' "${PROD_SITE_URL}" || true)
+if [[ "${status}" == "200" ]]; then
+  printf '  %s✓%s 首頁回應 200\n' "${GREEN}" "${RESET}"
 else
-  warn "首頁回應 $status，到 Vercel 看部署紀錄（Deployments → 最新一筆 → Logs）。"
-  SKIPPED+=("正式首頁回應 $status，需要查原因")
+  warn "首頁回應 ${status}，到 Vercel 看部署紀錄（Deployments → 最新一筆 → Logs）。"
+  SKIPPED+=("正式首頁回應 ${status}，需要查原因")
 fi
 say ""
 step "用手機在 LINE 把這個網址傳給自己（或傳到 Keep 筆記），點開，確認首頁正常顯示："
-note "    $PROD_SITE_URL"
+note "    ${PROD_SITE_URL}"
 if confirm "LINE 內建瀏覽器打得開首頁嗎？"; then
-  printf '  %s✓%s LINE 實測通過\n' "$GREEN" "$RESET"
+  printf '  %s✓%s LINE 實測通過\n' "${GREEN}" "${RESET}"
 else
   SKIPPED+=("LINE 內建瀏覽器打不開首頁，需要查原因")
 fi
 say ""
-if gh workflow view keep-supabase-awake.yml --repo "$REPO" >/dev/null 2>&1; then
+if gh workflow view keep-supabase-awake.yml --repo "${REPO}" >/dev/null 2>&1; then
   say "手動跑一次「Keep Supabase awake」，確認它查得到正式資料庫："
-  gh workflow run keep-supabase-awake.yml --repo "$REPO"
-  note "幾秒後可以在這裡看結果：https://github.com/$REPO/actions/workflows/keep-supabase-awake.yml"
+  gh workflow run keep-supabase-awake.yml --repo "${REPO}"
+  note "幾秒後可以在這裡看結果：https://github.com/${REPO}/actions/workflows/keep-supabase-awake.yml"
 else
   SKIPPED+=("PR 合併後手動跑一次：gh workflow run keep-supabase-awake.yml")
   warn "main 上還沒有防暫停 workflow（PR 還沒合併），合併後再手動跑一次。"
@@ -367,6 +371,6 @@ fi
 pause "按 Enter 看總結"
 
 finish
-note "正式網址：$PROD_SITE_URL"
-note "$ENV_FILE 只是這次的暫存，確認都沒問題後可以刪掉。"
+note "正式網址：${PROD_SITE_URL}"
+note "${ENV_FILE} 只是這次的暫存，確認都沒問題後可以刪掉。"
 printf '\n'
