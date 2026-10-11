@@ -190,6 +190,8 @@ finish() {
 
 cd "$(dirname "$0")/.."
 REPO="womensconference-tw/women-conference-tw"
+# 所有 gh 指令（包括 set_secret）都只指向正式 repo，不受執行者自己設定的 GH_REPO 影響。
+export GH_REPO="$REPO"
 # 只存在這台電腦、方便重跑時沿用；.gitignore 的 .env* 會擋住，Next.js 也不會讀這個檔。
 # 兩個值都是公開資訊（會送到訪客的瀏覽器），全部跑完可以刪掉。
 ENV_FILE=".env.production-wizard"
@@ -238,8 +240,20 @@ step "到 Project Settings → API Keys，複製 Publishable key（開頭是 sb_
 note "    不要複製 secret key（sb_secret_），那個絕對不能外流。"
 while true; do
   ask PROD_SUPABASE_PUBLISHABLE_KEY "貼上 publishable key："
-  [[ "$PROD_SUPABASE_PUBLISHABLE_KEY" =~ ^sb_publishable_ ]] && break
-  warn "應該以 sb_publishable_ 開頭，再貼一次。"
+  if [[ ! "$PROD_SUPABASE_PUBLISHABLE_KEY" =~ ^sb_publishable_[A-Za-z0-9_-]{16,}$ ]]; then
+    warn "應該是 sb_publishable_ 開頭的一整串，可能沒複製完整，再貼一次。"
+    continue
+  fi
+  # 實際呼叫一次 Supabase，確認網址和 key 都能用（這時還沒建資料表，所以問 Auth 設定）。
+  check=$(curl -s -o /dev/null -w '%{http_code}' \
+    "$PROD_SUPABASE_URL/auth/v1/settings" -H "apikey: $PROD_SUPABASE_PUBLISHABLE_KEY" || true)
+  if [[ "$check" == "200" ]]; then
+    printf '  %s✓%s 網址和 key 都能用\n' "$GREEN" "$RESET"
+    break
+  fi
+  warn "用這組網址和 key 呼叫 Supabase 失敗（HTTP $check）。"
+  note "    專案剛建好的話可能還在啟動，等一分鐘再貼一次；也可能 key 沒複製完整。"
+  confirm "還是要用這組值繼續嗎？" && break
 done
 write_env PROD_SUPABASE_URL "$PROD_SUPABASE_URL"
 write_env PROD_SUPABASE_PUBLISHABLE_KEY "$PROD_SUPABASE_PUBLISHABLE_KEY"
@@ -263,6 +277,16 @@ say "以下是會套用到正式資料庫的 migration："
 npx supabase db push --linked --dry-run
 if confirm "要套用到正式資料庫嗎？"; then
   npx supabase db push --linked
+  # 用和防暫停 workflow 一模一樣的查詢確認一次：網址、key、資料表都正確才會回 200。
+  check=$(curl -s -o /dev/null -w '%{http_code}' \
+    "$PROD_SUPABASE_URL/rest/v1/conferences?select=year&limit=1" \
+    -H "apikey: $PROD_SUPABASE_PUBLISHABLE_KEY" || true)
+  if [[ "$check" == "200" ]]; then
+    printf '  %s✓%s 用 publishable key 查得到正式資料庫\n' "$GREEN" "$RESET"
+  else
+    warn "用 publishable key 查詢 conferences 失敗（HTTP $check），先確認第 3 步的 key 是否完整。"
+    SKIPPED+=("publishable key 查詢正式資料庫失敗（HTTP $check）")
+  fi
 else
   SKIPPED+=("套用 migration：npx supabase db push --linked")
   warn "先跳過；沒有資料表時正式網站會出錯。"
@@ -271,7 +295,7 @@ pause "按 Enter 繼續"
 
 # ── 5 ─────────────────────────────────────────────────────────────────────
 stage "GitHub Actions：設定防暫停用的 secrets"
-say "「Keep Supabase awake」workflow 每 3 天用這兩個值查詢一次正式資料庫，"
+say "「Keep Supabase awake」workflow 每 6 小時用這兩個值查詢一次正式資料庫，"
 say "免得免費專案閒置 7 天後被暫停。這一步用你電腦上的 gh 自動設定。"
 set_secret SUPABASE_URL "$PROD_SUPABASE_URL"
 set_secret SUPABASE_PUBLISHABLE_KEY "$PROD_SUPABASE_PUBLISHABLE_KEY"

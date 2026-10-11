@@ -85,4 +85,4 @@ npm run test:watch
 bash scripts/setup-production.sh
 ```
 
-`.github/workflows/keep-supabase-awake.yml` 每 3 天查詢一次正式資料庫，避免免費專案閒置被暫停。換屆步驟見 [`docs/handover.md`](docs/handover.md)。
+`.github/workflows/keep-supabase-awake.yml` 每 6 小時查詢一次正式資料庫，避免免費專案因活動不足被暫停；查詢失敗會自動開 issue。換屆步驟見 [`docs/handover.md`](docs/handover.md)。

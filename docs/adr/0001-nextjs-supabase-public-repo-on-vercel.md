@@ -10,5 +10,5 @@
 ## Consequences
 
 - 所有秘密只能放在 Vercel／Supabase 的環境變數，絕不能 commit。
-- Supabase 免費專案閒置 7 天會暫停，淡季時首頁會壞。用 GitHub Actions 每 3 天查詢一次資料庫，讓專案保持啟用。
+- Supabase 免費專案過去一週資料庫活動不足就會暫停（官方說法是通常每天幾次請求就夠），淡季時首頁會壞。用 GitHub Actions 每 6 小時查詢一次資料庫，讓專案保持啟用；查詢失敗時自動開 issue。
 - Resend 免費方案每天上限 100 封，公費的那一個月付費方案要排在報名開放的月份。

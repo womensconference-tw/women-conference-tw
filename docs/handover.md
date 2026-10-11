@@ -37,6 +37,7 @@
 - [ ] 用官方 GitHub 帳號登入 Vercel，確認專案與環境變數都在
 - [ ] 用官方 GitHub 帳號登入 Supabase，確認正式專案沒有暫停
 - [ ] 到 repo 的 Actions 分頁，確認「Keep Supabase awake」最近幾次都成功、而且沒有被停用
+- [ ] 下一任在 repo 頁面右上角點「Watch」→「All Activity」（或至少勾選 Issues），才收得到防暫停失敗時自動開的 issue
 
 <!-- TODO: 補上每年開新年度要做的事（複製去年年度、填時程時間點等），等後台功能完成後再寫 -->
 
@@ -51,7 +52,7 @@ bash scripts/setup-production.sh
 ## 出問題時
 
 - **首頁打不開或顯示錯誤**：先看 Supabase 專案是不是被暫停了（後台會有 Restore 按鈕），再看 Vercel 最近一次部署有沒有失敗。
-- **收到「Keep Supabase awake」失敗的通知信**：正式資料庫可能已經暫停，到 Supabase 後台恢復專案，再到 Actions 分頁手動重跑一次。
-  GitHub 只把排程 workflow 的失敗通知寄給**最後修改這個 workflow 排程的人**。換屆後，請下一任隨便改一下 `.github/workflows/keep-supabase-awake.yml` 的排程註解並 commit，通知才會改寄給他。
+- **出現「正式資料庫查詢失敗：Supabase 專案可能已暫停」的 issue**：防暫停 workflow 查詢失敗時會自動開這張 issue。到 Supabase 後台恢復專案，再到 Actions 分頁手動重跑「Keep Supabase awake」，成功後關閉 issue。
+  不靠 GitHub 的失敗通知信，因為那只會寄給建立 workflow、最後修改 cron 排程，或最後重新啟用 workflow 的人，換屆後不一定是現任維護者。
 
 <!-- TODO: 之後補上報名資料匿名化（ADR 0005）等每年的固定工作 -->
