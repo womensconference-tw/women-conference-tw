@@ -1,3 +1,4 @@
+import { EnhancedInput } from "@/components/enhanced-input";
 import { Button } from "@/components/ui/button";
 import { switchLanguage } from "@/lib/i18n/actions";
 import { languageTags, type Locale } from "@/lib/i18n/locale";
@@ -14,6 +15,7 @@ export async function LanguageSwitch() {
   return (
     <form action={switchLanguage}>
       <input type="hidden" name="locale" value={target} />
+      <EnhancedInput />
       <Button
         type="submit"
         variant="outline"

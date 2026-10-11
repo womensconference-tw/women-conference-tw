@@ -45,7 +45,14 @@ const en = {
 
 // `satisfies` 擋住缺鍵和多鍵；這行再擋住參數比中文少的函式（例如英文漏掉日期）。
 // 這行出現「Type 'true' does not satisfy the expected type 'false'」就是英文和中文的形狀不同。
-true satisfies Equal<typeof en, Messages>;
+true satisfies Equal<Shape<typeof en>, Shape<Messages>>;
+
+// 比較形狀前把文字一律當成 string，`"中文" as const` 這種寫法才不會被誤判。
+type Shape<T> = T extends string
+  ? string
+  : T extends (...args: infer Args) => string
+    ? (...args: Args) => string
+    : { [K in keyof T]: Shape<T[K]> };
 
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
