@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { languageTags } from "@/lib/i18n/locale";
+import { getLocale, getMessages } from "@/lib/i18n/server";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,15 +14,20 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "台灣姐妹大會",
-  description: "台灣姐妹大會官方網站與報名系統",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getMessages();
+  return {
+    title: t.site.title,
+    description: t.site.description,
+  };
+}
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const locale = await getLocale();
+
   return (
     <html
-      lang="zh-Hant"
+      lang={languageTags[locale]}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>

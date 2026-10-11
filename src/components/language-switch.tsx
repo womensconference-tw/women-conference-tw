@@ -1,0 +1,27 @@
+import { Button } from "@/components/ui/button";
+import { switchLanguage } from "@/lib/i18n/actions";
+import { languageTags, type Locale } from "@/lib/i18n/locale";
+import { messages } from "@/lib/i18n/messages";
+import { getLocale } from "@/lib/i18n/server";
+
+// 只有兩種語言，所以用一顆按鈕直接切到另一種，不用下拉選單或彈出視窗。
+const otherLocale: Record<Locale, Locale> = { zh: "en", en: "zh" };
+
+export async function LanguageSwitch() {
+  const locale = await getLocale();
+  const target = otherLocale[locale];
+
+  return (
+    <form action={switchLanguage}>
+      <input type="hidden" name="locale" value={target} />
+      <Button
+        type="submit"
+        variant="outline"
+        lang={languageTags[target]}
+        className="h-14 px-6 text-xl"
+      >
+        {messages[locale].languageSwitch}
+      </Button>
+    </form>
+  );
+}
