@@ -25,7 +25,7 @@ const zh = {
 
 export type Messages = typeof zh;
 
-const en: Messages = {
+const en = {
   site: {
     title: "Taiwan Women's Conference",
     description: "Official website and registration for the Taiwan Women's Conference",
@@ -41,6 +41,13 @@ const en: Messages = {
     registrationOpen: "Registration is open",
     registrationClosed: "Registration has closed",
   },
-};
+} satisfies Messages;
+
+// `satisfies` 擋住缺鍵和多鍵；這行再擋住參數比中文少的函式（例如英文漏掉日期）。
+// 這行出現「Type 'true' does not satisfy the expected type 'false'」就是英文和中文的形狀不同。
+true satisfies Equal<typeof en, Messages>;
+
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
 export const messages: Record<Locale, Messages> = { zh, en };

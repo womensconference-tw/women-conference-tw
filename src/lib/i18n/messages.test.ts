@@ -20,6 +20,27 @@ describe("介面文字對照檔", () => {
 
     expect(blank).toEqual([]);
   });
+
+  // 要帶入資料的文字，每一則都要在這裡列出測試用的資料。
+  const sampleArgs: Record<string, unknown[]> = {
+    "home.conferenceDate": [2099, "SAMPLE_DATE"],
+    "home.registrationOpensAt": ["SAMPLE_DATE_TIME"],
+    "home.registrationOpenUntil": ["SAMPLE_DATE_TIME"],
+  };
+
+  it.each(locales)("%s 帶入資料的文字不空白，且有放進帶入的資料", (locale) => {
+    const templates = leaves(messages[locale]).filter(
+      (entry): entry is [string, (...args: unknown[]) => string] => typeof entry[1] === "function",
+    );
+
+    expect(templates.map(([path]) => path).sort()).toEqual(Object.keys(sampleArgs).sort());
+    for (const [path, template] of templates) {
+      const args = sampleArgs[path];
+      const text = template(...args);
+      expect(text.trim(), path).not.toBe("");
+      for (const arg of args) expect(text, path).toContain(String(arg));
+    }
+  });
 });
 
 function leaves(node: object, prefix = ""): [string, unknown][] {
