@@ -1,0 +1,57 @@
+# 交接手冊
+
+維護者換人時照這份做。依 [ADR 0007](adr/0007-handover-through-official-accounts.md)，所有服務都掛在官方帳號下，交接時只換官方 Gmail 與官方 GitHub 帳號。
+
+> **帳號、密碼、備用碼、資料庫密碼等機密，全部記在官方 Gmail（`womensconferencetw@gmail.com`）雲端硬碟裡的 Google Sheet「帳號與機密」。**
+> 這個 repo 是公開的，**絕對不要**把任何機密寫進這份文件或 commit 到 repo。
+
+## 服務一覽
+
+| 服務 | 用途 | 登入方式 | 機密記在 |
+| --- | --- | --- | --- |
+| 官方 Gmail | 所有服務的根帳號 | 帳密＋驗證器 | Google Sheet |
+| GitHub `womensconferencetw` | 組織 `womensconference-tw` 的永久 Owner | 以官方 Gmail 註冊 | Google Sheet |
+| Vercel | 部署網站 | 以官方 GitHub 帳號登入 | 不需要（環境變數在 Vercel 後台） |
+| Supabase | 正式資料庫 | 以官方 GitHub 帳號登入 | 資料庫密碼在 Google Sheet |
+| GitHub Actions secrets | 防暫停 workflow 用的 `SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY` | repo Settings → Secrets | 不需要（兩個值都可以從 Supabase 後台再查） |
+
+<!-- TODO: 之後加上 Resend、網域註冊商 -->
+
+## 換屆步驟
+
+### 1. 移交官方 Gmail
+
+- [ ] 前任把 Google Sheet 的位置告訴下一任
+- [ ] 下一任用備用碼登入官方 Gmail
+- [ ] 重設驗證器、救援電話、救援 Email，改成下一任自己的
+- [ ] 產生新的備用碼，更新到 Google Sheet
+
+### 2. 移交 GitHub 組織
+
+- [ ] 用官方 GitHub 帳號邀請下一任的個人帳號成為組織 Owner
+- [ ] 下一任接受邀請
+- [ ] 前任退出組織
+
+### 3. 確認服務都還正常
+
+- [ ] 用官方 GitHub 帳號登入 Vercel，確認專案與環境變數都在
+- [ ] 用官方 GitHub 帳號登入 Supabase，確認正式專案沒有暫停
+- [ ] 到 repo 的 Actions 分頁，確認「Keep Supabase awake」最近幾次都成功、而且沒有被停用
+
+<!-- TODO: 補上每年開新年度要做的事（複製去年年度、填時程時間點等），等後台功能完成後再寫 -->
+
+## 第一次部署怎麼做的
+
+正式環境（Vercel、正式 Supabase、repo 改 public）是用 [`scripts/setup-production.sh`](../scripts/setup-production.sh) 這個引導腳本設定的。萬一要重建正式環境，可以再跑一次：
+
+```bash
+bash scripts/setup-production.sh
+```
+
+## 出問題時
+
+- **首頁打不開或顯示錯誤**：先看 Supabase 專案是不是被暫停了（後台會有 Restore 按鈕），再看 Vercel 最近一次部署有沒有失敗。
+- **收到「Keep Supabase awake」失敗的通知信**：正式資料庫可能已經暫停，到 Supabase 後台恢復專案，再到 Actions 分頁手動重跑一次。
+  GitHub 只把排程 workflow 的失敗通知寄給**最後修改這個 workflow 排程的人**。換屆後，請下一任隨便改一下 `.github/workflows/keep-supabase-awake.yml` 的排程註解並 commit，通知才會改寄給他。
+
+<!-- TODO: 之後補上報名資料匿名化（ADR 0005）等每年的固定工作 -->

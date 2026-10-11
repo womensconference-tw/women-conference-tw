@@ -1,0 +1,32 @@
+# Supabase 免費專案閒置 7 天會暫停（ADR 0001），所以每 3 天查詢一次正式資料庫。
+# 查詢失敗時這個 workflow 會失敗，GitHub 會寄信通知，代表正式資料庫可能已經暫停。
+name: Keep Supabase awake
+
+on:
+  schedule:
+    # 每月 1、4、7…日 UTC 01:00（台灣 09:00）。跨月時間隔會變短，最長仍是 3 天。
+    - cron: "0 1 */3 * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query production database
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          curl --fail-with-body --silent --show-error --retry 3 --retry-delay 30 \
+            "$SUPABASE_URL/rest/v1/conferences?select=year&limit=1" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY"
+
+      # 公開 repo 連續 60 天沒有活動時，GitHub 會自動停用排程 workflow。
+      # 淡季可能好幾個月沒有 commit，所以每次執行都重新啟用自己，重設這個計時。
+      - name: Keep this schedule enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method PUT "repos/${{ github.repository }}/actions/workflows/keep-supabase-awake.yml/enable"
