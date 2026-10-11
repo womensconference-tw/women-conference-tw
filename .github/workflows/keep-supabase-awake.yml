@@ -13,6 +13,11 @@ permissions:
   actions: write
   issues: write
 
+# 排程和手動執行重疊時排隊執行，避免兩個 run 同時查到「沒有 issue」而各開一張。
+concurrency:
+  group: keep-supabase-awake
+  cancel-in-progress: false
+
 jobs:
   ping:
     runs-on: ubuntu-latest
@@ -33,7 +38,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TITLE: 正式資料庫查詢失敗：Supabase 專案可能已暫停
         run: |
-          if [ -z "$(gh issue list --state open --search "\"$TITLE\" in:title" --json number --jq '.[].number')" ]; then
+          # 先存進變數：搜尋本身失敗時這一步直接失敗，不會誤以為沒有 issue 而重複開。
+          existing=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number --jq '.[].number')
+          if [ -z "$existing" ]; then
             gh issue create --title "$TITLE" --body "「Keep Supabase awake」查詢正式資料庫失敗：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
           處理方式見 docs/handover.md 的「出問題時」。恢復後手動重跑 workflow，成功再關閉這張 issue。"
@@ -42,7 +49,8 @@ jobs:
       # 公開 repo 連續 60 天沒有活動時，GitHub 會自動停用排程 workflow。
       # 淡季可能好幾個月沒有 commit，所以每次執行都重新啟用自己，重設這個計時。
       - name: Keep this schedule enabled
-        if: always()
+        # 查詢失敗也要執行，但 run 被取消時不執行，以免覆寫維護者手動停用 workflow 的操作。
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh api --method PUT "repos/${{ github.repository }}/actions/workflows/keep-supabase-awake.yml/enable"
