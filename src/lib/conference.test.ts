@@ -11,26 +11,34 @@ const CLOSES_AT = "2099-05-01T00:00:00+08:00";
 
 const admin = adminClient();
 let previousCurrentIds: string[] = [];
+let fixtureId: string | undefined;
 
 // Makes a fixture 年度大會 the 目前年度 for each test, then puts things back.
+// The test run starts from a freshly reset database (see test/global-setup.ts).
 beforeEach(async () => {
   const { data } = await admin.from("conferences").select("id").eq("is_current", true);
   previousCurrentIds = (data ?? []).map((row) => row.id);
   await admin.from("conferences").update({ is_current: false }).eq("is_current", true);
 
-  const { error } = await admin.from("conferences").insert({
-    year: FIXTURE_YEAR,
-    conference_date: "2099-05-15",
-    announce_at: ANNOUNCE_AT,
-    registration_opens_at: OPENS_AT,
-    registration_closes_at: CLOSES_AT,
-    is_current: true,
-  });
+  const { data: fixture, error } = await admin
+    .from("conferences")
+    .insert({
+      year: FIXTURE_YEAR,
+      conference_date: "2099-05-15",
+      announce_at: ANNOUNCE_AT,
+      registration_opens_at: OPENS_AT,
+      registration_closes_at: CLOSES_AT,
+      is_current: true,
+    })
+    .select("id")
+    .single();
   if (error) throw error;
+  fixtureId = fixture.id;
 });
 
 afterEach(async () => {
-  await admin.from("conferences").delete().eq("year", FIXTURE_YEAR);
+  if (fixtureId) await admin.from("conferences").delete().eq("id", fixtureId);
+  fixtureId = undefined;
   if (previousCurrentIds.length > 0) {
     await admin.from("conferences").update({ is_current: true }).in("id", previousCurrentIds);
   }

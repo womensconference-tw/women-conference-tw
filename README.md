@@ -73,4 +73,6 @@ npm run test:watch
 
 測試對真實的本機 Supabase 執行，不 mock 資料庫，所以要先 `npm run db:start`。測試會自動從 `supabase status` 讀取網址與金鑰，不需要另外設定環境變數。
 
+**注意：每次跑測試前會自動執行 `supabase db reset`**，讓測試一定從 migration＋seed 的乾淨狀態開始，上次中斷留下的資料也會清掉。所以你在本機資料庫手動加的資料，跑測試後會不見；重設大約要 30 秒。
+
 測試只透過公開的介面（例如 `src/lib/conference.ts` 的 `getCurrentConference`）檢查外部行為，並以前台訪客的身分（publishable key，受 RLS 限制）呼叫；測試資料用 secret key 準備，跑完會還原。

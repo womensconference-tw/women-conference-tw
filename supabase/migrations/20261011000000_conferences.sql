@@ -12,9 +12,14 @@ create table public.conferences (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
 
-  constraint conferences_schedule_in_order check (
-    (announce_at is null or registration_opens_at is null or announce_at <= registration_opens_at)
-    and (registration_opens_at is null or registration_closes_at is null or registration_opens_at < registration_closes_at)
+  -- 已填的時間點必須依序：公告上線 ≤ 報名開放 < 報名截止。每一對都要檢查，中間那個空著時也一樣。
+  constraint conferences_announce_before_opens check (announce_at <= registration_opens_at),
+  constraint conferences_opens_before_closes check (registration_opens_at < registration_closes_at),
+  constraint conferences_announce_before_closes check (announce_at < registration_closes_at),
+  -- 目前年度的時程必須填完整，才不會出現「報名中但沒有截止時間」。
+  constraint conferences_current_schedule_complete check (
+    not is_current
+    or (announce_at is not null and registration_opens_at is not null and registration_closes_at is not null)
   )
 );
 
