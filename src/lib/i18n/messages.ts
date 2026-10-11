@@ -47,12 +47,12 @@ const en = {
 // 這行出現「Type 'true' does not satisfy the expected type 'false'」就是英文和中文的形狀不同。
 true satisfies Equal<Shape<typeof en>, Shape<Messages>>;
 
-// 比較形狀前把文字一律當成 string，`"中文" as const` 這種寫法才不會被誤判。
+// 比較形狀前把文字一律當成 string、拿掉 readonly，`as const` 這種寫法才不會被誤判。
 type Shape<T> = T extends string
   ? string
   : T extends (...args: infer Args) => string
     ? (...args: Args) => string
-    : { [K in keyof T]: Shape<T[K]> };
+    : { -readonly [K in keyof T]: Shape<T[K]> };
 
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;

@@ -13,6 +13,10 @@ describe("切換語言後導回的網址", () => {
   // 每一種都可能被瀏覽器解讀成別的網站，一律回首頁。
   it.each([
     { trick: "路徑開頭是 //", referer: "https://example.tw//evil.example/x" },
+    { trick: "路徑開頭是 // 且外站名稱和內部假網站相同", referer: "https://example.tw//self.invalid/x" },
+    { trick: "路徑開頭是 // 且外站名稱有編碼", referer: "https://example.tw//%73elf.invalid/x" },
+    { trick: "路徑只有 //", referer: "https://example.tw//" },
+    { trick: "路徑開頭是 // 且埠號超出範圍", referer: "https://example.tw//evil.example:999999/x" },
     { trick: "路徑開頭是 /\\", referer: "custom:/\\evil.example/path" },
     { trick: "非 http(s) 網址", referer: "custom:/path" },
     { trick: "javascript: 網址", referer: "javascript:alert(1)" },
