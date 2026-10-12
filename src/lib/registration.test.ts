@@ -4,7 +4,7 @@ import { adminClient, anonClient, databaseClient, must } from "../../test/supaba
 import {
   isRegistrationNumber,
   submitRegistration,
-  validateRegistration,
+  validateCourseChoices,
   type RegistrationInput,
 } from "./registration";
 
@@ -343,26 +343,6 @@ describe("課程名額", () => {
     expect(await registrationCount("刪課時報名")).toBe(0);
   });
 
-  // 管理員新增開課場次的交易還沒結束時她送出：等新增完成後要看到新場次，不能少選一場還報名成功。
-  it("送出時剛新增開課的場次，沒選那一場就整筆不寫入", async () => {
-    const course = await addCourse(await addSession(1), 10);
-
-    const result = await submitWhileHolding(
-      (tx) => tx`
-        with session as (
-          insert into public.sessions (conference_id, venue_id, position, name_zh)
-          values (${conferenceId!}, ${venueId}, 2, '新加的場次')
-          returning id, conference_id
-        )
-        insert into public.courses (conference_id, session_id, title_zh)
-        select conference_id, id, '新加的課' from session`,
-      () => submitRegistration(anonClient(), validInput({ name: "加場時報名", courseIds: [course] })),
-    );
-
-    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
-    expect(await registrationCount("加場時報名")).toBe(0);
-  });
-
   it("任一門額滿則整筆不寫入，只回傳額滿的那門", async () => {
     const full = await addCourse(await addSession(1), 1);
     const open = await addCourse(await addSession(2), 10);
@@ -404,13 +384,22 @@ describe("課程名額", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("有場次沒選課時被拒絕", async () => {
+  // 有的姐妹不是每個時段都上課：沒存課程的場次就是「不選課」。
+  it("有場次不選課也能報名，只存選了的課", async () => {
     const first = await addCourse(await addSession(1), null);
     await addCourse(await addSession(2), null);
 
     const result = await submitRegistration(anonClient(), validInput({ courseIds: [first] }));
 
-    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+    expect(result.ok && result.registration.courseIds).toEqual([first]);
+  });
+
+  it("每個場次都不選課也能報名", async () => {
+    await addCourse(await addSession(1), null);
+
+    const result = await submitRegistration(anonClient(), validInput({ courseIds: [] }));
+
+    expect(result.ok).toBe(true);
   });
 
   it("同一場次選兩門課時被拒絕", async () => {
@@ -506,19 +495,25 @@ async function submitWhileHolding<T>(
   }
 }
 
-// 選課步驟按「下一步」時，用所選場地的場次檢查，不必等到送出。
+// 選課步驟按「下一步」時檢查每個場次都選了一門課或「不選課」，免得漏選。
 describe("選課檢查", () => {
   const a = "00000000-0000-4000-8000-00000000000a";
   const b = "00000000-0000-4000-8000-00000000000b";
   const c = "00000000-0000-4000-8000-00000000000c";
-  const sessions = [{ courses: [{ id: a }, { id: b }] }, { courses: [{ id: c }] }, { courses: [] }];
+  const sessions = [
+    { id: "s1", courses: [{ id: a }, { id: b }] },
+    { id: "s2", courses: [{ id: c }] },
+    { id: "s3", courses: [] },
+  ];
 
   it.each([
-    { what: "每個場次都選了一門", courseIds: [a, c], error: undefined },
-    { what: "有場次沒選", courseIds: [a], error: "courseRequired" },
-    { what: "同一場次選兩門", courseIds: [a, b, c], error: "courseRequired" },
-  ])("$what", ({ courseIds, error }) => {
-    expect(validateRegistration(validInput({ courseIds }), sessions).courses).toBe(error);
+    { what: "每個場次都選了一門", courseIds: [a, c], skipped: [], error: undefined },
+    { what: "一個場次選課、一個場次不選課", courseIds: [a], skipped: ["s2"], error: undefined },
+    { what: "每個場次都不選課", courseIds: [], skipped: ["s1", "s2"], error: undefined },
+    { what: "有場次沒選也沒按不選課", courseIds: [a], skipped: [], error: "courseRequired" },
+    { what: "同一場次選兩門", courseIds: [a, b, c], skipped: [], error: "courseRequired" },
+  ])("$what", ({ courseIds, skipped, error }) => {
+    expect(validateCourseChoices(courseIds, skipped, sessions).courses).toBe(error);
   });
 });
 

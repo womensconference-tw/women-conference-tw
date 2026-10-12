@@ -6,6 +6,7 @@ import { buttonVariants } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n/locale";
 import { messages, type Messages } from "@/lib/i18n/messages";
 import {
+  validateCourseChoices,
   validateRegistration,
   type Registration,
   type RegistrationErrors,
@@ -88,6 +89,8 @@ export function RegistrationForm({
   const [registration, setRegistration] = useState<Registration | null>(null);
   // 送出時才發現額滿的課程，在新的名單讀進來之前先標成已額滿；讀取頁面時已額滿的由 options 標出。
   const [filledCourseIds, setFilledCourseIds] = useState<string[]>([]);
+  // 她明確選了「不選課」的場次。不存進報名，只用來確認每個場次都選過，沒有漏看。
+  const [skippedSessionIds, setSkippedSessionIds] = useState<string[]>([]);
   const [pending, startTransition] = useTransition();
   const sessions = venueSessions(options, input.venueId);
 
@@ -135,6 +138,16 @@ export function RegistrationForm({
     });
   }
 
+  // 選某個場次的課；courseId 是 null 表示這個場次不選課。同一場次只能有一個選擇，換掉原本的。
+  function chooseCourse(session: SessionOption, courseId: string | null) {
+    const others = input.courseIds.filter((id) => !session.courses.some((course) => course.id === id));
+    update({ courseIds: courseId ? [...others, courseId] : others });
+    setSkippedSessionIds((prev) => [
+      ...prev.filter((id) => id !== session.id),
+      ...(courseId ? [] : [session.id]),
+    ]);
+  }
+
   function goTo(nextStep: number) {
     setStep(nextStep);
     window.scrollTo({ top: 0 });
@@ -143,7 +156,13 @@ export function RegistrationForm({
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (pending) return;
-    const stepErrors = pick(validateRegistration(input, sessions), stepFields[step]);
+    const stepErrors = pick(
+      {
+        ...validateRegistration(input),
+        ...validateCourseChoices(input.courseIds, skippedSessionIds, sessions),
+      },
+      stepFields[step],
+    );
     if (Object.keys(stepErrors).length > 0) {
       showErrors(stepErrors);
       return;
@@ -222,7 +241,10 @@ export function RegistrationForm({
                 className={radioClass}
                 checked={input.venueId === venue.id}
                 // 課程屬於場地，換場地就要重新選課。
-                onChange={() => update({ venueId: venue.id, courseIds: [] })}
+                onChange={() => {
+                  update({ venueId: venue.id, courseIds: [] });
+                  setSkippedSessionIds([]);
+                }}
                 {...errorAria("venue", errors, "venue-hint")}
               />
               {venue.name}
@@ -235,8 +257,9 @@ export function RegistrationForm({
         <Courses
           sessions={sessions}
           filledCourseIds={filledCourseIds}
-          input={input}
-          update={update}
+          skippedSessionIds={skippedSessionIds}
+          courseIds={input.courseIds}
+          choose={chooseCourse}
           errors={errors}
           t={t}
         />
@@ -308,15 +331,17 @@ export function RegistrationForm({
 function Courses({
   sessions,
   filledCourseIds,
-  input,
-  update,
+  skippedSessionIds,
+  courseIds,
+  choose,
   errors,
   t,
 }: {
   sessions: SessionOption[];
   filledCourseIds: string[];
-  input: RegistrationInput;
-  update: (changes: Partial<RegistrationInput>) => void;
+  skippedSessionIds: string[];
+  courseIds: string[];
+  choose: (session: SessionOption, courseId: string | null) => void;
   errors: RegistrationErrors;
   t: Messages;
 }) {
@@ -348,18 +373,8 @@ function Courses({
                   name={`session-${session.id}`}
                   className={radioClass}
                   disabled={full}
-                  checked={input.courseIds.includes(course.id)}
-                  // 同一場次只能選一門：換掉這個場次原本選的課。
-                  onChange={() =>
-                    update({
-                      courseIds: [
-                        ...input.courseIds.filter(
-                          (id) => !session.courses.some((option) => option.id === id),
-                        ),
-                        course.id,
-                      ],
-                    })
-                  }
+                  checked={courseIds.includes(course.id)}
+                  onChange={() => choose(session, course.id)}
                   {...errorAria("courses", errors, "courses-hint")}
                 />
                 <span className="flex flex-1 flex-col">
@@ -370,6 +385,17 @@ function Courses({
               </label>
             );
           })}
+          <label className={choiceClass}>
+            <input
+              type="radio"
+              name={`session-${session.id}`}
+              className={radioClass}
+              checked={skippedSessionIds.includes(session.id)}
+              onChange={() => choose(session, null)}
+              {...errorAria("courses", errors, "courses-hint")}
+            />
+            {t.register.noCourse}
+          </label>
         </fieldset>
       ))}
     </div>
@@ -664,7 +690,9 @@ function RegistrationDetails({
   ];
   const courses = venueSessions(options, registration.venueId).map((session) => ({
     session: session.name,
-    course: session.courses.find((course) => registration.courseIds.includes(course.id))?.name ?? "",
+    course:
+      session.courses.find((course) => registration.courseIds.includes(course.id))?.name ??
+      t.register.noCourse,
   }));
   return (
     <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 leading-snug">

@@ -51,7 +51,7 @@ create index courses_session_id on public.courses (session_id, position);
 -- 讓報名所選課程用（報名, 場地）一起參照，保證課程在報名的場地。
 alter table public.registrations add constraint registrations_id_venue_id unique (id, venue_id);
 
--- 報名所選的課程：每個場次一門。
+-- 報名所選的課程：每個場次最多一門，沒有的場次就是「不選課」。
 -- 場次必須在報名的場地，所以要換場地就得先清掉原本的課程。
 -- 有人選過（包括已取消的報名）的場次與課程不能直接刪除，免得報名紀錄默默少了課程；後台刪除時要先處理。
 create table public.registration_courses (
@@ -90,57 +90,6 @@ create policy "Anyone can read courses of the current conference"
 -- 和報名一樣，不開放前台直接讀寫。
 revoke all on public.registration_courses from anon, authenticated;
 
-/*
- * 場地的場次、課程有變動時，先鎖住場地（排他）。送出報名會共享鎖住同一個場地，兩邊互相等待：
- * 送出檢查「每個開課的場次都選了」時，不會有場次或課程在檢查之後才冒出來或消失。
- * 不管之後從哪裡改場次、課程（後台、SQL），都會經過這裡。
- */
-create function public.sessions_lock_venue()
-returns trigger
-language plpgsql
-set search_path = ''
-as $$
-declare
-  v_venue_ids uuid[];
-begin
-  v_venue_ids := case tg_op
-    when 'INSERT' then array[new.venue_id]
-    when 'UPDATE' then array[old.venue_id, new.venue_id]
-    else array[old.venue_id]
-  end;
-  perform 1 from public.venues where id = any(v_venue_ids) order by id for update;
-  return case when tg_op = 'DELETE' then old else new end;
-end;
-$$;
-
-create function public.courses_lock_venue()
-returns trigger
-language plpgsql
-set search_path = ''
-as $$
-declare
-  v_session_ids uuid[];
-begin
-  v_session_ids := case tg_op
-    when 'INSERT' then array[new.session_id]
-    when 'UPDATE' then array[old.session_id, new.session_id]
-    else array[old.session_id]
-  end;
-  perform 1 from public.venues
-  where id in (select venue_id from public.sessions where id = any(v_session_ids))
-  order by id
-  for update;
-  return case when tg_op = 'DELETE' then old else new end;
-end;
-$$;
-
-create trigger sessions_lock_venue
-  before insert or update or delete on public.sessions
-  for each row execute function public.sessions_lock_venue();
-
-create trigger courses_lock_venue
-  before insert or update or delete on public.courses
-  for each row execute function public.courses_lock_venue();
 
 -- 某門課已被有效報名（未取消）佔用的名額。報名、修改、取消、後台都用這裡算。
 create function public.course_seats_taken(p_course_id uuid)
@@ -182,7 +131,7 @@ drop function public.submit_registration(uuid, uuid, uuid, text, text, text, tex
  * 報名服務的送出：前台唯一能寫入報名的地方。
  * 欄位格式由報名服務先檢查、資料表的限制再擋一次；這裡檢查要看資料庫當下狀態的規則：
  * 目前年度是否報名中、場地是否屬於目前年度、支會在報名當下是否隸屬於該支聯會且都啟用中、
- * 所選課程是否在該場地且每個場次剛好一門，以及課程名額。
+ * 所選課程是否在該場地且每個場次最多一門，以及課程名額。
  * 不符合時丟出代碼（例如 registration_not_open），由報名服務轉成欄位旁的錯誤訊息。
  *
  * 名額（ADR 0006）：先鎖住所選的課程，再檢查課程、數已佔用的名額，整個函式在同一個交易裡。
@@ -244,14 +193,12 @@ begin
     raise exception 'ward_not_in_stake';
   end if;
 
-  -- 先鎖住所選課程，再共享鎖住場地，下面的檢查與數名額才看得到最新狀態：
-  -- 管理員正在刪改這些課，或在這個場地增刪場次、課程時，等他完成再檢查。
-  -- 課程依 id 順序上鎖，同時送出的人不會互相卡住；先課程後場地，和管理員改課程時的順序一樣，不會互等。
-  -- 場地用共享鎖，同一場地的其他人照樣可以同時送出。
+  -- 先鎖住所選課程，下面的檢查與數名額才看得到最新狀態：管理員正在刪改這些課時，等他完成再檢查。
+  -- 依 id 順序上鎖，同時送出的人不會互相卡住。
   perform 1 from public.courses where id = any(v_course_ids) order by id for update;
-  perform 1 from public.venues where id = p_venue_id for share;
 
-  -- 每門課都要在所選場地，同一場次只能一門（重複的同一門也算），有開課的場次都要選。
+  -- 每門課都要在所選場地，同一場次只能一門（重複的同一門也算）。
+  -- 沒選課的場次就是「不選課」，所以不檢查每個場次都有選；漏選由報名表在選課步驟提醒。
   if exists (
       select 1 from unnest(v_course_ids) as selected(id)
       where not exists (
@@ -263,13 +210,6 @@ begin
     )
     or cardinality(v_course_ids) <> (
       select count(distinct session_id) from public.courses where id = any(v_course_ids)
-    )
-    or exists (
-      select 1
-      from public.sessions s
-      where s.venue_id = p_venue_id
-        and exists (select 1 from public.courses c where c.session_id = s.id)
-        and not exists (select 1 from public.courses c where c.session_id = s.id and c.id = any(v_course_ids))
     )
   then
     raise exception 'courses_invalid';

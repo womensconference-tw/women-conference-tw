@@ -17,7 +17,7 @@ export type RegistrationInput = {
   stakeId: string;
   wardId: string;
   venueId: string;
-  /** 所選場地每個場次各選一門的課程。 */
+  /** 所選的課程，每個場次最多一門；沒有課程的場次就是「不選課」。 */
   courseIds: string[];
   portraitConsent: boolean;
 };
@@ -78,7 +78,7 @@ export type SubmitResult =
   | { ok: false; errors: RegistrationErrors; fullCourseIds?: string[] };
 
 /** 選課檢查需要的場次資料：每個場次開了哪些課。 */
-export type SessionCourses = { courses: { id: string }[] };
+export type SessionCourses = { id: string; courses: { id: string }[] };
 
 const NAME_MAX_LENGTH = 50;
 const LINE_ID_MAX_LENGTH = 50;
@@ -114,14 +114,8 @@ export function normalizePhone(raw: string): string {
     .replace(new RegExp(`[${BLANK}\\-().]`, "g"), "");
 }
 
-/**
- * 檢查欄位格式，不碰資料庫。沒有錯誤時回傳空物件。
- * 有給所選場地的場次時，也檢查每個有開課的場次都剛好選了一門。
- */
-export function validateRegistration(
-  input: RegistrationInput,
-  sessions?: SessionCourses[],
-): RegistrationErrors {
+/** 檢查欄位格式，不碰資料庫。沒有錯誤時回傳空物件。 */
+export function validateRegistration(input: RegistrationInput): RegistrationErrors {
   const errors: RegistrationErrors = {};
 
   const name = trimBlank(input.name);
@@ -143,18 +137,33 @@ export function validateRegistration(
   if (!UUID_PATTERN.test(input.wardId)) errors.ward = "wardRequired";
   if (!UUID_PATTERN.test(input.venueId)) errors.venue = "venueRequired";
 
-  const coursesValid =
-    input.courseIds.length <= MAX_COURSES && input.courseIds.every((id) => UUID_PATTERN.test(id));
-  const sessionsCovered = (sessions ?? []).every(
-    (session) =>
-      session.courses.length === 0 ||
-      session.courses.filter((course) => input.courseIds.includes(course.id)).length === 1,
-  );
-  if (!coursesValid || !sessionsCovered) errors.courses = "courseRequired";
+  if (input.courseIds.length > MAX_COURSES || !input.courseIds.every((id) => UUID_PATTERN.test(id))) {
+    errors.courses = "courseRequired";
+  }
 
   if (input.portraitConsent !== true) errors.portraitConsent = "portraitConsentRequired";
 
   return errors;
+}
+
+/**
+ * 選課步驟的檢查：每個有開課的場次，選了剛好一門課，或明確選了「不選課」，免得她漏看一個場次。
+ * 「不選課」只是畫面上的選擇，不存；所以送出時資料庫只擋同一場次選兩門，不檢查有沒有漏選。
+ */
+export function validateCourseChoices(
+  courseIds: string[],
+  skippedSessionIds: string[],
+  sessions: SessionCourses[],
+): RegistrationErrors {
+  const answered = sessions.every((session) => {
+    const chosen = session.courses.filter((course) => courseIds.includes(course.id)).length;
+    return (
+      session.courses.length === 0 ||
+      (chosen === 1 && !skippedSessionIds.includes(session.id)) ||
+      (chosen === 0 && skippedSessionIds.includes(session.id))
+    );
+  });
+  return answered ? {} : { courses: "courseRequired" };
 }
 
 // submit_registration 丟出的代碼對應到哪個欄位的哪個錯誤。
@@ -165,7 +174,7 @@ const databaseErrors: Record<string, RegistrationErrors> = {
   venue_invalid: { venue: "venueUnavailable" },
   stake_invalid: { stake: "stakeUnavailable" },
   ward_not_in_stake: { ward: "wardUnavailable" },
-  // 課程不在所選場地、有場次沒選或選了兩門：請她回選課步驟重新選。
+  // 課程不在所選場地，或同一場次選了兩門：請她回選課步驟重新選。
   courses_invalid: { courses: "courseRequired" },
 };
 

@@ -67,10 +67,11 @@ const zh = {
     wardWithStake: (ward: string, stake: string) => `${ward}（${stake}）`,
     venueLabel: "場地",
     venueHint: "任何一個場地都可以選，不限所屬的支聯會。",
-    coursesHint: "每個場次請選一門課。標示「已額滿」的課程不能選。",
+    coursesHint: "每個場次請選一門課；這個時段不上課的話，請選「不選課」。標示「已額滿」的課程不能選。",
     noCourses: "這個場地不用選課，請按「下一步」。",
     courseFull: "已額滿",
-    sessionAllFull: "這個場次的課程都額滿了。請回上一步改選其他場地，或聯絡大會管理員。",
+    noCourse: "不選課",
+    sessionAllFull: "這個場次的課程都額滿了。可以選「不選課」，或回上一步改選其他場地。",
     portraitConsentHeading: "肖像權同意",
     portraitConsentText:
       "大會當天會拍攝照片與影片。我同意大會使用拍到我的影像，作為教會內部的大會紀錄，以及教會網站、社群媒體與往後大會的介紹。",
@@ -99,7 +100,7 @@ const zh = {
       wardUnavailable: "您選的支會已經不能選了，請重新選擇。",
       venueRequired: "請選擇場地。",
       venueUnavailable: "您選的場地已經不能選了，請重新選擇。",
-      courseRequired: "每個場次都要選一門課，請選擇還沒選的場次。",
+      courseRequired: "每個場次都要選一門課或「不選課」，請選擇還沒選的場次。",
       courseFull: "您選的課程剛剛被選滿了，請改選其他課程。其他資料都還在，不用重填。",
       portraitConsentRequired: "需要同意肖像權才能報名。如有疑問，請先聯絡大會管理員。",
       notOpen: "目前不在報名期間，報名沒有送出。",
@@ -185,11 +186,13 @@ const en = {
     wardWithStake: (ward: string, stake: string) => `${ward} (${stake})`,
     venueLabel: "Venue",
     venueHint: "You can choose any venue, whichever stake you belong to.",
-    coursesHint: "Please choose one class for each session. Classes marked \"Full\" can't be chosen.",
+    coursesHint:
+      "Please choose one class for each session, or \"No class\" if you won't attend a class then. Classes marked \"Full\" can't be chosen.",
     noCourses: "There are no classes to choose at this venue. Please press \"Next\".",
     courseFull: "Full",
+    noCourse: "No class",
     sessionAllFull:
-      "All classes in this session are full. Please go back and choose another venue, or contact the conference administrator.",
+      "All classes in this session are full. You can choose \"No class\", or go back and choose another venue.",
     portraitConsentHeading: "Photo consent",
     portraitConsentText:
       "Photos and videos will be taken at the conference. I agree that the conference may use images of me for the Church's internal record of the conference, and to introduce this and future conferences on Church websites and social media.",
@@ -221,7 +224,7 @@ const en = {
       wardUnavailable: "The ward you chose is no longer available. Please choose again.",
       venueRequired: "Please choose a venue.",
       venueUnavailable: "The venue you chose is no longer available. Please choose again.",
-      courseRequired: "Please choose one class for each session.",
+      courseRequired: "Please choose a class or \"No class\" for each session.",
       courseFull:
         "A class you chose has just filled up. Please choose another class. Everything else you entered is still here.",
       portraitConsentRequired:
