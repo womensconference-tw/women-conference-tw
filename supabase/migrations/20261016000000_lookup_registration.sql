@@ -18,8 +18,18 @@ create table public.lookup_failures (
 create index lookup_failures_name_hash on public.lookup_failures (name_hash, attempted_at);
 create index lookup_failures_attempted_at on public.lookup_failures (attempted_at);
 
+-- 第 10 次猜錯時記下暫停到什麼時候，從那時起整整一小時都不能查。
+create table public.lookup_locks (
+  name_hash text primary key,
+  locked_until timestamptz not null
+);
+
+create index lookup_locks_locked_until on public.lookup_locks (locked_until);
+
 alter table public.lookup_failures enable row level security;
+alter table public.lookup_locks enable row level security;
 revoke all on public.lookup_failures from anon, authenticated;
+revoke all on public.lookup_locks from anon, authenticated;
 
 /*
  * 報名服務的查詢：前台唯一能讀取報名的地方（ADR 0002）。
@@ -27,8 +37,9 @@ revoke all on public.lookup_failures from anon, authenticated;
  * 不提供模糊搜尋或清單，所以不能拿來列舉報名。
  * 同一支電話報了好幾位時，依姓名找到正確的那位。
  * 電話由報名服務整理成存檔的格式再傳進來。
- * 同一個姓名一小時內猜錯 10 次，就丟出 too_many_attempts 暫停查詢，資料正確也一樣，
+ * 同一個姓名一小時內猜錯 10 次，就從那一刻起暫停查詢一小時（丟出 too_many_attempts），資料正確也一樣，
  * 免得知道姓名的人把 90 萬組報名編號一組一組試出來。
+ * 同一個姓名的查詢一次只處理一個，同時送出很多次也不能多猜。
  * 支聯會與支會的名稱一起回傳：報名後它們可能被停用，前台就讀不到了，但查詢仍要顯示。
  * 同一組姓名與電話有好幾筆時（例如取消後重新報名）全部回傳，新的在前。
  */
@@ -71,8 +82,12 @@ begin
     return;
   end if;
 
+  -- 同一個姓名的查詢排隊：前一個記下猜錯之後，下一個才數得到。鎖到交易結束自動放開。
+  perform pg_advisory_xact_lock(hashtextextended('lookup_registration:' || v_hash, 0));
+
   delete from public.lookup_failures f where f.attempted_at < now() - interval '1 hour';
-  if (select count(*) from public.lookup_failures f where f.name_hash = v_hash) >= 10 then
+  delete from public.lookup_locks l where l.locked_until <= now();
+  if exists (select 1 from public.lookup_locks l where l.name_hash = v_hash) then
     raise exception 'too_many_attempts';
   end if;
 
@@ -96,6 +111,9 @@ begin
 
   if not found then
     insert into public.lookup_failures (name_hash) values (v_hash);
+    if (select count(*) from public.lookup_failures f where f.name_hash = v_hash) >= 10 then
+      insert into public.lookup_locks (name_hash, locked_until) values (v_hash, now() + interval '1 hour');
+    end if;
   end if;
 end;
 $$;

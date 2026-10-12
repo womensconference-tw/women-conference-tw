@@ -33,10 +33,13 @@ export function LookupForm({ locale, options }: { locale: Locale; options: Regis
   const [found, setFound] = useState<FoundRegistration[]>([]);
   const [pending, startTransition] = useTransition();
   const resultRef = useRef<HTMLElement>(null);
+  // 輸入改過幾次。查詢期間有人改了輸入，晚回來的結果就是上一位的，不顯示。
+  const edits = useRef(0);
 
   // 改了哪一格就收起那一格的錯誤；「找不到」也一起收起，免得她改好了還看到舊訊息。
   // 查到的資料也收起：家人輪流用同一支手機查時，下一位不會看到上一位的個資。
   function update(field: keyof LookupInput, value: string) {
+    edits.current += 1;
     setInput((prev) => ({ ...prev, [field]: value }));
     setFound([]);
     setErrors((prev) => {
@@ -50,15 +53,18 @@ export function LookupForm({ locale, options }: { locale: Locale; options: Regis
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (pending) return;
+    const editsAtSubmit = edits.current;
     startTransition(async () => {
       let result;
       try {
         result = await lookUp(input);
       } catch {
+        if (edits.current !== editsAtSubmit) return;
         setFound([]);
         setErrors({ form: "unknown" });
         return;
       }
+      if (edits.current !== editsAtSubmit) return;
       if (result.ok) {
         setErrors({});
         setFound(result.registrations);

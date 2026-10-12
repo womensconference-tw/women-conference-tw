@@ -91,6 +91,7 @@ beforeEach(async () => {
 afterEach(async () => {
   // 查詢猜錯的紀錄不屬於任何年度，每個測試清掉，免得累積到暫停查詢。
   must(await admin.from("lookup_failures").delete().gte("attempted_at", "-infinity"));
+  must(await admin.from("lookup_locks").delete().gte("locked_until", "-infinity"));
   // 刪掉年度大會時，它的場地與報名一起刪除。
   if (conferenceId) must(await admin.from("conferences").delete().eq("id", conferenceId));
   conferenceId = undefined;
@@ -1403,5 +1404,34 @@ describe("查詢報名", () => {
     const result = await lookUp("mary wang", "0912345678");
 
     expect(result.ok && result.registrations.map((found) => found.name)).toEqual(["Mary  Wang"]);
+  });
+
+  it("同時送出很多次錯誤查詢，也只有 10 次會被比對", async () => {
+    const saved = await submit(validInput({ name: "陳猜猜", phone: "", noPhone: true }));
+    if (!saved.ok) throw new Error("報名失敗");
+    const wrong = saved.registration.registrationNumber === "100000" ? "100001" : "100000";
+
+    const results = await Promise.all(Array.from({ length: 40 }, () => lookUp("陳猜猜", wrong)));
+
+    const notFound = results.filter((result) => !result.ok && result.errors.form === "notFound");
+    expect(notFound).toHaveLength(10);
+  });
+
+  // 前 9 次是快一小時前猜的，第 10 次是現在：暫停要從第 10 次起算一整個小時。
+  it("暫停查詢從第 10 次猜錯起算一小時，不會因為較早的紀錄過期就解除", async () => {
+    const saved = await submit(validInput({ name: "陳猜猜", phone: "", noPhone: true }));
+    if (!saved.ok) throw new Error("報名失敗");
+    const number = saved.registration.registrationNumber!;
+    const wrong = number === "100000" ? "100001" : "100000";
+    for (let attempt = 0; attempt < 10; attempt++) await lookUp("陳猜猜", wrong);
+    // 讓這些猜錯的紀錄都變成一小時多以前的。
+    must(
+      await admin
+        .from("lookup_failures")
+        .update({ attempted_at: new Date(Date.now() - 61 * 60 * 1000).toISOString() })
+        .gte("attempted_at", "-infinity"),
+    );
+
+    expect(await lookUp("陳猜猜", number)).toEqual({ ok: false, errors: { form: "tooManyAttempts" } });
   });
 });
