@@ -89,6 +89,9 @@ join (values
 ) as w(stake_name, position, name_zh, name_en, is_active) on w.stake_name = s.name_zh;
 
 -- 每個場地三個場次，各有幾門課。有的限量、有的不限人數（容量空白）。
+-- 正式環境的場次與課程在開放報名前建好；假資料的年度已在報名中，所以建立時暫時關掉這條限制。
+alter table public.sessions disable trigger sessions_locked_after_opening;
+alter table public.courses disable trigger courses_locked_after_opening;
 insert into public.sessions (conference_id, venue_id, position, name_zh, name_en)
 select v.conference_id, v.id, s.position, s.name_zh, s.name_en
 from public.venues v, (values
@@ -110,6 +113,9 @@ join (values
   (3, 2, '分享見證', 'Sharing testimonies', '', '', null)
 ) as c(session_position, position, title_zh, title_en, description_zh, description_en, capacity)
   on c.session_position = s.position;
+
+alter table public.sessions enable trigger sessions_locked_after_opening;
+alter table public.courses enable trigger courses_locked_after_opening;
 
 -- 一筆假報名，佔掉金華教堂「家譜入門」（容量 1）唯一的名額，選課畫面會顯示「已額滿」。
 with registration as (

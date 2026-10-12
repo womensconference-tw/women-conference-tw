@@ -264,28 +264,50 @@ describe("送出報名", () => {
   });
 });
 
-// 名額在送出時於資料庫交易內一次檢查並佔用（ADR 0006）。
-describe("課程名額", () => {
-  async function addSession(position: number, venue = venueId) {
-    return must(
+// 場次與課程只能在開放報名前建立；測試的年度大會已在報名中，所以建立時先把報名開放時間暫時移到之後。
+async function beforeOpening<T>(create: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const setOpensAt = async (time: number) =>
+    must(
+      await admin
+        .from("conferences")
+        .update({ registration_opens_at: new Date(time).toISOString() })
+        .eq("id", conferenceId!),
+    );
+  await setOpensAt(now + DAY / 2);
+  try {
+    return await create();
+  } finally {
+    await setOpensAt(now - DAY);
+  }
+}
+
+async function addSession(position: number, venue = venueId) {
+  return beforeOpening(async () =>
+    must(
       await admin
         .from("sessions")
         .insert({ conference_id: conferenceId, venue_id: venue, position, name_zh: `第${position}場` })
         .select("id")
         .single(),
-    ).id;
-  }
+    ).id,
+  );
+}
 
-  async function addCourse(sessionId: string, capacity: number | null, title = "測試課程") {
-    return must(
+async function addCourse(sessionId: string, capacity: number | null, title = "測試課程") {
+  return beforeOpening(async () =>
+    must(
       await admin
         .from("courses")
         .insert({ conference_id: conferenceId, session_id: sessionId, title_zh: title, capacity })
         .select("id")
         .single(),
-    ).id;
-  }
+    ).id,
+  );
+}
 
+// 名額在送出時於資料庫交易內一次檢查並佔用（ADR 0006）。
+describe("課程名額", () => {
   async function registrationCount(name: string) {
     const rows = must(
       await admin.from("registrations").select("id").eq("conference_id", conferenceId!).eq("name", name),
@@ -327,36 +349,6 @@ describe("課程名額", () => {
     expect(second).toEqual({ ok: false, errors: { courses: "courseFull" }, fullCourseIds: [course] });
     expect(await registrationCount("搶位甲")).toBe(1);
     expect(await registrationCount("搶位乙")).toBe(0);
-  });
-
-  // 管理員刪課的交易還沒結束時她送出：等刪除完成後要重新檢查，不能寫入缺課的報名。
-  it("所選課程在送出時剛被刪除，整筆不寫入", async () => {
-    const session = await addSession(1);
-    const removed = await addCourse(session, 10, "要刪的課");
-    await addCourse(session, 10, "留下的課");
-
-    const result = await submitWhileHolding(
-      (tx) => tx`delete from public.courses where id = ${removed}`,
-      () => submitRegistration(anonClient(), validInput({ name: "刪課時報名", courseIds: [removed] })),
-    );
-
-    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
-    expect(await registrationCount("刪課時報名")).toBe(0);
-  });
-
-  // 管理員刪場次時先鎖場次、再連帶刪課。送出若先鎖課程、寫入時才要場次，兩邊會互等（死結），其中一邊被中止。
-  it("送出時剛好在刪除所選課程的場次，不會互相卡住，報名不寫入", async () => {
-    const session = await addSession(1);
-    const course = await addCourse(session, 10);
-
-    const result = await submitWhileHolding(
-      (tx) => tx`select id from public.sessions where id = ${session} for update`,
-      () => submitRegistration(anonClient(), validInput({ name: "刪場次時報名", courseIds: [course] })),
-      (tx) => tx`delete from public.sessions where id = ${session}`,
-    );
-
-    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
-    expect(await registrationCount("刪場次時報名")).toBe(0);
   });
 
   it("任一門額滿則整筆不寫入，只回傳額滿的那門", async () => {
@@ -461,13 +453,12 @@ describe("課程名額", () => {
 
 /**
  * 在一個還沒結束的資料庫交易裡做 hold，交易開著時呼叫 submit；
- * 確認 submit 的送出函式真的卡在等這個交易的鎖之後，再做 thenDo（有給的話），才結束交易，回傳 submit 的結果。
+ * 確認 submit 的送出函式真的卡在等這個交易的鎖之後，才結束交易，回傳 submit 的結果。
  * 送出函式一直沒有等這個交易（例如沒有上鎖），測試直接失敗，不靠時間碰運氣。
  */
 async function submitWhileHolding<T>(
   hold: (tx: TransactionSql) => Promise<unknown>,
   submit: () => Promise<T>,
-  thenDo?: (tx: TransactionSql) => Promise<unknown>,
 ): Promise<T> {
   const sql = databaseClient();
   const watcher = databaseClient();
@@ -480,7 +471,6 @@ async function submitWhileHolding<T>(
     await hold(tx);
     held(pid);
     await mayCommit;
-    await thenDo?.(tx);
   });
   try {
     // 交易在通知之前就失敗（例如 hold 的 SQL 有錯）時，直接把錯誤拋出來，不要一直等下去。
@@ -512,6 +502,75 @@ async function submitWhileHolding<T>(
     await Promise.all([sql.end(), watcher.end()]);
   }
 }
+
+// 課程與時段在開放報名前定案；開放後只能修正文字、調整名額與排序（GLOSSARY「報名開放」）。
+describe("開放報名後的場次與課程", () => {
+  let sessionId: string;
+  let courseId: string;
+
+  beforeEach(async () => {
+    sessionId = await addSession(1);
+    courseId = await addCourse(sessionId, 10);
+  });
+
+  it.each<[string, () => PromiseLike<{ error: { message: string } | null }>]>([
+    [
+      "新增場次",
+      () => admin.from("sessions").insert({ conference_id: conferenceId, venue_id: venueId, name_zh: "新場次" }),
+    ],
+    [
+      "新增課程",
+      () => admin.from("courses").insert({ conference_id: conferenceId, session_id: sessionId, title_zh: "新課" }),
+    ],
+    ["刪除課程", () => admin.from("courses").delete().eq("id", courseId)],
+    ["刪除場次", () => admin.from("sessions").delete().eq("id", sessionId)],
+    [
+      "把課程移到別的場次",
+      async () => {
+        const other = await addSession(2);
+        return admin.from("courses").update({ session_id: other }).eq("id", courseId);
+      },
+    ],
+    [
+      "把場次移到別的場地",
+      async () => {
+        const otherVenue = must(
+          await admin
+            .from("venues")
+            .insert({ conference_id: conferenceId, name_zh: "台中大雅教堂" })
+            .select("id")
+            .single(),
+        ).id;
+        return admin.from("sessions").update({ venue_id: otherVenue }).eq("id", sessionId);
+      },
+    ],
+  ])("%s被拒絕", async (_, change) => {
+    const { error } = await change();
+
+    expect(error?.message).toBe("programme_locked");
+  });
+
+  it("可以修正文字、調整名額與排序", async () => {
+    const results = [
+      await admin
+        .from("courses")
+        .update({ title_zh: "改正的課名", description_zh: "講師：王姊妹", capacity: 40, position: 3 })
+        .eq("id", courseId),
+      await admin.from("courses").update({ capacity: null }).eq("id", courseId),
+      await admin.from("sessions").update({ name_zh: "第一場 10:00–10:50", position: 2 }).eq("id", sessionId),
+    ];
+
+    expect(results.map((result) => result.error)).toEqual([null, null, null]);
+  });
+
+  // 刪除整個年度大會時，場次與課程跟著刪除，不受這條規則限制（每個測試結束時也靠這個清掉資料）。
+  it("刪除整個年度大會時一起刪掉", async () => {
+    const { error } = await admin.from("conferences").delete().eq("id", conferenceId!);
+    conferenceId = undefined;
+
+    expect(error).toBeNull();
+  });
+});
 
 // 選課步驟按「下一步」時檢查每個場次都選了一門課或「不選課」，免得漏選。
 describe("選課檢查", () => {

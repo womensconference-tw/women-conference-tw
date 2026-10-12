@@ -90,6 +90,68 @@ create policy "Anyone can read courses of the current conference"
 -- 和報名一樣，不開放前台直接讀寫。
 revoke all on public.registration_courses from anon, authenticated;
 
+/*
+ * 課程與時段在開放報名前定案。報名開放之後（含截止後），場次與課程不能新增、刪除，
+ * 也不能換到別的場次、場地或年度；只能修正文字（課名、說明、場次名稱）、調整名額與排序。
+ * 這樣報名期間她選的課不會消失或換時段，送出報名時也不必防範這些變動。
+ * 刪除整個年度大會時連帶刪除的場次、課程不受限制（那時年度大會已經不在了）。
+ */
+create function public.registration_opened(p_conference_id uuid)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce(
+    (select registration_opens_at <= now() from public.conferences where id = p_conference_id),
+    false
+  )
+$$;
+
+create function public.sessions_locked_after_opening()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if tg_op = 'UPDATE' and new.venue_id = old.venue_id and new.conference_id = old.conference_id then
+    return new;
+  end if;
+  if (tg_op <> 'DELETE' and public.registration_opened(new.conference_id))
+    or (tg_op <> 'INSERT' and public.registration_opened(old.conference_id))
+  then
+    raise exception 'programme_locked';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+create function public.courses_locked_after_opening()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if tg_op = 'UPDATE' and new.session_id = old.session_id and new.conference_id = old.conference_id then
+    return new;
+  end if;
+  if (tg_op <> 'DELETE' and public.registration_opened(new.conference_id))
+    or (tg_op <> 'INSERT' and public.registration_opened(old.conference_id))
+  then
+    raise exception 'programme_locked';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+create trigger sessions_locked_after_opening
+  before insert or update or delete on public.sessions
+  for each row execute function public.sessions_locked_after_opening();
+
+create trigger courses_locked_after_opening
+  before insert or update or delete on public.courses
+  for each row execute function public.courses_locked_after_opening();
+
 
 -- 某門課已被有效報名（未取消）佔用的名額。報名、修改、取消、後台都用這裡算。
 create function public.course_seats_taken(p_course_id uuid)
@@ -134,7 +196,7 @@ drop function public.submit_registration(uuid, uuid, uuid, text, text, text, tex
  * 所選課程是否在該場地且每個場次最多一門，以及課程名額。
  * 不符合時丟出代碼（例如 registration_not_open），由報名服務轉成欄位旁的錯誤訊息。
  *
- * 名額（ADR 0006）：先鎖住所選的課程，再檢查課程、數已佔用的名額，整個函式在同一個交易裡。
+ * 名額（ADR 0006）：先鎖住所選的課程，再數已佔用的名額，整個函式在同一個交易裡。
  * 兩人同時搶最後一個名額時，後到的會等先到的寫完，才數到已滿。
  * 任何一門額滿就丟出 course_full，detail 是額滿課程的 id（以逗號分隔），整筆都不寫入。
  */
@@ -158,7 +220,6 @@ declare
   v_conference public.conferences;
   v_course_ids uuid[] := coalesce(p_course_ids, '{}');
   v_full uuid[];
-  v_saved integer;
   v_number text;
   v_registration public.registrations;
 begin
@@ -193,13 +254,8 @@ begin
     raise exception 'ward_not_in_stake';
   end if;
 
-  -- 先鎖住所選課程，下面的檢查與數名額才看得到最新狀態：管理員正在刪改這些課時，等他完成再檢查。
-  -- 鎖課程之前先共享鎖住它們的場次：管理員刪場次時是先鎖場次、再連帶刪課，順序一樣才不會互等（死結）。
-  -- 都依 id 順序上鎖，同時送出的人不會互相卡住。
-  perform 1 from public.sessions
-  where id in (select session_id from public.courses where id = any(v_course_ids))
-  order by id
-  for key share;
+  -- 先鎖住所選課程再數名額；同時送出的人依序數，不會超收。依 id 順序上鎖，不會互相卡住。
+  -- 報名期間場次與課程不能增刪或換時段（見 sessions_locked_after_opening），所以不必防範這些變動。
   perform 1 from public.courses where id = any(v_course_ids) order by id for update;
 
   -- 每門課都要在所選場地，同一場次只能一門（重複的同一門也算）。
@@ -257,11 +313,6 @@ begin
   select v_registration.id, p_venue_id, session_id, id
   from public.courses
   where id = any(v_course_ids);
-  -- 保險：存下的課程少於所選的（檢查之後課程才消失），丟出錯誤，整筆報名一起撤回。
-  get diagnostics v_saved = row_count;
-  if v_saved <> cardinality(v_course_ids) then
-    raise exception 'courses_invalid';
-  end if;
 
   return v_registration;
 end;
