@@ -2,7 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Locale } from "./i18n/locale";
 import { localized } from "./i18n/localized";
 
-export type CourseOption = {
+/** 課程、午餐、午后動態這類可能限量的選項。 */
+export type LimitedOption = {
   id: string;
   name: string;
   description: string;
@@ -10,9 +11,19 @@ export type CourseOption = {
   isFull: boolean;
 };
 
+export type CourseOption = LimitedOption;
+
 export type SessionOption = { id: string; name: string; courses: CourseOption[] };
 
-export type VenueOption = { id: string; name: string; sessions: SessionOption[] };
+export type VenueOption = {
+  id: string;
+  name: string;
+  sessions: SessionOption[];
+  /** 這個場地的午餐；沒有的話不問午餐。 */
+  lunchOptions: LimitedOption[];
+  /** 這個場地的午后動態；只有設定了它的場地才有。 */
+  afternoonActivities: LimitedOption[];
+};
 
 export type WardOption = {
   id: string;
@@ -29,7 +40,7 @@ export type StakeOption = { id: string; name: string; wards: WardOption[] };
 export type RegistrationOptions = { venues: VenueOption[]; stakes: StakeOption[] };
 
 /**
- * 讀取報名表的選項：目前年度的場地與各場地的場次、課程（標出已額滿），
+ * 讀取報名表的選項：目前年度的場地與各場地的場次、課程、午餐、午后動態（標出已額滿），
  * 以及啟用中的支聯會、支會（停用的由資料庫權限規則擋掉）。
  * 沒有任何啟用中支會的支聯會不列出，免得選了之後沒有支會可選。
  * 都依排序列出，排序相同時依 id，讓順序每次都一樣。
@@ -38,11 +49,11 @@ export async function getRegistrationOptions(
   supabase: SupabaseClient,
   locale: Locale,
 ): Promise<RegistrationOptions> {
-  const [venues, stakes, fullCourses] = await Promise.all([
+  const [venues, stakes, fullCourses, fullLunches, fullActivities] = await Promise.all([
     supabase
       .from("venues")
       .select(
-        "id, name_zh, name_en, conferences!inner(is_current), sessions(id, name_zh, name_en, courses(id, title_zh, title_en, description_zh, description_en))",
+        "id, name_zh, name_en, conferences!inner(is_current), sessions(id, name_zh, name_en, courses(id, title_zh, title_en, description_zh, description_en)), lunch_options(id, name_zh, name_en, description_zh, description_en), afternoon_activities(id, title_zh, title_en, description_zh, description_en)",
       )
       .eq("conferences.is_current", true)
       .order("position")
@@ -50,7 +61,11 @@ export async function getRegistrationOptions(
       .order("position", { referencedTable: "sessions" })
       .order("id", { referencedTable: "sessions" })
       .order("position", { referencedTable: "sessions.courses" })
-      .order("id", { referencedTable: "sessions.courses" }),
+      .order("id", { referencedTable: "sessions.courses" })
+      .order("position", { referencedTable: "lunch_options" })
+      .order("id", { referencedTable: "lunch_options" })
+      .order("position", { referencedTable: "afternoon_activities" })
+      .order("id", { referencedTable: "afternoon_activities" }),
     supabase
       .from("stakes")
       .select("id, name_zh, name_en, wards(id, name_zh, name_en)")
@@ -59,11 +74,24 @@ export async function getRegistrationOptions(
       .order("position", { referencedTable: "wards" })
       .order("id", { referencedTable: "wards" }),
     supabase.rpc("full_courses"),
+    supabase.rpc("full_lunch_options"),
+    supabase.rpc("full_afternoon_activities"),
   ]);
   if (venues.error) throw venues.error;
   if (stakes.error) throw stakes.error;
-  if (fullCourses.error) throw fullCourses.error;
-  const full = new Set<string>(fullCourses.data);
+  for (const result of [fullCourses, fullLunches, fullActivities]) {
+    if (result.error) throw result.error;
+  }
+  const full = new Set<string>([...fullCourses.data, ...fullLunches.data, ...fullActivities.data]);
+  const option = <F extends "name" | "title">(
+    row: { id: string } & Record<`${F}_zh` | `${F}_en` | "description_zh" | "description_en", string>,
+    nameField: F,
+  ): LimitedOption => ({
+    id: row.id,
+    name: localized<F>(row, nameField, locale),
+    description: localized(row, "description", locale),
+    isFull: full.has(row.id),
+  });
 
   return {
     venues: venues.data.map((venue) => ({
@@ -75,13 +103,10 @@ export async function getRegistrationOptions(
         .map((session) => ({
         id: session.id,
         name: localized(session, "name", locale),
-        courses: session.courses.map((course) => ({
-          id: course.id,
-          name: localized(course, "title", locale),
-          description: localized(course, "description", locale),
-          isFull: full.has(course.id),
-        })),
+        courses: session.courses.map((course) => option(course, "title")),
       })),
+      lunchOptions: venue.lunch_options.map((lunch) => option(lunch, "name")),
+      afternoonActivities: venue.afternoon_activities.map((activity) => option(activity, "title")),
     })),
     stakes: stakes.data
       .filter((stake) => stake.wards.length > 0)

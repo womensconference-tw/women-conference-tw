@@ -5,7 +5,9 @@ import {
   isRegistrationNumber,
   submitRegistration,
   validateCourseChoices,
+  validateExtraChoices,
   type CourseChoices,
+  type ExtraChoices,
   type RegistrationInput,
   type SubmitResult,
 } from "./registration";
@@ -128,6 +130,11 @@ function validInput(overrides: Partial<RegistrationInput> = {}): RegistrationInp
     wardId: xindianWardId,
     venueId,
     courseIds: [],
+    lunchOptionId: null,
+    afternoonActivityId: null,
+    choirPart: null,
+    services: [],
+    printedHandbook: false,
     portraitConsent: true,
     ...overrides,
   };
@@ -152,6 +159,11 @@ describe("送出報名", () => {
         wardId: xindianWardId,
         venueId,
         courseIds: [],
+        lunchOptionId: null,
+        afternoonActivityId: null,
+        choirPart: null,
+        services: [],
+        printedHandbook: false,
       },
     });
   });
@@ -343,7 +355,7 @@ describe("課程名額", () => {
       () => submit(validInput({ name: "搶位乙", courseIds: [course] })),
     );
 
-    expect(second).toEqual({ ok: false, errors: { courses: "courseFull" }, fullCourseIds: [course] });
+    expect(second).toEqual({ ok: false, errors: { courses: "courseFull" }, fullIds: [course] });
     expect(await registrationCount("搶位甲")).toBe(1);
     expect(await registrationCount("搶位乙")).toBe(0);
   });
@@ -381,7 +393,7 @@ describe("課程名額", () => {
       validInput({ name: "後報的", courseIds: [full, open] }),
     );
 
-    expect(result).toEqual({ ok: false, errors: { courses: "courseFull" }, fullCourseIds: [full] });
+    expect(result).toEqual({ ok: false, errors: { courses: "courseFull" }, fullIds: [full] });
     expect(await registrationCount("後報的")).toBe(0);
   });
 
@@ -468,6 +480,322 @@ describe("課程名額", () => {
     const result = await submit(validInput({ courseIds: ["abc"] }));
 
     expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+});
+
+// 午餐、午后動態屬於場地；可以在報名期間新增，所以不必在開放前建好。
+async function addLunch(capacity: number | null, venue = venueId, name = "葷食便當") {
+  return must(
+    await admin
+      .from("lunch_options")
+      .insert({ conference_id: conferenceId, venue_id: venue, name_zh: name, capacity })
+      .select("id")
+      .single(),
+  ).id;
+}
+
+async function addActivity(capacity: number | null, venue = venueId, title = "手作花圈") {
+  return must(
+    await admin
+      .from("afternoon_activities")
+      .insert({ conference_id: conferenceId, venue_id: venue, title_zh: title, capacity })
+      .select("id")
+      .single(),
+  ).id;
+}
+
+async function addVenue(name = "台中大雅教堂") {
+  return must(
+    await admin.from("venues").insert({ conference_id: conferenceId, name_zh: name }).select("id").single(),
+  ).id;
+}
+
+describe("午餐、午后動態、服務意願與紙本手冊", () => {
+  async function savedRegistration(name: string) {
+    return must(
+      await admin
+        .from("registrations")
+        .select("lunch_option_id, afternoon_activity_id, choir_part, services, printed_handbook")
+        .eq("conference_id", conferenceId!)
+        .eq("name", name),
+    );
+  }
+
+  it("存下所選的午餐、午后動態、服務意願與紙本手冊，並回傳", async () => {
+    const lunch = await addLunch(30);
+    const activity = await addActivity(10);
+
+    const result = await submit(
+      validInput({
+        name: "全部都選",
+        lunchOptionId: lunch,
+        afternoonActivityId: activity,
+        choirPart: "alto",
+        services: ["reception", "setup", "reception"],
+        printedHandbook: true,
+      }),
+    );
+
+    expect(result.ok && result.registration).toMatchObject({
+      lunchOptionId: lunch,
+      afternoonActivityId: activity,
+      choirPart: "alto",
+      services: ["setup", "reception"],
+      printedHandbook: true,
+    });
+    expect(await savedRegistration("全部都選")).toEqual([
+      {
+        lunch_option_id: lunch,
+        afternoon_activity_id: activity,
+        choir_part: "alto",
+        services: ["setup", "reception"],
+        printed_handbook: true,
+      },
+    ]);
+  });
+
+  it("午餐不需要、不參加午后動態、沒有服務意願也能報名", async () => {
+    await addLunch(30);
+    await addActivity(10);
+
+    const result = await submit(validInput({ name: "都不需要" }));
+
+    expect(result.ok).toBe(true);
+    expect(await savedRegistration("都不需要")).toEqual([
+      {
+        lunch_option_id: null,
+        afternoon_activity_id: null,
+        choir_part: null,
+        services: [],
+        printed_handbook: false,
+      },
+    ]);
+  });
+
+  it("限量午餐額滿時送出被拒絕，資料不寫入", async () => {
+    const lunch = await addLunch(1);
+    expect((await submit(validInput({ name: "先訂的", lunchOptionId: lunch }))).ok).toBe(true);
+
+    const result = await submit(validInput({ name: "後訂的", lunchOptionId: lunch }));
+
+    expect(result).toEqual({ ok: false, errors: { lunch: "lunchFull" }, fullIds: [lunch] });
+    expect(await savedRegistration("後訂的")).toEqual([]);
+  });
+
+  it("限量午后動態額滿時送出被拒絕，資料不寫入", async () => {
+    const activity = await addActivity(1);
+    expect((await submit(validInput({ name: "先報的", afternoonActivityId: activity }))).ok).toBe(true);
+
+    const result = await submit(validInput({ name: "後報的", afternoonActivityId: activity }));
+
+    expect(result).toEqual({
+      ok: false,
+      errors: { afternoonActivity: "afternoonActivityFull" },
+      fullIds: [activity],
+    });
+    expect(await savedRegistration("後報的")).toEqual([]);
+  });
+
+  it("課程、午餐、午后動態同時額滿時，一次列出全部", async () => {
+    const course = await addCourse(await addSession(1), 1);
+    const lunch = await addLunch(1);
+    const activity = await addActivity(1);
+    const everything = { courseIds: [course], lunchOptionId: lunch, afternoonActivityId: activity };
+    expect((await submit(validInput({ name: "先報的", ...everything }))).ok).toBe(true);
+
+    const result = await submit(validInput({ name: "後報的", ...everything }));
+
+    expect(result).toEqual({
+      ok: false,
+      errors: {
+        courses: "courseFull",
+        lunch: "lunchFull",
+        afternoonActivity: "afternoonActivityFull",
+      },
+      fullIds: expect.arrayContaining([course, lunch, activity]),
+    });
+    expect(await savedRegistration("後報的")).toEqual([]);
+  });
+
+  // 和課程一樣：讓甲寫到一半、交易還沒結束時乙送出；有鎖住午餐，乙才會等甲寫完、數到已滿。
+  it("最後一份午餐兩人同時送出，只有一人成功", async () => {
+    const lunch = await addLunch(1);
+    await openRegistration();
+
+    const second = await submitWhileHolding(
+      (tx) => tx`
+        select id from public.submit_registration(
+          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶午餐甲', '0912345678', null, null, true,
+          '{}'::uuid[], ${lunch}::uuid
+        )`,
+      () => submit(validInput({ name: "搶午餐乙", lunchOptionId: lunch })),
+    );
+
+    expect(second).toEqual({ ok: false, errors: { lunch: "lunchFull" }, fullIds: [lunch] });
+    expect(await savedRegistration("搶午餐甲")).toHaveLength(1);
+    expect(await savedRegistration("搶午餐乙")).toEqual([]);
+  });
+
+  it("最後一個午后動態名額兩人同時送出，只有一人成功", async () => {
+    const activity = await addActivity(1);
+    await openRegistration();
+
+    const second = await submitWhileHolding(
+      (tx) => tx`
+        select id from public.submit_registration(
+          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶動態甲', '0912345678', null, null, true,
+          '{}'::uuid[], null, ${activity}::uuid
+        )`,
+      () => submit(validInput({ name: "搶動態乙", afternoonActivityId: activity })),
+    );
+
+    expect(second).toEqual({
+      ok: false,
+      errors: { afternoonActivity: "afternoonActivityFull" },
+      fullIds: [activity],
+    });
+    expect(await savedRegistration("搶動態乙")).toEqual([]);
+  });
+
+  it("不限數量的午餐不會額滿", async () => {
+    const lunch = await addLunch(null);
+
+    const results = [];
+    for (const name of ["甲", "乙", "丙"]) {
+      results.push(await submit(validInput({ name, lunchOptionId: lunch })));
+    }
+
+    expect(results.map((result) => result.ok)).toEqual([true, true, true]);
+  });
+
+  it("已取消的報名不佔午餐與午后動態", async () => {
+    const lunch = await addLunch(1);
+    const activity = await addActivity(1);
+    const first = await submit(validInput({ lunchOptionId: lunch, afternoonActivityId: activity }));
+    if (!first.ok) throw new Error("報名失敗");
+    must(
+      await admin
+        .from("registrations")
+        .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+        .eq("id", first.registration.id),
+    );
+
+    const result = await submit(validInput({ lunchOptionId: lunch, afternoonActivityId: activity }));
+
+    expect(result.ok).toBe(true);
+  });
+
+  // 每個場地有各自的午餐；午后動態只在設定了它的場地。
+  it("其他場地的午餐不能選", async () => {
+    const otherLunch = await addLunch(null, await addVenue());
+
+    const result = await submit(validInput({ lunchOptionId: otherLunch }));
+
+    expect(result).toEqual({ ok: false, errors: { lunch: "lunchUnavailable" } });
+  });
+
+  it("其他場地的午后動態不能選", async () => {
+    const otherActivity = await addActivity(null, await addVenue());
+
+    const result = await submit(validInput({ afternoonActivityId: otherActivity }));
+
+    expect(result).toEqual({ ok: false, errors: { afternoonActivity: "afternoonActivityUnavailable" } });
+  });
+
+  it("A 場地的午餐額滿不影響 B 場地", async () => {
+    await addLunch(1);
+    const otherVenue = await addVenue();
+    const otherLunch = await addLunch(1, otherVenue);
+    const [jinhuaLunch] = must(
+      await admin.from("lunch_options").select("id").eq("venue_id", venueId),
+    );
+    expect((await submit(validInput({ name: "金華", lunchOptionId: jinhuaLunch.id }))).ok).toBe(true);
+
+    const result = await submit(validInput({ name: "大雅", venueId: otherVenue, lunchOptionId: otherLunch }));
+
+    expect(result.ok).toBe(true);
+  });
+
+  it.each([
+    { what: "不認得的服務意願", input: { services: ["dancing"] } },
+    { what: "不認得的聲部", input: { choirPart: "tenor" } },
+  ])("$what被拒絕", async ({ input }) => {
+    const result = await submit(validInput(input));
+
+    expect(result).toEqual({ ok: false, errors: { services: "servicesInvalid" } });
+  });
+
+  // 報名表上一定要選要或不要；直接送來沒選的，報名服務也要擋下，不能默默當成不要。
+  it("沒有選要不要紙本手冊時被拒絕", async () => {
+    const result = await submit(validInput({ printedHandbook: null }));
+
+    expect(result).toEqual({ ok: false, errors: { printedHandbook: "printedHandbookRequired" } });
+  });
+
+  it.each([
+    { what: "午餐", input: { lunchOptionId: "abc" }, errors: { lunch: "lunchUnavailable" } },
+    {
+      what: "午后動態",
+      input: { afternoonActivityId: "abc" },
+      errors: { afternoonActivity: "afternoonActivityUnavailable" },
+    },
+  ])("$what編號格式不對時標在旁邊", async ({ input, errors }) => {
+    const result = await submit(validInput(input));
+
+    expect(result).toEqual({ ok: false, errors });
+  });
+
+  it("有人選過的午餐不能直接刪除", async () => {
+    const lunch = await addLunch(10);
+    expect((await submit(validInput({ lunchOptionId: lunch }))).ok).toBe(true);
+
+    const { error } = await admin.from("lunch_options").delete().eq("id", lunch);
+
+    expect(error).not.toBeNull();
+  });
+});
+
+// 午餐、午后動態、紙本手冊在報名表上要明確選一個（包括「不需要」），免得漏看。
+describe("午餐與服務步驟的檢查", () => {
+  const lunchA = "00000000-0000-4000-8000-00000000000a";
+  const activityB = "00000000-0000-4000-8000-00000000000b";
+  const venue = { lunchOptions: [{ id: lunchA }], afternoonActivities: [{ id: activityB }] };
+  const bare = { lunchOptions: [], afternoonActivities: [] };
+
+  it.each<{ what: string; choices: ExtraChoices; venue: typeof venue; errors: object }>([
+    {
+      what: "都選了",
+      choices: { lunch: lunchA, afternoonActivity: activityB, printedHandbook: true },
+      venue,
+      errors: {},
+    },
+    {
+      what: "選了不需要、不參加、不要手冊",
+      choices: { lunch: null, afternoonActivity: null, printedHandbook: false },
+      venue,
+      errors: {},
+    },
+    {
+      what: "都還沒選",
+      choices: {},
+      venue,
+      errors: {
+        lunch: "lunchRequired",
+        afternoonActivity: "afternoonActivityRequired",
+        printedHandbook: "printedHandbookRequired",
+      },
+    },
+    // 場地沒有午餐或午后動態時，不問這兩題。
+    { what: "場地沒有午餐和午后動態", choices: { printedHandbook: false }, venue: bare, errors: {} },
+    // 換了場地，或選項被刪掉之後，原本的選擇不算數。
+    {
+      what: "選的午餐和午后動態已不在這個場地",
+      choices: { lunch: "other", afternoonActivity: "other", printedHandbook: true },
+      venue,
+      errors: { lunch: "lunchRequired", afternoonActivity: "afternoonActivityRequired" },
+    },
+  ])("$what", ({ choices, venue, errors }) => {
+    expect(validateExtraChoices(choices, venue)).toEqual(errors);
   });
 });
 

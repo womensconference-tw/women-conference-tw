@@ -3,8 +3,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /*
  * 報名服務：前台寫入報名的唯一入口。
  * 欄位檢查（validateRegistration）不碰資料庫，報名表在每一步也用它即時提示；
- * 要看資料庫當下狀態的規則（是否報名中、支會是否屬於該支聯會、課程名額）由資料庫函式 submit_registration 檢查。
+ * 要看資料庫當下狀態的規則（是否報名中、支會是否屬於該支聯會、課程與午餐等名額）由資料庫函式 submit_registration 檢查。
  */
+
+/** 即席唱詩班的聲部。與資料庫 registrations_choir_part_valid 用同一組代碼。 */
+export const CHOIR_PARTS = ["soprano", "alto"] as const;
+export type ChoirPart = (typeof CHOIR_PARTS)[number];
+
+/**
+ * 唱詩班以外的服務意願：前一天準備、中翻英翻譯、當天接待、活動後復原。
+ * 與資料庫 registrations_services_valid 用同一組代碼；報名表依這個順序列出。
+ */
+export const SERVICES = ["setup", "translation", "reception", "cleanup"] as const;
+export type Service = (typeof SERVICES)[number];
 
 /** 報名表送出的內容，都是使用者輸入的原樣，整理與檢查由報名服務負責。 */
 export type RegistrationInput = {
@@ -19,6 +30,16 @@ export type RegistrationInput = {
   venueId: string;
   /** 所選的課程，每個場次最多一門；沒有課程的場次就是「不選課」。 */
   courseIds: string[];
+  /** 所選場地的午餐；null 表示「不需要」。 */
+  lunchOptionId: string | null;
+  /** 所選場地的午后動態；null 表示不參加。 */
+  afternoonActivityId: string | null;
+  /** 即席唱詩班的聲部（CHOIR_PARTS）；null 表示不參加唱詩班。 */
+  choirPart: string | null;
+  /** 其他服務意願（SERVICES）。 */
+  services: string[];
+  /** 要不要領取紙本手冊；null 表示還沒選，送出時會被擋下。 */
+  printedHandbook: boolean | null;
   portraitConsent: boolean;
 };
 
@@ -32,6 +53,10 @@ export type RegistrationField =
   | "ward"
   | "venue"
   | "courses"
+  | "lunch"
+  | "afternoonActivity"
+  | "services"
+  | "printedHandbook"
   | "portraitConsent"
   | "form";
 
@@ -50,6 +75,14 @@ export type RegistrationError =
   | "venueUnavailable"
   | "courseRequired"
   | "courseFull"
+  | "lunchRequired"
+  | "lunchUnavailable"
+  | "lunchFull"
+  | "afternoonActivityRequired"
+  | "afternoonActivityUnavailable"
+  | "afternoonActivityFull"
+  | "servicesInvalid"
+  | "printedHandbookRequired"
   | "portraitConsentRequired"
   | "notOpen"
   | "unknown";
@@ -70,12 +103,17 @@ export type Registration = {
   wardId: string;
   venueId: string;
   courseIds: string[];
+  lunchOptionId: string | null;
+  afternoonActivityId: string | null;
+  choirPart: ChoirPart | null;
+  services: Service[];
+  printedHandbook: boolean;
 };
 
 export type SubmitResult =
   | { ok: true; registration: Registration }
-  /** 送出時有課程額滿，fullCourseIds 列出是哪幾門。 */
-  | { ok: false; errors: RegistrationErrors; fullCourseIds?: string[] };
+  /** 送出時有課程、午餐或午后動態額滿，fullIds 列出是哪幾項。 */
+  | { ok: false; errors: RegistrationErrors; fullIds?: string[] };
 
 /** 選課檢查需要的場次資料：每個場次開了哪些課。 */
 export type SessionCourses = { id: string; courses: { id: string }[] };
@@ -143,6 +181,22 @@ export function validateRegistration(input: RegistrationInput): RegistrationErro
     errors.courses = "courseRequired";
   }
 
+  if (input.lunchOptionId !== null && !UUID_PATTERN.test(input.lunchOptionId)) {
+    errors.lunch = "lunchUnavailable";
+  }
+  if (input.afternoonActivityId !== null && !UUID_PATTERN.test(input.afternoonActivityId)) {
+    errors.afternoonActivity = "afternoonActivityUnavailable";
+  }
+
+  if (
+    (input.choirPart !== null && !(CHOIR_PARTS as readonly string[]).includes(input.choirPart)) ||
+    !input.services.every((service) => (SERVICES as readonly string[]).includes(service))
+  ) {
+    errors.services = "servicesInvalid";
+  }
+
+  if (input.printedHandbook === null) errors.printedHandbook = "printedHandbookRequired";
+
   if (input.portraitConsent !== true) errors.portraitConsent = "portraitConsentRequired";
 
   return errors;
@@ -176,6 +230,48 @@ export function validateCourseChoices(
   return answered ? {} : { courses: "courseRequired" };
 }
 
+/**
+ * 報名表上午餐、午后動態、紙本手冊的選擇；沒有這個鍵表示還沒選。
+ * 午餐、午后動態的 null 是明確選了「不需要」「不參加」。送出的值由 extraInputOf 算出。
+ */
+export type ExtraChoices = {
+  lunch?: string | null;
+  afternoonActivity?: string | null;
+  printedHandbook?: boolean;
+};
+
+/** 檢查午餐等選擇需要的場地資料：這個場地有哪些午餐與午后動態。 */
+export type VenueExtras = { lunchOptions: { id: string }[]; afternoonActivities: { id: string }[] };
+
+/** 送出用的午餐、午后動態、紙本手冊。還沒選的午餐、午后動態當成不需要；手冊沒選是 null，送出時會被擋下。 */
+export function extraInputOf(
+  choices: ExtraChoices,
+): Pick<RegistrationInput, "lunchOptionId" | "afternoonActivityId" | "printedHandbook"> {
+  return {
+    lunchOptionId: choices.lunch ?? null,
+    afternoonActivityId: choices.afternoonActivity ?? null,
+    printedHandbook: choices.printedHandbook ?? null,
+  };
+}
+
+/**
+ * 午餐與服務步驟的檢查：場地有午餐時要選一份或「不需要」，有午后動態時要選一個或「不參加」，
+ * 紙本手冊要選要或不要，免得她漏看。選的午餐、午后動態已不在這個場地（換了場地或被刪除）時，也要重選。
+ */
+export function validateExtraChoices(choices: ExtraChoices, venue: VenueExtras): RegistrationErrors {
+  const errors: RegistrationErrors = {};
+  const answered = (choice: string | null | undefined, options: { id: string }[]) =>
+    options.length === 0 ||
+    choice === null ||
+    (choice !== undefined && options.some((option) => option.id === choice));
+  if (!answered(choices.lunch, venue.lunchOptions)) errors.lunch = "lunchRequired";
+  if (!answered(choices.afternoonActivity, venue.afternoonActivities)) {
+    errors.afternoonActivity = "afternoonActivityRequired";
+  }
+  if (choices.printedHandbook === undefined) errors.printedHandbook = "printedHandbookRequired";
+  return errors;
+}
+
 // submit_registration 丟出的代碼對應到哪個欄位的哪個錯誤。
 const databaseErrors: Record<string, RegistrationErrors> = {
   registration_not_open: { form: "notOpen" },
@@ -186,6 +282,9 @@ const databaseErrors: Record<string, RegistrationErrors> = {
   ward_not_in_stake: { ward: "wardUnavailable" },
   // 課程不在所選場地，或同一場次選了兩門：請她回選課步驟重新選。
   courses_invalid: { courses: "courseRequired" },
+  // 午餐、午后動態不在所選場地（例如她填表時剛被刪除）：請她重新選。
+  lunch_invalid: { lunch: "lunchUnavailable" },
+  afternoon_activity_invalid: { afternoonActivity: "afternoonActivityUnavailable" },
 };
 
 // 欄位檢查與資料表限制本來就一致；萬一資料表擋下了，也標在對應的欄位旁，不只顯示「系統出了問題」。
@@ -194,6 +293,8 @@ const constraintErrors: Record<string, RegistrationErrors> = {
   registrations_phone_format: { phone: "phoneInvalid" },
   registrations_email_format: { email: "emailInvalid" },
   registrations_line_id_length: { lineId: "lineIdTooLong" },
+  registrations_choir_part_valid: { services: "servicesInvalid" },
+  registrations_services_valid: { services: "servicesInvalid" },
 };
 
 function violatedConstraint(message: string): string {
@@ -219,6 +320,11 @@ export async function submitRegistration(
         p_email: trimBlank(input.email) || null,
         p_line_id: trimBlank(input.lineId) || null,
         p_course_ids: input.courseIds,
+        p_lunch_option_id: input.lunchOptionId,
+        p_afternoon_activity_id: input.afternoonActivityId,
+        p_choir_part: input.choirPart,
+        p_services: input.services,
+        p_printed_handbook: input.printedHandbook,
         p_portrait_consent: input.portraitConsent,
       })
       .single<RegistrationRow>();
@@ -230,12 +336,10 @@ export async function submitRegistration(
   }
   const { data, error } = response;
   if (error) {
-    if (error.message === "course_full") {
-      return {
-        ok: false,
-        errors: { courses: "courseFull" },
-        fullCourseIds: error.details ? error.details.split(",") : [],
-      };
+    // 有課程額滿時是 course_full，只有午餐、午后動態額滿時是 choice_full，兩者都列出所有額滿的選項。
+    if (error.message === "course_full" || error.message === "choice_full") {
+      const fullIds = error.details ? error.details.split(",") : [];
+      return { ok: false, errors: fullErrors(input, fullIds), fullIds };
     }
     const known = databaseErrors[error.message] ?? constraintErrors[violatedConstraint(error.message)];
     if (known) return { ok: false, errors: known };
@@ -257,8 +361,24 @@ export async function submitRegistration(
       venueId: data.venue_id,
       // 資料庫在同一個交易裡存下了所選的每一門課，成功就是送出的這些。
       courseIds: input.courseIds,
+      lunchOptionId: data.lunch_option_id,
+      afternoonActivityId: data.afternoon_activity_id,
+      choirPart: data.choir_part,
+      services: data.services,
+      printedHandbook: data.printed_handbook,
     },
   };
+}
+
+/** 額滿的選項標在各自的欄位旁；不知道是哪一項時（不該發生），她選了的每一項都請她確認。 */
+function fullErrors(input: RegistrationInput, fullIds: string[]): RegistrationErrors {
+  const errors: RegistrationErrors = {};
+  const isFull = (id: string | null) =>
+    id !== null && (fullIds.length === 0 || fullIds.includes(id));
+  if (input.courseIds.some(isFull)) errors.courses = "courseFull";
+  if (isFull(input.lunchOptionId)) errors.lunch = "lunchFull";
+  if (isFull(input.afternoonActivityId)) errors.afternoonActivity = "afternoonActivityFull";
+  return errors;
 }
 
 type RegistrationRow = {
@@ -271,4 +391,9 @@ type RegistrationRow = {
   stake_id: string;
   ward_id: string;
   venue_id: string;
+  lunch_option_id: string | null;
+  afternoon_activity_id: string | null;
+  choir_part: ChoirPart | null;
+  services: Service[];
+  printed_handbook: boolean;
 };

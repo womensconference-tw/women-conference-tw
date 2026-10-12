@@ -117,11 +117,37 @@ join (values
 alter table public.sessions enable trigger sessions_locked_after_opening;
 alter table public.courses enable trigger courses_locked_after_opening;
 
--- 一筆假報名，佔掉金華教堂「家譜入門」（容量 1）唯一的名額，選課畫面會顯示「已額滿」。
+-- 每個場地各自的午餐，有的限量、有的不限。金華教堂的素食便當只有 1 份，下面的假報名會訂走。
+insert into public.lunch_options (conference_id, venue_id, position, name_zh, name_en, description_zh, description_en, capacity)
+select v.conference_id, v.id, l.position, l.name_zh, l.name_en, l.description_zh, l.description_en,
+  case when v.name_zh = '台北金華教堂' and l.position = 2 then 1 else l.capacity end
+from public.venues v, (values
+  (1, '葷食便當', 'Bento (meat)', '附飲料', 'Drink included', 200),
+  (2, '素食便當', 'Bento (vegetarian)', '蛋奶素', 'Lacto-ovo vegetarian', 50),
+  (3, '自備午餐', 'Bringing my own lunch', '', '', null)
+) as l(position, name_zh, name_en, description_zh, description_en, capacity);
+
+-- 只有金華教堂有午后動態，其他場地的報名表不會出現這一題。
+insert into public.afternoon_activities (conference_id, venue_id, position, title_zh, title_en, description_zh, description_en, capacity)
+select v.conference_id, v.id, a.position, a.title_zh, a.title_en, a.description_zh, a.description_en, a.capacity
+from public.venues v, (values
+  (1, '手作花圈', 'Wreath making', '14:30–16:00，材料由大會提供', '14:30–16:00, materials provided', 20),
+  (2, '聖殿巡禮', 'Temple grounds walk', '14:30–16:00，步行約 20 分鐘', '14:30–16:00, about a 20-minute walk', 30)
+) as a(position, title_zh, title_en, description_zh, description_en, capacity)
+where v.name_zh = '台北金華教堂';
+
+-- 一筆假報名，佔掉金華教堂「家譜入門」（容量 1）唯一的名額，選課畫面會顯示「已額滿」；
+-- 也訂走唯一一份素食便當。
 with registration as (
-  insert into public.registrations (conference_id, venue_id, stake_id, ward_id, name, phone, portrait_consented_at)
-  select v.conference_id, v.id, w.stake_id, w.id, '測試報名者', '0912000000', now()
-  from public.venues v, public.wards w
+  insert into public.registrations (
+    conference_id, venue_id, stake_id, ward_id, name, phone, portrait_consented_at,
+    lunch_option_id, choir_part, services, printed_handbook
+  )
+  select v.conference_id, v.id, w.stake_id, w.id, '測試報名者', '0912000000', now(),
+    l.id, 'soprano', '{reception}', true
+  from public.venues v
+  join public.lunch_options l on l.venue_id = v.id and l.name_zh = '素食便當',
+    public.wards w
   where v.name_zh = '台北金華教堂' and w.name_zh = '新店支會'
   returning id, venue_id
 )

@@ -30,6 +30,7 @@ describe("介面文字對照檔", () => {
     "home.conferenceStartsAt": ["SAMPLE_START"],
     "home.simultaneous": ["SAMPLE_PLACES"],
     "home.helpLineId": ["SAMPLE_LINE_ID"],
+    "register.choirWithPart": ["SAMPLE_PART"],
     "register.stepProgress": [2, 3, "SAMPLE_STEP"],
     "register.wardsOf": ["SAMPLE_STAKE"],
     "register.wardWithStake": ["SAMPLE_WARD", "SAMPLE_STAKE"],

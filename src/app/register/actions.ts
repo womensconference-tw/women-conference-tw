@@ -9,11 +9,14 @@ export async function register(input: RegistrationInput): Promise<SubmitResult> 
   const supabase = await createClient();
   const result = await submitRegistration(supabase, sanitize(input));
   // 重新讀取頁面上的選項。已填的資料留在瀏覽器裡，不受影響。
-  // 失敗時：她選的場地、支聯會、支會已不能選，或課程剛額滿、有變動，回到那一步時才會顯示最新的名單。
+  // 失敗時：她選的場地、支聯會、支會、午餐、午后動態已不能選，或課程、午餐、午后動態剛額滿、有變動，
+  // 回到那一步時才會顯示最新的名單。
   // 成功時：課程可能剛被移到別的場次，完成頁才會用最新的場次顯示她的課。
   if (
     result.ok ||
-    (["venue", "stake", "ward", "courses"] as const).some((field) => result.errors[field])
+    (["venue", "stake", "ward", "courses", "lunch", "afternoonActivity"] as const).some(
+      (field) => result.errors[field],
+    )
   ) {
     refresh();
   }
@@ -24,6 +27,11 @@ export async function register(input: RegistrationInput): Promise<SubmitResult> 
 function sanitize(input: unknown): RegistrationInput {
   const raw = (input ?? {}) as Record<string, unknown>;
   const text = (key: string) => (typeof raw[key] === "string" ? (raw[key] as string) : "");
+  // 單選的午餐等：null 是「不需要」；其他不是字串的換成空字串，交給欄位檢查擋下。
+  const choice = (key: string) => (raw[key] === null || raw[key] === undefined ? null : text(key));
+  // 不是字串的項目換成空字串，交給欄位檢查擋下。
+  const items = (key: string) =>
+    (raw[key] as unknown[]).map((item) => (typeof item === "string" ? item : ""));
   return {
     name: text("name"),
     phone: text("phone"),
@@ -33,10 +41,14 @@ function sanitize(input: unknown): RegistrationInput {
     stakeId: text("stakeId"),
     wardId: text("wardId"),
     venueId: text("venueId"),
-    // 不是字串的課程換成空字串，交給欄位檢查擋下。
-    courseIds: Array.isArray(raw.courseIds)
-      ? raw.courseIds.map((id) => (typeof id === "string" ? id : ""))
-      : [],
+    courseIds: Array.isArray(raw.courseIds) ? items("courseIds") : [],
+    lunchOptionId: choice("lunchOptionId"),
+    afternoonActivityId: choice("afternoonActivityId"),
+    choirPart: choice("choirPart"),
+    // 服務意願不是清單時，換成一個空字串，交給欄位檢查擋下，不默默當成沒有服務意願。
+    services: Array.isArray(raw.services) ? items("services") : [""],
+    // 不是 true 或 false 就當成還沒選，交給欄位檢查擋下，不默默當成不要。
+    printedHandbook: typeof raw.printedHandbook === "boolean" ? raw.printedHandbook : null,
     portraitConsent: raw.portraitConsent === true,
   };
 }
