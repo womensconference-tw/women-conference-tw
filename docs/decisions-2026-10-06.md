@@ -95,7 +95,7 @@
 7. **代報流程**：填完一位後按「再幫一位報名」，自動帶入電話、支聯會、支會、場地。代報人不算報名者。見 [ADR 0003](adr/0003-proxy-registrant-has-no-account.md)。
 8. **重複報名**：姓名＋支會相同即標記「疑似重複」，前台不擋，由管理員處理。
 9. **名額競爭**：送出時一次性確認，填表期間不保留；管理員可經確認後超收。見 [ADR 0006](adr/0006-capacity-checked-atomically-on-submit.md)。確認信一位一封。
-10. **個資保存**：大會結束 6 個月後，由總管理員手動匿名化；只有總管理員能匯出完整名單。見 [ADR 0005](adr/0005-anonymize-registrations-six-months-after-conference.md)。
+10. **個資保存**：大會結束 6 個月後，由總管理員手動匿名化；只有總管理員能匯出完整名單。見 [ADR 0005](adr/0005-anonymize-registrations-six-months-after-conference.md)。（2026-10-13 改為大會結束後匯出 Excel、確認存好再清除，見 [ADR 0008](adr/0008-export-excel-then-clear-personal-data-after-conference.md)。）
 11. **交接**：所有服務掛在官方 Gmail／GitHub 帳號下；機密記在官方 Gmail 的 Google Sheet，repo 只放 `docs/handover.md` 換屆步驟。見 [ADR 0007](adr/0007-handover-through-official-accounts.md)。
 
 ## 舊系統既有功能（供決定範圍用）
