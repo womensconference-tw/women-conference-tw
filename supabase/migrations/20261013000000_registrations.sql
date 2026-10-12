@@ -1,3 +1,14 @@
+-- 去掉前後的空白字元，包括手機輸入法可能帶進來、看不見的 U+0085、U+FEFF、全形空白。
+-- 報名服務（src/lib/registration.ts 的 BLANK）用同一組字元，兩邊判斷才會一致。
+create function public.trim_blank(value text)
+returns text
+language sql
+immutable
+set search_path = ''
+as $$
+  select regexp_replace(value, '^[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+|[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+$', '', 'g')
+$$;
+
 -- 支聯會／支會：教會的地區單位，名單不屬於任何年度大會。
 -- 重新劃分時停用舊單位、新增新單位，不更改既有支會所屬的支聯會。
 create table public.stakes (
@@ -60,12 +71,16 @@ create table public.registrations (
     foreign key (venue_id, conference_id) references public.venues (id, conference_id),
   constraint registrations_ward_in_stake
     foreign key (ward_id, stake_id) references public.wards (id, stake_id),
-  constraint registrations_name_valid check (name ~ '[^[:space:]]' and char_length(name) <= 50),
+  constraint registrations_name_valid check (
+    public.trim_blank(name) <> '' and char_length(name) <= 50
+  ),
   constraint registrations_phone_format check (phone ~ '^\+?[0-9]{8,15}$'),
   constraint registrations_number_format check (registration_number ~ '^[1-9][0-9]{5}$'),
   -- 有電話就不發報名編號，沒電話就一定要有報名編號。
   constraint registrations_phone_or_number check ((phone is null) <> (registration_number is null)),
-  constraint registrations_email_format check (email ~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'),
+  constraint registrations_email_format check (
+    email ~ '^[^@\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+@[^@\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+\.[^@\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+$'
+  ),
   constraint registrations_line_id_length check (char_length(line_id) between 1 and 50),
   constraint registrations_role_valid check (
     role in ('attendee', 'committee', 'speaker', 'guest_leader', 'team', 'volunteer')
@@ -154,7 +169,7 @@ begin
     raise exception 'ward_not_in_stake';
   end if;
 
-  -- 任何人都能直接呼叫這個函式，所以這裡也去掉頭尾空白，存下的資料才跟經過報名服務的一致。
+  -- 任何人都能直接呼叫這個函式，所以這裡也用 trim_blank 去掉頭尾空白，存下的資料才跟經過報名服務的一致。
   -- 沒有電話時發 100000–999999 的報名編號（不以 0 開頭，免得抄寫時漏掉）；
   -- 同時有人抽到同一組時，唯一索引會擋下，換一組再試。
   loop
@@ -166,8 +181,8 @@ begin
         conference_id, venue_id, stake_id, ward_id, name, phone, registration_number, email, line_id,
         portrait_consented_at
       ) values (
-        v_conference.id, p_venue_id, p_stake_id, p_ward_id, btrim(p_name), p_phone, v_number,
-        nullif(btrim(p_email), ''), nullif(btrim(p_line_id), ''), now()
+        v_conference.id, p_venue_id, p_stake_id, p_ward_id, public.trim_blank(p_name), p_phone, v_number,
+        nullif(public.trim_blank(p_email), ''), nullif(public.trim_blank(p_line_id), ''), now()
       )
       returning * into v_registration;
       exit;

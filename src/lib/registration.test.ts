@@ -245,6 +245,77 @@ describe("送出報名", () => {
   });
 });
 
+// 有人可能看不到的空白字元，報名服務與資料庫要用同一套規則判斷。
+describe("看不見的空白字元", () => {
+  it.each([
+    { what: "姓名只有 U+0085", input: { name: "\u0085" }, errors: { name: "nameRequired" } },
+    { what: "姓名只有 U+FEFF", input: { name: "\uFEFF" }, errors: { name: "nameRequired" } },
+    {
+      what: "Email 中間有 U+0085",
+      input: { email: "mei\u0085@example.com" },
+      errors: { email: "emailInvalid" },
+    },
+  ])("$what時標在該欄位旁", async ({ input, errors }) => {
+    const result = await submitRegistration(anonClient(), validInput(input));
+
+    expect(result).toEqual({ ok: false, errors });
+  });
+
+  it("前後的看不見空白會去掉", async () => {
+    const result = await submitRegistration(
+      anonClient(),
+      validInput({ name: "\uFEFF王小美\u0085", lineId: "\t", email: "\u00A0mei@example.com\u3000" }),
+    );
+
+    expect(result.ok && result.registration).toMatchObject({
+      name: "王小美",
+      lineId: null,
+      email: "mei@example.com",
+    });
+  });
+});
+
+// 匿名訪客可以不經過報名服務，直接呼叫資料庫的送出函式，所以資料庫自己也要擋。
+describe("直接呼叫資料庫的送出函式", () => {
+  function callDirectly(overrides: Record<string, unknown> = {}) {
+    return anonClient()
+      .rpc("submit_registration", {
+        p_venue_id: venueId,
+        p_stake_id: taipeiStakeId,
+        p_ward_id: xindianWardId,
+        p_name: "王小美",
+        p_phone: "0912345678",
+        p_email: null,
+        p_line_id: null,
+        p_portrait_consent: true,
+        ...overrides,
+      })
+      .single<{ name: string; email: string | null; line_id: string | null }>();
+  }
+
+  it.each([false, null])("肖像權同意是 %s 時被拒絕", async (consent) => {
+    const { error } = await callDirectly({ p_portrait_consent: consent });
+
+    expect(error?.message).toBe("portrait_consent_required");
+  });
+
+  it("姓名只有看不見的空白時被拒絕", async () => {
+    const { error } = await callDirectly({ p_name: "\uFEFF\u0085 " });
+
+    expect(error).not.toBeNull();
+  });
+
+  it("和報名服務一樣去掉前後空白，只有空白的欄位存成空值", async () => {
+    const { data } = await callDirectly({
+      p_name: "\uFEFF王小美 ",
+      p_email: " ",
+      p_line_id: "\t",
+    });
+
+    expect(data).toMatchObject({ name: "王小美", email: null, line_id: null });
+  });
+});
+
 describe("報名資料表", () => {
   it("匿名訪客無法直接讀取或列舉", async () => {
     const saved = await submitRegistration(anonClient(), validInput());

@@ -125,7 +125,14 @@ export function RegistrationForm({
       return;
     }
     startTransition(async () => {
-      const result = await register(input);
+      let result;
+      try {
+        result = await register(input);
+      } catch {
+        // 連線中斷或伺服器出錯：留在這一步、保留已填的資料，請她再按一次。
+        showErrors({ form: "unknown" });
+        return;
+      }
       if (result.ok) {
         setRegistration(result.registration);
         window.scrollTo({ top: 0 });
@@ -148,7 +155,8 @@ export function RegistrationForm({
         </p>
       </header>
 
-      {Object.keys(errors).length > 0 && (
+      {/* 只有整張表單的錯誤（例如連線失敗）時，訊息已在送出按鈕上方，這裡不提「資料需要修改」。 */}
+      {Object.keys(errors).some((field) => field !== "form") && (
         <p role="alert" className="rounded-lg border-2 border-destructive p-4 font-semibold text-destructive">
           {t.register.fixErrors}
         </p>
@@ -159,7 +167,7 @@ export function RegistrationForm({
       )}
 
       {step === 1 && (
-        <fieldset data-field="venue" className="flex flex-col gap-3" aria-describedby="venue-hint">
+        <fieldset data-field="venue" className="flex flex-col gap-3">
           <legend className="mb-2 text-lead font-bold">{t.register.venueLabel}</legend>
           <p id="venue-hint">{t.register.venueHint}</p>
           <FieldError field="venue" errors={errors} t={t} />
@@ -171,6 +179,7 @@ export function RegistrationForm({
                 className={radioClass}
                 checked={input.venueId === venue.id}
                 onChange={() => update({ venueId: venue.id })}
+                {...errorAria("venue", errors, "venue-hint")}
               />
               {venue.name}
             </label>
@@ -194,8 +203,7 @@ export function RegistrationForm({
                 className={radioClass}
                 checked={input.portraitConsent}
                 onChange={(event) => update({ portraitConsent: event.target.checked })}
-                aria-invalid={errors.portraitConsent ? true : undefined}
-                aria-describedby={errors.portraitConsent ? "portraitConsent-error" : undefined}
+                {...errorAria("portraitConsent", errors)}
               />
               {t.register.portraitConsentCheckbox}
             </label>
@@ -326,6 +334,7 @@ function BasicDetails({ input, update, errors, options, t }: StepProps) {
                 className={radioClass}
                 checked={input.stakeId === option.id}
                 onChange={() => update({ stakeId: option.id, wardId: "" })}
+                {...errorAria("stake", errors)}
               />
               {option.name}
             </label>
@@ -393,6 +402,7 @@ function BasicDetails({ input, update, errors, options, t }: StepProps) {
                   className={radioClass}
                   checked={input.wardId === ward.id}
                   onChange={() => update({ wardId: ward.id })}
+                  {...errorAria("ward", errors)}
                 />
                 {ward.name}
               </label>
@@ -549,6 +559,15 @@ function Completed({
       </Link>
     </section>
   );
+}
+
+/** 讓輔助科技從選項讀到錯誤：標成有錯，並連到錯誤訊息（與其他說明文字）。 */
+function errorAria(field: RegistrationField, errors: RegistrationErrors, ...describedBy: string[]) {
+  const ids = errors[field] ? [...describedBy, `${field}-error`] : describedBy;
+  return {
+    "aria-invalid": errors[field] ? true : undefined,
+    "aria-describedby": ids.length > 0 ? ids.join(" ") : undefined,
+  };
 }
 
 function pick(errors: RegistrationErrors, fields: RegistrationField[]): RegistrationErrors {

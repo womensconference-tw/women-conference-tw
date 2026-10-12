@@ -107,6 +107,16 @@ describe("報名表的選項", () => {
       { name: "測試台北支聯會", wards: ["測試新店支會"] },
     ]);
   });
+
+  // 不經過支聯會，直接查支會資料表也一樣。
+  it("直接查支會時，停用的支聯會底下的支會也查不到", async () => {
+    const retired = await addStake({ position: 1, name_zh: "測試舊支聯會", is_active: false });
+    await addWard({ stake_id: retired, position: 1, name_zh: "測試舊支聯會的支會" });
+
+    const { data } = await anonClient().from("wards").select("id").eq("stake_id", retired);
+
+    expect(data ?? []).toEqual([]);
+  });
 });
 
 describe("不知道支聯會，直接找支會", () => {

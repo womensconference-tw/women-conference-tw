@@ -71,7 +71,16 @@ export type SubmitResult =
 const NAME_MAX_LENGTH = 50;
 const LINE_ID_MAX_LENGTH = 50;
 const PHONE_PATTERN = /^\+?\d{8,15}$/;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// 空白字元：包括手機輸入法可能帶進來、看不見的 U+0085、U+FEFF、全形空白。
+// 必須與資料庫 public.trim_blank 和 registrations 的限制用同一組，兩邊判斷才會一致。
+const BLANK = "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff";
+const EDGE_BLANKS = new RegExp(`^[${BLANK}]+|[${BLANK}]+$`, "g");
+const EMAIL_PATTERN = new RegExp(`^[^@${BLANK}]+@[^@${BLANK}]+\\.[^@${BLANK}]+$`);
+
+/** 去掉前後的空白字元（規則見 BLANK）。 */
+export function trimBlank(value: string): string {
+  return value.replace(EDGE_BLANKS, "");
+}
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // 與資料庫產生的規則一致：100000–999999。
 const REGISTRATION_NUMBER_PATTERN = /^[1-9]\d{5}$/;
@@ -87,15 +96,15 @@ export function isRegistrationNumber(value: string): boolean {
  */
 export function normalizePhone(raw: string): string {
   return raw
-    .replace(/[！-～]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))
-    .replace(/[\s\-().]/g, "");
+    .replace(/[\uFF01-\uFF5E]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))
+    .replace(new RegExp(`[${BLANK}\\-().]`, "g"), "");
 }
 
 /** 檢查欄位格式，不碰資料庫。沒有錯誤時回傳空物件。 */
 export function validateRegistration(input: RegistrationInput): RegistrationErrors {
   const errors: RegistrationErrors = {};
 
-  const name = input.name.trim();
+  const name = trimBlank(input.name);
   if (!name) errors.name = "nameRequired";
   else if ([...name].length > NAME_MAX_LENGTH) errors.name = "nameTooLong";
 
@@ -105,10 +114,10 @@ export function validateRegistration(input: RegistrationInput): RegistrationErro
     else if (!PHONE_PATTERN.test(phone)) errors.phone = "phoneInvalid";
   }
 
-  const email = input.email.trim();
+  const email = trimBlank(input.email);
   if (email && !EMAIL_PATTERN.test(email)) errors.email = "emailInvalid";
 
-  if ([...input.lineId.trim()].length > LINE_ID_MAX_LENGTH) errors.lineId = "lineIdTooLong";
+  if ([...trimBlank(input.lineId)].length > LINE_ID_MAX_LENGTH) errors.lineId = "lineIdTooLong";
 
   if (!UUID_PATTERN.test(input.stakeId)) errors.stake = "stakeRequired";
   if (!UUID_PATTERN.test(input.wardId)) errors.ward = "wardRequired";
@@ -129,6 +138,18 @@ const databaseErrors: Record<string, RegistrationErrors> = {
   ward_not_in_stake: { ward: "wardNotInStake" },
 };
 
+// 欄位檢查與資料表限制本來就一致；萬一資料表擋下了，也標在對應的欄位旁，不只顯示「系統出了問題」。
+const constraintErrors: Record<string, RegistrationErrors> = {
+  registrations_name_valid: { name: "nameRequired" },
+  registrations_phone_format: { phone: "phoneInvalid" },
+  registrations_email_format: { email: "emailInvalid" },
+  registrations_line_id_length: { lineId: "lineIdTooLong" },
+};
+
+function violatedConstraint(message: string): string {
+  return /violates check constraint "([^"]+)"/.exec(message)?.[1] ?? "";
+}
+
 /** 送出報名：檢查欄位，在報名中時寫入一筆與會姐妹的報名。 */
 export async function submitRegistration(
   supabase: SupabaseClient,
@@ -142,15 +163,15 @@ export async function submitRegistration(
       p_venue_id: input.venueId,
       p_stake_id: input.stakeId,
       p_ward_id: input.wardId,
-      p_name: input.name.trim(),
+      p_name: trimBlank(input.name),
       p_phone: input.noPhone ? null : normalizePhone(input.phone),
-      p_email: input.email.trim() || null,
-      p_line_id: input.lineId.trim() || null,
+      p_email: trimBlank(input.email) || null,
+      p_line_id: trimBlank(input.lineId) || null,
       p_portrait_consent: input.portraitConsent,
     })
     .single<RegistrationRow>();
   if (error) {
-    const known = databaseErrors[error.message];
+    const known = databaseErrors[error.message] ?? constraintErrors[violatedConstraint(error.message)];
     if (known) return { ok: false, errors: known };
     console.error("submit_registration failed", error);
     return { ok: false, errors: { form: "unknown" } };
