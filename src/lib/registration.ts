@@ -1,9 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Locale } from "./i18n/locale";
+import { localized } from "./i18n/localized";
 
 /*
  * 報名服務：前台寫入報名的唯一入口。
  * 欄位檢查（validateRegistration）不碰資料庫，報名表在每一步也用它即時提示；
  * 要看資料庫當下狀態的規則（是否報名中、支會是否屬於該支聯會、課程與午餐等名額）由資料庫函式 submit_registration 檢查。
+ * 查詢（lookupRegistration）是前台唯一能讀取報名的地方，由資料庫函式 lookup_registration 比對。
  */
 
 /** 即席唱詩班的聲部。與資料庫 registrations_choir_part_valid 用同一組代碼。 */
@@ -396,4 +399,97 @@ type RegistrationRow = {
   choir_part: ChoirPart | null;
   services: Service[];
   printed_handbook: boolean;
+};
+
+/** 查詢報名的輸入：姓名，以及電話或報名編號（同一個欄位，6 碼是報名編號，其他當成電話）。 */
+export type LookupInput = { name: string; phoneOrNumber: string };
+
+export type LookupField = "name" | "phoneOrNumber" | "form";
+
+export type LookupError =
+  | "nameRequired"
+  | "phoneOrNumberRequired"
+  | "phoneOrNumberInvalid"
+  /** 找不到符合的報名。不說是哪一項不對，免得被拿來猜別人的資料。 */
+  | "notFound"
+  /** 同一個姓名短時間內猜錯太多次，暫停查詢一陣子。 */
+  | "tooManyAttempts"
+  | "unknown";
+
+export type LookupErrors = Partial<Record<LookupField, LookupError>>;
+
+/** 查到的報名：存下的資料，加上狀態與報名當下的支聯會、支會名稱（已依語言挑好）。 */
+export type FoundRegistration = Registration & {
+  status: "registered" | "cancelled";
+  stakeName: string;
+  wardName: string;
+};
+
+export type LookupResult =
+  | { ok: true; registrations: FoundRegistration[] }
+  | { ok: false; errors: LookupErrors };
+
+/**
+ * 查詢報名：姓名與電話（或報名編號）兩項都符合才找得到，只找目前年度。
+ * 報名截止後仍可查詢。同一組姓名與電話有好幾筆時（例如取消後重新報名）全部回傳，新的在前。
+ */
+export async function lookupRegistration(
+  supabase: SupabaseClient,
+  input: LookupInput,
+  locale: Locale,
+): Promise<LookupResult> {
+  const errors: LookupErrors = {};
+  const name = trimBlank(input.name);
+  if (!name) errors.name = "nameRequired";
+  const identifier = normalizePhone(input.phoneOrNumber);
+  const isNumber = isRegistrationNumber(identifier);
+  if (!identifier) errors.phoneOrNumber = "phoneOrNumberRequired";
+  else if (!isNumber && !PHONE_PATTERN.test(identifier)) errors.phoneOrNumber = "phoneOrNumberInvalid";
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+
+  const { data, error } = await supabase.rpc("lookup_registration", {
+    p_name: name,
+    p_phone: isNumber ? null : identifier,
+    p_registration_number: isNumber ? identifier : null,
+  });
+  if (error) {
+    if (error.message === "too_many_attempts") return { ok: false, errors: { form: "tooManyAttempts" } };
+    console.error("lookup_registration failed", error);
+    return { ok: false, errors: { form: "unknown" } };
+  }
+  const rows = data as LookupRow[];
+  if (rows.length === 0) return { ok: false, errors: { form: "notFound" } };
+
+  return {
+    ok: true,
+    registrations: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      phone: row.phone,
+      registrationNumber: row.registration_number,
+      email: row.email,
+      lineId: row.line_id,
+      stakeId: row.stake_id,
+      wardId: row.ward_id,
+      venueId: row.venue_id,
+      courseIds: row.course_ids,
+      lunchOptionId: row.lunch_option_id,
+      afternoonActivityId: row.afternoon_activity_id,
+      choirPart: row.choir_part,
+      services: row.services,
+      printedHandbook: row.printed_handbook,
+      status: row.status,
+      stakeName: localized(row, "stake_name", locale),
+      wardName: localized(row, "ward_name", locale),
+    })),
+  };
+}
+
+type LookupRow = RegistrationRow & {
+  course_ids: string[];
+  status: "registered" | "cancelled";
+  stake_name_zh: string;
+  stake_name_en: string;
+  ward_name_zh: string;
+  ward_name_en: string;
 };

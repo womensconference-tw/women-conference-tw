@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { adminClient, anonClient, databaseClient, must } from "../../test/supabase";
 import {
   isRegistrationNumber,
+  lookupRegistration,
   submitRegistration,
   validateCourseChoices,
   validateExtraChoices,
@@ -88,6 +89,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // 查詢猜錯的紀錄不屬於任何年度，每個測試清掉，免得累積到暫停查詢。
+  must(await admin.from("lookup_failures").delete().gte("attempted_at", "-infinity"));
+  must(await admin.from("lookup_locks").delete().gte("locked_until", "-infinity"));
   // 刪掉年度大會時，它的場地與報名一起刪除。
   if (conferenceId) must(await admin.from("conferences").delete().eq("id", conferenceId));
   conferenceId = undefined;
@@ -1173,3 +1177,261 @@ describe("報名資料表", () => {
   });
 });
 
+
+describe("查詢報名", () => {
+  /** 以前台訪客的身分查詢。 */
+  function lookUp(name: string, phoneOrNumber: string) {
+    return lookupRegistration(anonClient(), { name, phoneOrNumber }, "zh");
+  }
+
+  it("用姓名和電話查得到，顯示完整的報名資料", async () => {
+    const saved = await submit(validInput({ email: "mei@example.com", lineId: "mei123" }));
+    if (!saved.ok) throw new Error("報名失敗");
+
+    const result = await lookUp("王小美", "0912-345-678");
+
+    expect(result).toEqual({
+      ok: true,
+      registrations: [
+        {
+          ...saved.registration,
+          status: "registered",
+          stakeName: "測試台北支聯會",
+          wardName: "測試新店支會",
+        },
+      ],
+    });
+  });
+
+  // 不透露是哪一項不對：兩種情況是同一個訊息。
+  it.each([
+    { wrong: "姓名", name: "王小華", phone: "0912345678" },
+    { wrong: "電話", name: "王小美", phone: "0912345679" },
+  ])("只有$wrong不對時查不到，給同一個溫和的訊息", async ({ name, phone }) => {
+    expect((await submit(validInput())).ok).toBe(true);
+
+    const result = await lookUp(name, phone);
+
+    expect(result).toEqual({ ok: false, errors: { form: "notFound" } });
+  });
+
+  it("沒有電話的人用姓名和報名編號查得到", async () => {
+    const saved = await submit(validInput({ phone: "", noPhone: true }));
+    if (!saved.ok) throw new Error("報名失敗");
+
+    const result = await lookUp("王小美", saved.registration.registrationNumber!);
+
+    expect(result.ok && result.registrations.map((found) => found.id)).toEqual([saved.registration.id]);
+  });
+
+  it("報名編號對、姓名不對時查不到", async () => {
+    const saved = await submit(validInput({ phone: "", noPhone: true }));
+    if (!saved.ok) throw new Error("報名失敗");
+
+    const result = await lookUp("王小華", saved.registration.registrationNumber!);
+
+    expect(result).toEqual({ ok: false, errors: { form: "notFound" } });
+  });
+
+  // 代報人用自己的電話幫家人報名，每個人查到的是自己那一筆。
+  it("同一支電話報了 3 位，各自查到自己的報名", async () => {
+    const ids: Record<string, string> = {};
+    for (const name of ["王媽媽", "王小美", "王小華"]) {
+      const saved = await submit(validInput({ name }));
+      if (!saved.ok) throw new Error("報名失敗");
+      ids[name] = saved.registration.id;
+    }
+
+    for (const name of ["王媽媽", "王小美", "王小華"]) {
+      const result = await lookUp(name, "0912345678");
+      expect(result.ok && result.registrations.map((found) => [found.name, found.id])).toEqual([
+        [name, ids[name]],
+      ]);
+    }
+  });
+
+  it("姓名前後多了空白、英文大小寫不同也查得到", async () => {
+    expect((await submit(validInput({ name: "Mary Wang" }))).ok).toBe(true);
+
+    const result = await lookUp("  mary wang ", "0912 345 678");
+
+    expect(result.ok && result.registrations.map((found) => found.name)).toEqual(["Mary Wang"]);
+  });
+
+  // 不提供模糊搜尋：只打姓名的一部分查不到。
+  it("只對姓名的一部分查不到", async () => {
+    expect((await submit(validInput())).ok).toBe(true);
+
+    const result = await lookUp("小美", "0912345678");
+
+    expect(result).toEqual({ ok: false, errors: { form: "notFound" } });
+  });
+
+  it("姓名或電話沒填時，請她補填，不去查詢", async () => {
+    expect(await lookUp(" ", "")).toEqual({
+      ok: false,
+      errors: { name: "nameRequired", phoneOrNumber: "phoneOrNumberRequired" },
+    });
+    expect(await lookUp("王小美", "12-34")).toEqual({
+      ok: false,
+      errors: { phoneOrNumber: "phoneOrNumberInvalid" },
+    });
+  });
+
+  // 任何人都能直接呼叫資料庫函式，所以少了任何一項都不能回傳報名。
+  it.each([
+    { missing: "電話與報名編號", args: { p_name: "王小美", p_phone: null, p_registration_number: null } },
+    { missing: "姓名", args: { p_name: "", p_phone: "0912345678", p_registration_number: null } },
+    { missing: "姓名（null）", args: { p_name: null, p_phone: "0912345678", p_registration_number: null } },
+  ])("直接呼叫資料庫函式時，少了$missing就查不到任何報名", async ({ args }) => {
+    expect((await submit(validInput())).ok).toBe(true);
+
+    const { data, error } = await anonClient().rpc("lookup_registration", args);
+
+    expect(error).toBeNull();
+    expect(data).toEqual([]);
+  });
+
+  it("已截止後仍可查詢", async () => {
+    const saved = await submit(validInput());
+    if (!saved.ok) throw new Error("報名失敗");
+    must(
+      await admin
+        .from("conferences")
+        .update({ registration_closes_at: new Date(Date.now() - 1000).toISOString() })
+        .eq("id", conferenceId!),
+    );
+
+    const result = await lookUp("王小美", "0912345678");
+
+    expect(result.ok && result.registrations.map((found) => found.id)).toEqual([saved.registration.id]);
+  });
+
+  it("查得到所選的課程、午餐與午后動態", async () => {
+    const course = await addCourse(await addSession(1), null);
+    const lunch = must(
+      await admin
+        .from("lunch_options")
+        .insert({ conference_id: conferenceId, venue_id: venueId, name_zh: "素食便當" })
+        .select("id")
+        .single(),
+    ).id;
+    const saved = await submit(validInput({ courseIds: [course], lunchOptionId: lunch }));
+    if (!saved.ok) throw new Error("報名失敗");
+
+    const result = await lookUp("王小美", "0912345678");
+
+    expect(result.ok && result.registrations[0]).toMatchObject({
+      courseIds: [course],
+      lunchOptionId: lunch,
+    });
+  });
+
+  // 報名後支會被停用（教會重新劃分），查詢時仍顯示她報名當下的支聯會與支會。
+  it("支會停用後，查詢仍顯示報名當下的支聯會與支會", async () => {
+    expect((await submit(validInput())).ok).toBe(true);
+    must(await admin.from("wards").update({ is_active: false }).eq("id", xindianWardId));
+
+    const result = await lookUp("王小美", "0912345678");
+
+    expect(result.ok && result.registrations[0]).toMatchObject({
+      stakeName: "測試台北支聯會",
+      wardName: "測試新店支會",
+    });
+  });
+
+  it("英文畫面顯示支聯會與支會的英文名稱", async () => {
+    expect((await submit(validInput())).ok).toBe(true);
+
+    const result = await lookupRegistration(
+      anonClient(),
+      { name: "王小美", phoneOrNumber: "0912345678" },
+      "en",
+    );
+
+    expect(result.ok && result.registrations[0]).toMatchObject({
+      stakeName: "Test Taipei Stake",
+      wardName: "Test Xindian Ward",
+    });
+  });
+
+  it("已取消的報名也查得到，並標出已取消", async () => {
+    const saved = await submit(validInput());
+    if (!saved.ok) throw new Error("報名失敗");
+    must(
+      await admin
+        .from("registrations")
+        .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+        .eq("id", saved.registration.id),
+    );
+
+    const result = await lookUp("王小美", "0912345678");
+
+    expect(result.ok && result.registrations.map((found) => found.status)).toEqual(["cancelled"]);
+  });
+
+  it("不是目前年度的報名查不到", async () => {
+    expect((await submit(validInput())).ok).toBe(true);
+    must(await admin.from("conferences").update({ is_current: false }).eq("id", conferenceId!));
+
+    const result = await lookUp("王小美", "0912345678");
+
+    expect(result).toEqual({ ok: false, errors: { form: "notFound" } });
+  });
+
+  // 報名編號只有 6 碼：知道姓名的人不能一直猜下去。
+  it("同一個姓名短時間內猜錯太多次後，暫停查詢，資料正確也一樣", async () => {
+    const saved = await submit(validInput({ name: "陳猜猜", phone: "", noPhone: true }));
+    if (!saved.ok) throw new Error("報名失敗");
+    const number = saved.registration.registrationNumber!;
+    const wrong = number === "100000" ? "100001" : "100000";
+    expect((await submit(validInput())).ok).toBe(true);
+    for (let attempt = 0; attempt < 10; attempt++) {
+      expect(await lookUp("陳猜猜", wrong)).toEqual({ ok: false, errors: { form: "notFound" } });
+    }
+
+    expect(await lookUp(" 陳猜猜 ", number)).toEqual({
+      ok: false,
+      errors: { form: "tooManyAttempts" },
+    });
+    // 其他姓名不受影響。
+    expect((await lookUp("王小美", "0912345678")).ok).toBe(true);
+  });
+
+  it("姓名中間的空白數量不同也查得到", async () => {
+    expect((await submit(validInput({ name: "Mary  Wang" }))).ok).toBe(true);
+
+    const result = await lookUp("mary wang", "0912345678");
+
+    expect(result.ok && result.registrations.map((found) => found.name)).toEqual(["Mary  Wang"]);
+  });
+
+  it("同時送出很多次錯誤查詢，也只有 10 次會被比對", async () => {
+    const saved = await submit(validInput({ name: "陳猜猜", phone: "", noPhone: true }));
+    if (!saved.ok) throw new Error("報名失敗");
+    const wrong = saved.registration.registrationNumber === "100000" ? "100001" : "100000";
+
+    const results = await Promise.all(Array.from({ length: 40 }, () => lookUp("陳猜猜", wrong)));
+
+    const notFound = results.filter((result) => !result.ok && result.errors.form === "notFound");
+    expect(notFound).toHaveLength(10);
+  });
+
+  // 前 9 次是快一小時前猜的，第 10 次是現在：暫停要從第 10 次起算一整個小時。
+  it("暫停查詢從第 10 次猜錯起算一小時，不會因為較早的紀錄過期就解除", async () => {
+    const saved = await submit(validInput({ name: "陳猜猜", phone: "", noPhone: true }));
+    if (!saved.ok) throw new Error("報名失敗");
+    const number = saved.registration.registrationNumber!;
+    const wrong = number === "100000" ? "100001" : "100000";
+    for (let attempt = 0; attempt < 10; attempt++) await lookUp("陳猜猜", wrong);
+    // 讓這些猜錯的紀錄都變成一小時多以前的。
+    must(
+      await admin
+        .from("lookup_failures")
+        .update({ attempted_at: new Date(Date.now() - 61 * 60 * 1000).toISOString() })
+        .gte("attempted_at", "-infinity"),
+    );
+
+    expect(await lookUp("陳猜猜", number)).toEqual({ ok: false, errors: { form: "tooManyAttempts" } });
+  });
+});
