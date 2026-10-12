@@ -26,6 +26,10 @@ describe("介面文字對照檔", () => {
     "home.conferenceDate": [2099, "SAMPLE_DATE"],
     "home.registrationOpensAt": ["SAMPLE_DATE_TIME"],
     "home.registrationOpenUntil": ["SAMPLE_DATE_TIME"],
+    "home.conferenceTime": ["SAMPLE_START", "SAMPLE_END"],
+    "home.conferenceStartsAt": ["SAMPLE_START"],
+    "home.simultaneous": ["SAMPLE_PLACES"],
+    "home.helpLineId": ["SAMPLE_LINE_ID"],
   };
 
   it.each(locales)("%s 帶入資料的文字不空白，且有放進帶入的資料", (locale) => {
