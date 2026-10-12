@@ -6,8 +6,10 @@ import { buttonVariants } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n/locale";
 import { messages, type Messages } from "@/lib/i18n/messages";
 import {
+  courseIdsOf,
   validateCourseChoices,
   validateRegistration,
+  type CourseChoices,
   type Registration,
   type RegistrationErrors,
   type RegistrationField,
@@ -89,8 +91,8 @@ export function RegistrationForm({
   const [registration, setRegistration] = useState<Registration | null>(null);
   // 送出時才發現額滿的課程，在新的名單讀進來之前先標成已額滿；讀取頁面時已額滿的由 options 標出。
   const [filledCourseIds, setFilledCourseIds] = useState<string[]>([]);
-  // 她明確選了「不選課」的場次。不存進報名，只用來確認每個場次都選過，沒有漏看。
-  const [skippedSessionIds, setSkippedSessionIds] = useState<string[]>([]);
+  // 每個場次選了哪門課或「不選課」。送出用的 input.courseIds 一律由這裡算出，兩者不會不一致。
+  const [choices, setChoicesState] = useState<CourseChoices>({});
   const [pending, startTransition] = useTransition();
   const sessions = venueSessions(options, input.venueId);
 
@@ -101,10 +103,11 @@ export function RegistrationForm({
     setCheckedOptions(options);
     // 新名單已經帶著最新的額滿狀態；之後有人取消或加開名額，課程才會恢復可選。
     setFilledCourseIds([]);
-    const stale = staleSelections(input, options);
+    const stale = staleSelections(input, choices, options);
     if (Object.keys(stale.errors).length > 0) {
       const merged = { ...errors, ...stale.errors };
-      setInput({ ...input, ...stale.changes });
+      setInput({ ...input, ...stale.changes, courseIds: courseIdsOf(stale.choices) });
+      setChoicesState(stale.choices);
       setErrors(merged);
       setStep(stepFields.findIndex((fields) => fields.some((field) => merged[field])));
     }
@@ -138,14 +141,14 @@ export function RegistrationForm({
     });
   }
 
-  // 選某個場次的課；courseId 是 null 表示這個場次不選課。同一場次只能有一個選擇，換掉原本的。
+  function setChoices(next: CourseChoices) {
+    setChoicesState(next);
+    update({ courseIds: courseIdsOf(next) });
+  }
+
+  // 選某個場次的課；courseId 是 null 表示這個場次不選課。同一場次只有一個選擇，換掉原本的。
   function chooseCourse(session: SessionOption, courseId: string | null) {
-    const others = input.courseIds.filter((id) => !session.courses.some((course) => course.id === id));
-    update({ courseIds: courseId ? [...others, courseId] : others });
-    setSkippedSessionIds((prev) => [
-      ...prev.filter((id) => id !== session.id),
-      ...(courseId ? [] : [session.id]),
-    ]);
+    setChoices({ ...choices, [session.id]: courseId });
   }
 
   function goTo(nextStep: number) {
@@ -156,13 +159,13 @@ export function RegistrationForm({
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (pending) return;
-    const stepErrors = pick(
-      {
-        ...validateRegistration(input),
-        ...validateCourseChoices(input.courseIds, skippedSessionIds, sessions),
-      },
-      stepFields[step],
-    );
+    const allErrors = {
+      ...validateRegistration(input),
+      ...validateCourseChoices(choices, sessions),
+    };
+    // 平常只檢查這一步。最後送出時每一步都再檢查一次：她在後面幾步時，名單可能剛好變了
+    // （例如新增了場次），有問題就跳回那一步。
+    const stepErrors = step === lastStep ? allErrors : pick(allErrors, stepFields[step]);
     if (Object.keys(stepErrors).length > 0) {
       showErrors(stepErrors);
       return;
@@ -187,17 +190,23 @@ export function RegistrationForm({
       } else {
         // 已經不能選的場地、支聯會、支會取消選取，等新的名單讀進來讓她重選；不然畫面上看起來還選著。
         const { venue, stake, ward } = result.errors;
-        if (venue === "venueUnavailable") setInput((prev) => ({ ...prev, venueId: "", courseIds: [] }));
+        if (venue === "venueUnavailable") {
+          setInput((prev) => ({ ...prev, venueId: "", courseIds: [] }));
+          setChoicesState({});
+        }
         if (stake === "stakeUnavailable") setInput((prev) => ({ ...prev, stakeId: "", wardId: "" }));
         if (ward === "wardUnavailable") setInput((prev) => ({ ...prev, wardId: "" }));
         if (result.errors.courses) {
           const filled = result.fullCourseIds ?? [];
           setFilledCourseIds((prev) => [...prev, ...filled]);
-          // 知道哪幾門額滿就只取消那幾門；不知道，或場次、課程有變動時，全部重選。
-          setInput((prev) => ({
-            ...prev,
-            courseIds: filled.length > 0 ? prev.courseIds.filter((id) => !filled.includes(id)) : [],
-          }));
+          // 知道哪幾門額滿就只取消那幾門；不知道，或場次、課程有變動時，選了課的場次全部重選。
+          const kept = Object.fromEntries(
+            Object.entries(choices).filter(
+              ([, id]) => id === null || (filled.length > 0 && !filled.includes(id)),
+            ),
+          );
+          setChoicesState(kept);
+          setInput((prev) => ({ ...prev, courseIds: courseIdsOf(kept) }));
         }
         showErrors(result.errors);
       }
@@ -243,7 +252,7 @@ export function RegistrationForm({
                 // 課程屬於場地，換場地就要重新選課。
                 onChange={() => {
                   update({ venueId: venue.id, courseIds: [] });
-                  setSkippedSessionIds([]);
+                  setChoicesState({});
                 }}
                 {...errorAria("venue", errors, "venue-hint")}
               />
@@ -257,8 +266,7 @@ export function RegistrationForm({
         <Courses
           sessions={sessions}
           filledCourseIds={filledCourseIds}
-          skippedSessionIds={skippedSessionIds}
-          courseIds={input.courseIds}
+          choices={choices}
           choose={chooseCourse}
           errors={errors}
           t={t}
@@ -331,16 +339,14 @@ export function RegistrationForm({
 function Courses({
   sessions,
   filledCourseIds,
-  skippedSessionIds,
-  courseIds,
+  choices,
   choose,
   errors,
   t,
 }: {
   sessions: SessionOption[];
   filledCourseIds: string[];
-  skippedSessionIds: string[];
-  courseIds: string[];
+  choices: CourseChoices;
   choose: (session: SessionOption, courseId: string | null) => void;
   errors: RegistrationErrors;
   t: Messages;
@@ -373,7 +379,7 @@ function Courses({
                   name={`session-${session.id}`}
                   className={radioClass}
                   disabled={full}
-                  checked={courseIds.includes(course.id)}
+                  checked={choices[session.id] === course.id}
                   onChange={() => choose(session, course.id)}
                   {...errorAria("courses", errors, "courses-hint")}
                 />
@@ -390,7 +396,7 @@ function Courses({
               type="radio"
               name={`session-${session.id}`}
               className={radioClass}
-              checked={skippedSessionIds.includes(session.id)}
+              checked={choices[session.id] === null}
               onChange={() => choose(session, null)}
               {...errorAria("courses", errors, "courses-hint")}
             />
@@ -761,11 +767,16 @@ function Completed({
   );
 }
 
-/** 已經不在名單裡的選擇：要清掉的值，與要顯示的錯誤。 */
+/**
+ * 已經不在名單裡的選擇：要清掉的值、整理後的選課，與要顯示的錯誤。
+ * 選的課已經不在原本那個場次（被刪除，或被管理員移到別的場次）時，清掉那個場次的選擇請她重選，
+ * 不會不知不覺換到別的時段。
+ */
 function staleSelections(
   input: RegistrationInput,
+  choices: CourseChoices,
   options: RegistrationOptions,
-): { changes: Partial<RegistrationInput>; errors: RegistrationErrors } {
+): { changes: Partial<RegistrationInput>; choices: CourseChoices; errors: RegistrationErrors } {
   const changes: Partial<RegistrationInput> = {};
   const errors: RegistrationErrors = {};
   const stake = options.stakes.find((option) => option.id === input.stakeId);
@@ -779,19 +790,20 @@ function staleSelections(
   }
   if (input.venueId && !options.venues.some((venue) => venue.id === input.venueId)) {
     changes.venueId = "";
-    changes.courseIds = [];
     errors.venue = "venueUnavailable";
-  } else {
-    const offered = venueSessions(options, input.venueId).flatMap((session) =>
-      session.courses.map((course) => course.id),
-    );
-    const kept = input.courseIds.filter((id) => offered.includes(id));
-    if (kept.length < input.courseIds.length) {
-      changes.courseIds = kept;
+    return { changes, choices: {}, errors };
+  }
+  const sessions = venueSessions(options, input.venueId);
+  const kept: CourseChoices = {};
+  for (const [sessionId, courseId] of Object.entries(choices)) {
+    const session = sessions.find((option) => option.id === sessionId);
+    if (session && (courseId === null || session.courses.some((course) => course.id === courseId))) {
+      kept[sessionId] = courseId;
+    } else if (courseId !== null) {
       errors.courses = "courseRequired";
     }
   }
-  return { changes, errors };
+  return { changes, choices: kept, errors };
 }
 
 /** 所選場地的場次；還沒選場地時沒有。 */

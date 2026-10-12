@@ -194,7 +194,12 @@ begin
   end if;
 
   -- 先鎖住所選課程，下面的檢查與數名額才看得到最新狀態：管理員正在刪改這些課時，等他完成再檢查。
-  -- 依 id 順序上鎖，同時送出的人不會互相卡住。
+  -- 鎖課程之前先共享鎖住它們的場次：管理員刪場次時是先鎖場次、再連帶刪課，順序一樣才不會互等（死結）。
+  -- 都依 id 順序上鎖，同時送出的人不會互相卡住。
+  perform 1 from public.sessions
+  where id in (select session_id from public.courses where id = any(v_course_ids))
+  order by id
+  for key share;
   perform 1 from public.courses where id = any(v_course_ids) order by id for update;
 
   -- 每門課都要在所選場地，同一場次只能一門（重複的同一門也算）。

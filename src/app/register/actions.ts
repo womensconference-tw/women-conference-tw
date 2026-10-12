@@ -8,9 +8,13 @@ import { createClient } from "@/lib/supabase/server";
 export async function register(input: RegistrationInput): Promise<SubmitResult> {
   const supabase = await createClient();
   const result = await submitRegistration(supabase, sanitize(input));
-  // 她選的場地、支聯會、支會已不能選，或課程剛額滿、有變動：重新讀取頁面上的選項，
-  // 回到那一步時才會顯示最新的名單。已填的資料留在瀏覽器裡，不受影響。
-  if (!result.ok && (["venue", "stake", "ward", "courses"] as const).some((field) => result.errors[field])) {
+  // 重新讀取頁面上的選項。已填的資料留在瀏覽器裡，不受影響。
+  // 失敗時：她選的場地、支聯會、支會已不能選，或課程剛額滿、有變動，回到那一步時才會顯示最新的名單。
+  // 成功時：課程可能剛被移到別的場次，完成頁才會用最新的場次顯示她的課。
+  if (
+    result.ok ||
+    (["venue", "stake", "ward", "courses"] as const).some((field) => result.errors[field])
+  ) {
     refresh();
   }
   return result;

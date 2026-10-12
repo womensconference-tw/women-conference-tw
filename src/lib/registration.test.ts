@@ -5,6 +5,7 @@ import {
   isRegistrationNumber,
   submitRegistration,
   validateCourseChoices,
+  type CourseChoices,
   type RegistrationInput,
 } from "./registration";
 
@@ -343,6 +344,21 @@ describe("課程名額", () => {
     expect(await registrationCount("刪課時報名")).toBe(0);
   });
 
+  // 管理員刪場次時先鎖場次、再連帶刪課。送出若先鎖課程、寫入時才要場次，兩邊會互等（死結），其中一邊被中止。
+  it("送出時剛好在刪除所選課程的場次，不會互相卡住，報名不寫入", async () => {
+    const session = await addSession(1);
+    const course = await addCourse(session, 10);
+
+    const result = await submitWhileHolding(
+      (tx) => tx`select id from public.sessions where id = ${session} for update`,
+      () => submitRegistration(anonClient(), validInput({ name: "刪場次時報名", courseIds: [course] })),
+      (tx) => tx`delete from public.sessions where id = ${session}`,
+    );
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+    expect(await registrationCount("刪場次時報名")).toBe(0);
+  });
+
   it("任一門額滿則整筆不寫入，只回傳額滿的那門", async () => {
     const full = await addCourse(await addSession(1), 1);
     const open = await addCourse(await addSession(2), 10);
@@ -445,12 +461,13 @@ describe("課程名額", () => {
 
 /**
  * 在一個還沒結束的資料庫交易裡做 hold，交易開著時呼叫 submit；
- * 確認 submit 的送出函式真的卡在等這個交易的鎖之後，才結束交易，回傳 submit 的結果。
+ * 確認 submit 的送出函式真的卡在等這個交易的鎖之後，再做 thenDo（有給的話），才結束交易，回傳 submit 的結果。
  * 送出函式一直沒有等這個交易（例如沒有上鎖），測試直接失敗，不靠時間碰運氣。
  */
 async function submitWhileHolding<T>(
   hold: (tx: TransactionSql) => Promise<unknown>,
   submit: () => Promise<T>,
+  thenDo?: (tx: TransactionSql) => Promise<unknown>,
 ): Promise<T> {
   const sql = databaseClient();
   const watcher = databaseClient();
@@ -463,6 +480,7 @@ async function submitWhileHolding<T>(
     await hold(tx);
     held(pid);
     await mayCommit;
+    await thenDo?.(tx);
   });
   try {
     // 交易在通知之前就失敗（例如 hold 的 SQL 有錯）時，直接把錯誤拋出來，不要一直等下去。
@@ -506,14 +524,15 @@ describe("選課檢查", () => {
     { id: "s3", courses: [] },
   ];
 
-  it.each([
-    { what: "每個場次都選了一門", courseIds: [a, c], skipped: [], error: undefined },
-    { what: "一個場次選課、一個場次不選課", courseIds: [a], skipped: ["s2"], error: undefined },
-    { what: "每個場次都不選課", courseIds: [], skipped: ["s1", "s2"], error: undefined },
-    { what: "有場次沒選也沒按不選課", courseIds: [a], skipped: [], error: "courseRequired" },
-    { what: "同一場次選兩門", courseIds: [a, b, c], skipped: [], error: "courseRequired" },
-  ])("$what", ({ courseIds, skipped, error }) => {
-    expect(validateCourseChoices(courseIds, skipped, sessions).courses).toBe(error);
+  it.each<{ what: string; choices: CourseChoices; error?: string }>([
+    { what: "每個場次都選了一門", choices: { s1: a, s2: c }, error: undefined },
+    { what: "一個場次選課、一個場次不選課", choices: { s1: a, s2: null }, error: undefined },
+    { what: "每個場次都不選課", choices: { s1: null, s2: null }, error: undefined },
+    { what: "有場次沒選也沒按不選課", choices: { s1: a }, error: "courseRequired" },
+    // 課程被管理員移到別的場次後，原本那個場次的選擇不算數。
+    { what: "選的課已不在那個場次", choices: { s1: c, s2: null }, error: "courseRequired" },
+  ])("$what", ({ choices, error }) => {
+    expect(validateCourseChoices(choices, sessions).courses).toBe(error);
   });
 });
 

@@ -147,21 +147,29 @@ export function validateRegistration(input: RegistrationInput): RegistrationErro
 }
 
 /**
- * 選課步驟的檢查：每個有開課的場次，選了剛好一門課，或明確選了「不選課」，免得她漏看一個場次。
- * 「不選課」只是畫面上的選擇，不存；所以送出時資料庫只擋同一場次選兩門，不檢查有沒有漏選。
+ * 報名表上每個場次的選擇：課程 id，或 null 表示「不選課」；沒有這個場次的鍵表示還沒選。
+ * 「不選課」只是畫面上的選擇，不存；送出的 courseIds 由這裡的課程算出。
+ */
+export type CourseChoices = Record<string, string | null>;
+
+/** 送出用的課程：選了課的場次各一門。 */
+export function courseIdsOf(choices: CourseChoices): string[] {
+  return Object.values(choices).filter((id): id is string => id !== null);
+}
+
+/**
+ * 選課步驟的檢查：每個有開課的場次，選了這個場次的一門課，或明確選了「不選課」，免得她漏看一個場次。
+ * 送出時資料庫只擋同一場次選兩門，不檢查有沒有漏選，因為沒存課程的場次就是不選課。
  */
 export function validateCourseChoices(
-  courseIds: string[],
-  skippedSessionIds: string[],
+  choices: CourseChoices,
   sessions: SessionCourses[],
 ): RegistrationErrors {
   const answered = sessions.every((session) => {
-    const chosen = session.courses.filter((course) => courseIds.includes(course.id)).length;
-    return (
-      session.courses.length === 0 ||
-      (chosen === 1 && !skippedSessionIds.includes(session.id)) ||
-      (chosen === 0 && skippedSessionIds.includes(session.id))
-    );
+    if (session.courses.length === 0) return true;
+    if (!Object.hasOwn(choices, session.id)) return false;
+    const choice = choices[session.id];
+    return choice === null || session.courses.some((course) => course.id === choice);
   });
   return answered ? {} : { courses: "courseRequired" };
 }
