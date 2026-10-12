@@ -90,6 +90,58 @@ create policy "Anyone can read courses of the current conference"
 -- 和報名一樣，不開放前台直接讀寫。
 revoke all on public.registration_courses from anon, authenticated;
 
+/*
+ * 場地的場次、課程有變動時，先鎖住場地（排他）。送出報名會共享鎖住同一個場地，兩邊互相等待：
+ * 送出檢查「每個開課的場次都選了」時，不會有場次或課程在檢查之後才冒出來或消失。
+ * 不管之後從哪裡改場次、課程（後台、SQL），都會經過這裡。
+ */
+create function public.sessions_lock_venue()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_venue_ids uuid[];
+begin
+  v_venue_ids := case tg_op
+    when 'INSERT' then array[new.venue_id]
+    when 'UPDATE' then array[old.venue_id, new.venue_id]
+    else array[old.venue_id]
+  end;
+  perform 1 from public.venues where id = any(v_venue_ids) order by id for update;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+create function public.courses_lock_venue()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_session_ids uuid[];
+begin
+  v_session_ids := case tg_op
+    when 'INSERT' then array[new.session_id]
+    when 'UPDATE' then array[old.session_id, new.session_id]
+    else array[old.session_id]
+  end;
+  perform 1 from public.venues
+  where id in (select venue_id from public.sessions where id = any(v_session_ids))
+  order by id
+  for update;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+create trigger sessions_lock_venue
+  before insert or update or delete on public.sessions
+  for each row execute function public.sessions_lock_venue();
+
+create trigger courses_lock_venue
+  before insert or update or delete on public.courses
+  for each row execute function public.courses_lock_venue();
+
 -- 某門課已被有效報名（未取消）佔用的名額。報名、修改、取消、後台都用這裡算。
 create function public.course_seats_taken(p_course_id uuid)
 returns integer
@@ -192,9 +244,12 @@ begin
     raise exception 'ward_not_in_stake';
   end if;
 
-  -- 先鎖住所選課程，下面的檢查與數名額才看得到最新狀態：管理員正在刪改這些課時，等他完成再檢查。
-  -- 依 id 順序上鎖，同時送出的人不會互相卡住。
+  -- 先鎖住所選課程，再共享鎖住場地，下面的檢查與數名額才看得到最新狀態：
+  -- 管理員正在刪改這些課，或在這個場地增刪場次、課程時，等他完成再檢查。
+  -- 課程依 id 順序上鎖，同時送出的人不會互相卡住；先課程後場地，和管理員改課程時的順序一樣，不會互等。
+  -- 場地用共享鎖，同一場地的其他人照樣可以同時送出。
   perform 1 from public.courses where id = any(v_course_ids) order by id for update;
+  perform 1 from public.venues where id = p_venue_id for share;
 
   -- 每門課都要在所選場地，同一場次只能一門（重複的同一門也算），有開課的場次都要選。
   if exists (

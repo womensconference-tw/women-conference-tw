@@ -343,6 +343,26 @@ describe("課程名額", () => {
     expect(await registrationCount("刪課時報名")).toBe(0);
   });
 
+  // 管理員新增開課場次的交易還沒結束時她送出：等新增完成後要看到新場次，不能少選一場還報名成功。
+  it("送出時剛新增開課的場次，沒選那一場就整筆不寫入", async () => {
+    const course = await addCourse(await addSession(1), 10);
+
+    const result = await submitWhileHolding(
+      (tx) => tx`
+        with session as (
+          insert into public.sessions (conference_id, venue_id, position, name_zh)
+          values (${conferenceId!}, ${venueId}, 2, '新加的場次')
+          returning id, conference_id
+        )
+        insert into public.courses (conference_id, session_id, title_zh)
+        select conference_id, id, '新加的課' from session`,
+      () => submitRegistration(anonClient(), validInput({ name: "加場時報名", courseIds: [course] })),
+    );
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+    expect(await registrationCount("加場時報名")).toBe(0);
+  });
+
   it("任一門額滿則整筆不寫入，只回傳額滿的那門", async () => {
     const full = await addCourse(await addSession(1), 1);
     const open = await addCourse(await addSession(2), 10);
@@ -436,8 +456,8 @@ describe("課程名額", () => {
 
 /**
  * 在一個還沒結束的資料庫交易裡做 hold，交易開著時呼叫 submit；
- * 確認 submit 真的卡在等這個交易的鎖之後，才結束交易，回傳 submit 的結果。
- * submit 一直沒有等這個交易（例如送出函式沒有上鎖），測試直接失敗，不靠時間碰運氣。
+ * 確認 submit 的送出函式真的卡在等這個交易的鎖之後，才結束交易，回傳 submit 的結果。
+ * 送出函式一直沒有等這個交易（例如沒有上鎖），測試直接失敗，不靠時間碰運氣。
  */
 async function submitWhileHolding<T>(
   hold: (tx: TransactionSql) => Promise<unknown>,
@@ -447,25 +467,33 @@ async function submitWhileHolding<T>(
   const watcher = databaseClient();
   let release!: () => void;
   const mayCommit = new Promise<void>((resolve) => (release = resolve));
-  let holderPid!: number;
-  let held!: () => void;
-  const holding = new Promise<void>((resolve) => (held = resolve));
+  let held!: (pid: number) => void;
+  const holding = new Promise<number>((resolve) => (held = resolve));
   const transaction = sql.begin(async (tx) => {
-    [{ pid: holderPid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+    const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
     await hold(tx);
-    held();
+    held(pid);
     await mayCommit;
   });
   try {
-    await holding;
+    // 交易在通知之前就失敗（例如 hold 的 SQL 有錯）時，直接把錯誤拋出來，不要一直等下去。
+    const holderPid = await Promise.race([
+      holding,
+      transaction.then(() => {
+        throw new Error("交易結束了卻沒有進入等待狀態");
+      }),
+    ]);
     const submitted = submit();
+    // 只認正在執行送出函式、而且被這個交易擋住的連線，其他連線的等待不算。
     for (let waited = 0; ; waited += 50) {
       const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
         select exists (
-          select 1 from pg_stat_activity where ${holderPid}::int = any(pg_blocking_pids(pid))
+          select 1 from pg_stat_activity
+          where ${holderPid}::int = any(pg_blocking_pids(pid))
+            and query like '%submit_registration%'
         ) as blocked`;
       if (blocked) break;
-      if (waited > 3000) throw new Error("送出沒有等那個交易的鎖：送出函式可能沒有鎖住課程");
+      if (waited > 3000) throw new Error("送出函式沒有等那個交易的鎖：可能沒有上鎖");
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     release();
