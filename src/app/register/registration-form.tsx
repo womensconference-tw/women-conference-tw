@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition, type FormEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n/locale";
 import { messages, type Messages } from "@/lib/i18n/messages";
@@ -148,7 +148,6 @@ export function RegistrationForm({
       }
       if (result.ok) {
         setRegistration(result.registration);
-        window.scrollTo({ top: 0 });
       } else {
         if (result.errors.courses) {
           const filled = result.fullCourseIds ?? [];
@@ -225,7 +224,9 @@ export function RegistrationForm({
         <>
           <section className="flex flex-col gap-3">
             <h2 className="text-heading font-bold">{t.register.reviewHeading}</h2>
-            <RegistrationDetails registration={input} options={options} t={t} />
+            <div className="rounded-lg border-2 border-card-outline p-4">
+              <RegistrationDetails registration={input} options={options} t={t} />
+            </div>
           </section>
           <fieldset data-field="portraitConsent" className="flex flex-col gap-3">
             <legend className="mb-2 text-heading font-bold">{t.register.portraitConsentHeading}</legend>
@@ -599,42 +600,71 @@ type Details = Pick<RegistrationInput, "name" | "stakeId" | "wardId" | "venueId"
   noPhone?: boolean;
 };
 
-/** 報名資料的清單，確認步驟與完成頁共用。 */
+/**
+ * 報名資料的清單，確認步驟與完成頁共用。
+ * 排得緊湊（標籤與內容同一行、支聯會併進支會），讓完成頁在手機上一個畫面就截得下。
+ * 完成頁有報名編號時，編號取代「沒有電話」那一列；沒填的 Email、LINE ID 不列。
+ */
 function RegistrationDetails({
   registration,
+  registrationNumber,
   options,
   t,
 }: {
   registration: Details;
+  registrationNumber?: string | null;
   options: RegistrationOptions;
   t: Messages;
 }) {
   const stake = options.stakes.find((option) => option.id === registration.stakeId);
   const ward = stake?.wards.find((option) => option.id === registration.wardId);
   const venue = options.venues.find((option) => option.id === registration.venueId);
-  const rows: [string, string][] = [
-    [t.register.nameLabel, registration.name.trim()],
-    [
-      t.register.phoneLabel,
-      registration.noPhone || !registration.phone ? t.register.noPhone : registration.phone,
-    ],
-    [t.register.emailLabel, registration.email?.trim() || t.register.notProvided],
-    [t.register.lineIdLabel, registration.lineId?.trim() || t.register.notProvided],
-    [t.register.stakeLabel, stake?.name ?? ""],
-    [t.register.wardLabel, ward?.name ?? ""],
-    [t.register.venueLabel, venue?.name ?? ""],
-    // 每個場次一列：場次名稱、所選課程。
-    ...venueSessions(options, registration.venueId).map((session): [string, string] => [
-      session.name,
-      session.courses.find((course) => registration.courseIds.includes(course.id))?.name ?? "",
-    ]),
+  const done = registrationNumber !== undefined;
+  const email = registration.email?.trim();
+  const lineId = registration.lineId?.trim();
+  const rows: { label: string; value: string }[] = [
+    { label: t.register.nameLabel, value: registration.name.trim() },
+    ...(registrationNumber
+      ? []
+      : [
+          {
+            label: t.register.phoneLabel,
+            value: registration.noPhone || !registration.phone ? t.register.noPhone : registration.phone,
+          },
+        ]),
+    ...(email || !done ? [{ label: t.register.emailShortLabel, value: email || t.register.notProvided }] : []),
+    ...(lineId || !done ? [{ label: t.register.lineIdShortLabel, value: lineId || t.register.notProvided }] : []),
+    {
+      label: t.register.wardLabel,
+      value: stake && ward ? t.register.wardWithStake(ward.name, stake.name) : "",
+    },
+    { label: t.register.venueLabel, value: venue?.name ?? "" },
   ];
+  const courses = venueSessions(options, registration.venueId).map((session) => ({
+    session: session.name,
+    course: session.courses.find((course) => registration.courseIds.includes(course.id))?.name ?? "",
+  }));
   return (
-    <dl className="flex flex-col gap-3 rounded-lg border-2 border-card-outline p-5">
-      {rows.map(([label, value], index) => (
-        <div key={index}>
+    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 leading-snug">
+      {/* 報名編號自己一列、放大，標籤較長（英文）時編號換到下一行，不擠窄其他列。 */}
+      {registrationNumber && (
+        <div className="col-span-2 flex flex-wrap items-baseline gap-x-4">
+          <dt className="font-semibold">{t.register.done.registrationNumberLabel}</dt>
+          <dd className="text-heading font-bold tracking-widest">{registrationNumber}</dd>
+        </div>
+      )}
+      {rows.map(({ label, value }) => (
+        <div key={label} className="col-span-2 grid grid-cols-subgrid items-baseline">
           <dt className="font-semibold">{label}</dt>
-          <dd className="break-words">{value}</dd>
+          {/* Email 這類沒有空白的長字串也要能斷行，不能撐出框外。 */}
+          <dd className="min-w-0 wrap-anywhere">{value}</dd>
+        </div>
+      ))}
+      {/* 場次名稱通常含時間、比較長，所以課程一個場次佔兩行：場次、所選課程。 */}
+      {courses.map(({ session, course }, index) => (
+        <div key={index} className={cn("col-span-2", index === 0 && "mt-2")}>
+          <dt className="font-semibold">{session}</dt>
+          <dd className="wrap-anywhere">{course}</dd>
         </div>
       ))}
     </dl>
@@ -650,21 +680,30 @@ function Completed({
   options: RegistrationOptions;
   t: Messages;
 }) {
+  const ref = useRef<HTMLElement>(null);
+  // 送出後把報名資料的框捲到畫面最上面，手機一個畫面就能截圖。截圖提示放在框下面，不佔截圖的空間。
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: "start" });
+  }, []);
   return (
-    <section className="flex flex-col gap-6">
-      <h1 className="text-title leading-tight font-bold">{t.register.done.heading}</h1>
-      {registration.registrationNumber && (
-        <div className="flex flex-col gap-2 rounded-lg border-4 border-primary p-5">
-          <p className="font-semibold">{t.register.done.registrationNumberLabel}</p>
-          <p className="text-title font-bold tracking-widest">{registration.registrationNumber}</p>
-          <p>{t.register.done.registrationNumberHint}</p>
-        </div>
-      )}
+    <section ref={ref} className="flex scroll-mt-3 flex-col gap-4">
+      <div className="flex flex-col gap-3 rounded-lg border-4 border-primary px-4 py-3">
+        <h1 className="text-heading leading-tight font-bold">{t.register.done.heading}</h1>
+        <RegistrationDetails
+          registration={registration}
+          registrationNumber={registration.registrationNumber}
+          options={options}
+          t={t}
+        />
+        {registration.registrationNumber && (
+          <p className="leading-snug">{t.register.done.registrationNumberHint}</p>
+        )}
+      </div>
       {!registration.email && (
-        <p className="rounded-lg bg-muted p-4 font-semibold">{t.register.done.screenshotHint}</p>
+        <p className="rounded-lg bg-muted px-4 py-3 font-semibold leading-snug">
+          {t.register.done.screenshotHint}
+        </p>
       )}
-      <p>{t.register.done.description}</p>
-      <RegistrationDetails registration={registration} options={options} t={t} />
       <Link href="/" className={cn(buttonVariants({ variant: "outline" }), actionClass)}>
         {t.register.homeButton}
       </Link>

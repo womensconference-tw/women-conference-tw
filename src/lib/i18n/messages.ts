@@ -55,6 +55,8 @@ const zh = {
     noPhoneLabel: "我沒有電話（送出後系統會給您一組報名編號）",
     emailLabel: "Email（選填）",
     emailHint: "填了 Email 才會收到確認信。",
+    emailShortLabel: "Email",
+    lineIdShortLabel: "LINE ID",
     lineIdLabel: "LINE ID（選填）",
     stakeLabel: "支聯會",
     wardLabel: "支會",
@@ -103,10 +105,9 @@ const zh = {
     },
     done: {
       heading: "報名完成",
-      description: "以下是您的報名資料：",
-      registrationNumberLabel: "您的報名編號",
+      registrationNumberLabel: "報名編號",
       registrationNumberHint: "查詢報名時，請用姓名和這組報名編號。請一定要記下來。",
-      screenshotHint: "您沒有填 Email，請把這個畫面截圖保存，或請家人幫忙記下來。",
+      screenshotHint: "您沒有填 Email，請把上面的報名資料截圖保存，或請家人幫忙記下來。",
     },
   },
 };
@@ -170,6 +171,8 @@ const en = {
     noPhoneLabel: "I don't have a phone (you will get a registration number after submitting)",
     emailLabel: "Email (optional)",
     emailHint: "You will only get a confirmation email if you enter an email address.",
+    emailShortLabel: "Email",
+    lineIdShortLabel: "LINE ID",
     lineIdLabel: "LINE ID (optional)",
     stakeLabel: "Stake",
     wardLabel: "Ward",
@@ -225,12 +228,11 @@ const en = {
     },
     done: {
       heading: "You're registered",
-      description: "Here are your registration details:",
-      registrationNumberLabel: "Your registration number",
+      registrationNumberLabel: "Registration no.",
       registrationNumberHint:
-        "Use your name and this registration number to look up your registration. Please write it down.",
+        "Look up your registration with your name and this number. Please write it down.",
       screenshotHint:
-        "You didn't give an email address. Please take a screenshot of this page, or ask a family member to write it down.",
+        "You didn't give an email address. Please take a screenshot of your registration details above, or ask a family member to write them down.",
     },
   },
 } satisfies Messages;
