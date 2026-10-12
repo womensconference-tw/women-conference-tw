@@ -408,6 +408,7 @@ function BasicDetails({ input, update, errors, options, t }: StepProps) {
       <TextField
         field="email"
         label={t.register.emailLabel}
+        hint={t.register.emailHint}
         value={input.email}
         onChange={(email) => update({ email })}
         type="email"
