@@ -80,6 +80,8 @@ export type SubmitResult =
 /** 選課檢查需要的場次資料：每個場次開了哪些課。 */
 export type SessionCourses = { id: string; courses: { id: string }[] };
 
+// Postgres 偵測到互相等待時的錯誤代碼。
+const DEADLOCK_DETECTED = "40P01";
 const NAME_MAX_LENGTH = 50;
 const LINE_ID_MAX_LENGTH = 50;
 const PHONE_PATTERN = /^\+?\d{8,15}$/;
@@ -206,19 +208,27 @@ export async function submitRegistration(
   const errors = validateRegistration(input);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
-  const { data, error } = await supabase
-    .rpc("submit_registration", {
-      p_venue_id: input.venueId,
-      p_stake_id: input.stakeId,
-      p_ward_id: input.wardId,
-      p_name: trimBlank(input.name),
-      p_phone: input.noPhone ? null : normalizePhone(input.phone),
-      p_email: trimBlank(input.email) || null,
-      p_line_id: trimBlank(input.lineId) || null,
-      p_course_ids: input.courseIds,
-      p_portrait_consent: input.portraitConsent,
-    })
-    .single<RegistrationRow>();
+  const call = () =>
+    supabase
+      .rpc("submit_registration", {
+        p_venue_id: input.venueId,
+        p_stake_id: input.stakeId,
+        p_ward_id: input.wardId,
+        p_name: trimBlank(input.name),
+        p_phone: input.noPhone ? null : normalizePhone(input.phone),
+        p_email: trimBlank(input.email) || null,
+        p_line_id: trimBlank(input.lineId) || null,
+        p_course_ids: input.courseIds,
+        p_portrait_consent: input.portraitConsent,
+      })
+      .single<RegistrationRow>();
+  let response = await call();
+  // 管理員同時調整幾門課的名額時，可能和報名互相等待，資料庫會中止其中一邊（deadlock detected）。
+  // 被中止的報名整筆都沒寫入，直接重送就好，不必讓她看到「系統出了問題」。
+  for (let retry = 0; response.error?.code === DEADLOCK_DETECTED && retry < 2; retry++) {
+    response = await call();
+  }
+  const { data, error } = response;
   if (error) {
     if (error.message === "course_full") {
       return {
