@@ -14,8 +14,12 @@ import { cn } from "@/lib/utils";
 const registerPath = "/register";
 const lookupPath = "/lookup";
 
-// 按鈕至少 56px 高（h-14），文字太長時換行而不是被截掉。
-const actionClass = "h-auto min-h-14 px-6 py-3 text-xl whitespace-normal text-center";
+// 按鈕高度、字級來自 globals.css 的主視覺設定；文字太長時換行而不是被截掉。
+// 經過 cn() 的字級要寫成 text-(length:…)：寫 text-body 會被誤認成文字顏色，蓋掉按鈕的文字色。
+const actionClass =
+  "h-auto min-h-(--button-min-height) px-6 py-3 text-(length:--text-body-size) whitespace-normal text-center";
+const primaryActionClass =
+  "min-h-(--button-primary-min-height) text-(length:--text-lead-size) font-bold";
 
 /*
  * 首頁區塊順序依規格：報名 → 已報名查詢 → 報名三步驟 → 場地 → 需要幫忙 → 關於大會，
@@ -31,13 +35,13 @@ export default async function Home() {
   ]);
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-12 px-5 py-8 text-xl leading-relaxed">
+    <main className="mx-auto flex w-full max-w-(--content-max-width) flex-1 flex-col gap-12 px-5 py-8 text-body leading-relaxed">
       <div className="flex justify-end">
         <LanguageSwitch />
       </div>
       {!conference || !content || conference.phase === "unannounced" ? (
         <>
-          <h1 className="text-4xl font-bold">{t.site.title}</h1>
+          <h1 className="text-title font-bold">{t.site.title}</h1>
           <p>{t.home.comingSoon}</p>
         </>
       ) : (
@@ -84,15 +88,15 @@ function RegistrationSection({
 
   return (
     <section className="flex flex-col gap-4">
-      <h1 className="text-4xl font-bold">{t.site.title}</h1>
-      <p className="text-2xl font-semibold">
+      <h1 className="text-title font-bold">{t.site.title}</h1>
+      <p className="text-lead font-semibold">
         {t.home.conferenceDate(
           conference.year,
           formatConferenceDate(conference.conferenceDate, locale),
         )}
       </p>
       {content.time && (
-        <p className="text-2xl">
+        <p className="text-lead">
           {content.time.end
             ? t.home.conferenceTime(
                 formatTime(conference.conferenceDate, content.time.start, locale),
@@ -103,10 +107,10 @@ function RegistrationSection({
               )}
         </p>
       )}
-      {content.venues.length > 0 && <p className="text-2xl">{t.home.simultaneous(places)}</p>}
-      <p className="text-2xl font-semibold">{statusText(conference, t, locale)}</p>
+      {content.venues.length > 0 && <p className="text-lead">{t.home.simultaneous(places)}</p>}
+      <p className="text-lead font-semibold">{statusText(conference, t, locale)}</p>
       {conference.phase === "open" && (
-        <ActionLink href={registerPath} className="min-h-16 text-2xl font-bold">
+        <ActionLink href={registerPath} className={primaryActionClass}>
           {t.home.registerButton}
         </ActionLink>
       )}
@@ -118,7 +122,8 @@ function RegistrationSection({
           className={cn(
             buttonVariants({ variant: "secondary" }),
             actionClass,
-            "min-h-16 border-2 border-dashed border-foreground/40 text-2xl font-bold disabled:opacity-100",
+            primaryActionClass,
+            "border-2 border-dashed border-foreground/40 disabled:opacity-100",
           )}
         >
           {t.home.registerNotOpenYet}
@@ -127,7 +132,7 @@ function RegistrationSection({
       {conference.phase === "closed" && (
         <>
           <p>{t.home.closedCanStillLookUp}</p>
-          <ActionLink href={lookupPath} className="min-h-16 text-2xl font-bold">
+          <ActionLink href={lookupPath} className={primaryActionClass}>
             {t.home.lookupButton}
           </ActionLink>
         </>
@@ -173,8 +178,8 @@ function VenuesSection({ content, t }: SectionProps & { content: HomeContent }) 
     <Section heading={t.home.venuesHeading}>
       <ul className="flex flex-col gap-4">
         {content.venues.map((venue, index) => (
-          <li key={index} className="flex flex-col gap-2 rounded-lg border-2 border-foreground/20 p-5">
-            <h3 className="text-2xl font-bold">{venue.name}</h3>
+          <li key={index} className="flex flex-col gap-2 rounded-lg border-2 border-card-outline p-5">
+            <h3 className="text-lead font-bold">{venue.name}</h3>
             {venue.address && (
               <p>
                 <span className="font-semibold">{t.home.venueAddress}</span>
@@ -219,8 +224,8 @@ function AboutSection({ content, t }: SectionProps & { content: HomeContent }) {
     <Section heading={t.home.aboutHeading}>
       {themeScripture.text && (
         <div className="flex flex-col gap-2">
-          <h3 className="text-2xl font-bold">{t.home.themeScriptureHeading}</h3>
-          <blockquote className="border-l-4 border-foreground/40 pl-4">
+          <h3 className="text-lead font-bold">{t.home.themeScriptureHeading}</h3>
+          <blockquote className="border-l-4 border-quote-line pl-4">
             <p className="whitespace-pre-line">{themeScripture.text}</p>
             {themeScripture.reference && <p className="mt-2">— {themeScripture.reference}</p>}
           </blockquote>
@@ -228,13 +233,13 @@ function AboutSection({ content, t }: SectionProps & { content: HomeContent }) {
       )}
       {welcome && (
         <div className="flex flex-col gap-2">
-          <h3 className="text-2xl font-bold">{t.home.welcomeHeading}</h3>
+          <h3 className="text-lead font-bold">{t.home.welcomeHeading}</h3>
           <p className="whitespace-pre-line">{welcome}</p>
         </div>
       )}
       {faqs.length > 0 && (
         <div className="flex flex-col gap-2">
-          <h3 className="text-2xl font-bold">{t.home.faqHeading}</h3>
+          <h3 className="text-lead font-bold">{t.home.faqHeading}</h3>
           <dl className="flex flex-col gap-4">
             {faqs.map((faq, index) => (
               <div key={index}>
@@ -252,7 +257,7 @@ function AboutSection({ content, t }: SectionProps & { content: HomeContent }) {
 function Section({ heading, children }: { heading: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-3xl font-bold">{heading}</h2>
+      <h2 className="text-heading font-bold">{heading}</h2>
       {children}
     </section>
   );
