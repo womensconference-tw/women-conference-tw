@@ -10,7 +10,7 @@ import { getLocale, getMessages } from "@/lib/i18n/server";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
-// 報名與查詢頁由之後的 ticket 建立（#6、#11）。
+// 查詢頁由之後的 ticket 建立（#11）。
 const registerPath = "/register";
 const lookupPath = "/lookup";
 

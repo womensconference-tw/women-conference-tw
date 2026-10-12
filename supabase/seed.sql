@@ -59,3 +59,31 @@ from public.conferences, (values
   (2, '大會手冊下載', '', '手冊內容將於大會前一週公布。', '', '前往教會網站', 'Go to the Church website', 'https://www.churchofjesuschrist.org/')
 ) as b(position, title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url)
 where year = 2027;
+
+-- 支聯會、支會名單（假資料，正式名單由後台維護）。最後一個支聯會已停用，報名表上不會出現。
+insert into public.stakes (position, name_zh, name_en, is_active) values
+  (1, '台北支聯會', 'Taipei Stake', true),
+  (2, '台北西支聯會', 'Taipei West Stake', true),
+  (3, '台中支聯會', 'Taichung Stake', true),
+  (4, '高雄支聯會', 'Kaohsiung Stake', true),
+  (5, '舊台北東支聯會', 'Former Taipei East Stake', false);
+
+insert into public.wards (stake_id, position, name_zh, name_en, is_active)
+select s.id, w.position, w.name_zh, w.name_en, w.is_active
+from public.stakes s
+join (values
+  ('台北支聯會', 1, '新店支會', 'Xindian Ward', true),
+  ('台北支聯會', 2, '景美支會', 'Jingmei Ward', true),
+  ('台北支聯會', 3, '木柵支會', 'Muzha Ward', true),
+  ('台北支聯會', 4, '舊公館支會', 'Former Gongguan Ward', false),
+  ('台北西支聯會', 1, '板橋支會', 'Banqiao Ward', true),
+  ('台北西支聯會', 2, '三重支會', 'Sanchong Ward', true),
+  ('台北西支聯會', 3, '新莊支會', 'Xinzhuang Ward', true),
+  ('台中支聯會', 1, '大雅支會', 'Daya Ward', true),
+  ('台中支聯會', 2, '西屯支會', 'Xitun Ward', true),
+  ('台中支聯會', 3, '豐原支會', 'Fengyuan Ward', true),
+  ('高雄支聯會', 1, '鳥松支會', 'Niaosong Ward', true),
+  ('高雄支聯會', 2, '鳳山支會', 'Fengshan Ward', true),
+  ('高雄支聯會', 3, '左營支會', 'Zuoying Ward', true),
+  ('舊台北東支聯會', 1, '舊南港支會', 'Former Nangang Ward', true)
+) as w(stake_name, position, name_zh, name_en, is_active) on w.stake_name = s.name_zh;
