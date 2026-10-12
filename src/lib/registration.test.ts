@@ -634,12 +634,13 @@ describe("開放報名後的場次與課程", () => {
 
 // 開放前就開始、開放後才確定的修改也要擋下：要用確定當下的時間判斷，不是交易開始的時間。
 describe("跨過開放時間的修改", () => {
-  it("開放前開始新增場次，開放後才確定，整個修改不算數", async () => {
+  // 在開放前新增場次，等開放時間過了才確定：檢查要在確定那一刻、用當下的時間做，才擋得下來。
+  it("開放前新增場次，開放後才確定，整個修改不算數", async () => {
     const sql = databaseClient();
     try {
       const attempt = sql.begin(async (tx) => {
         const [{ started }] = await tx<{ started: Date }[]>`select now() as started`;
-        // 交易開始之後才把開放時間設在一秒後，確保交易真的是開放前開始的。
+        // 交易開始之後才把開放時間設在一秒後，確保新增場次時還沒開放。
         const opensAt = new Date(Date.now() + 1000);
         must(
           await admin
@@ -647,14 +648,17 @@ describe("跨過開放時間的修改", () => {
             .update({ registration_opens_at: opensAt.toISOString() })
             .eq("id", conferenceId!),
         );
-        expect(started.getTime()).toBeLessThan(opensAt.getTime());
-        await new Promise((resolve) => setTimeout(resolve, 2000));
         await tx`
           insert into public.sessions (conference_id, venue_id, name_zh)
           values (${conferenceId!}, ${venueId}, '開放後才確定的場次')`;
+        const [{ inserted }] = await tx<{ inserted: Date }[]>`select clock_timestamp() as inserted`;
+        expect(started.getTime()).toBeLessThan(opensAt.getTime());
+        expect(inserted.getTime()).toBeLessThan(opensAt.getTime());
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       });
 
       await expect(attempt).rejects.toThrow("programme_locked");
+      expect(must(await admin.from("sessions").select("id").eq("name_zh", "開放後才確定的場次"))).toEqual([]);
     } finally {
       await sql.end();
     }

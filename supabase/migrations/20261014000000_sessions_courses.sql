@@ -99,6 +99,9 @@ revoke all on public.registration_courses from anon, authenticated;
  * 在修改確定生效（交易提交）的那一刻才檢查，並用實際的當下時間（clock_timestamp），
  * 不用交易開始的時間（now）：開放前就開始、開放後才確定的修改也要擋下。
  * 以函式擁有者的權限讀年度大會，不受呼叫者看不看得到這個年度影響，免得讀不到被當成還沒開放。
+ *
+ * 這些規則防的是網站與後台經由 API 的操作（每次一個動作，不能下 SET CONSTRAINTS 之類的指令）。
+ * 能直接連資料庫的人本來就能停用觸發器（seed 就是這樣建假資料），不在防範範圍內。
  */
 create function public.registration_opened(p_conference_id uuid)
 returns boolean
