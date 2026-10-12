@@ -187,7 +187,7 @@ describe("送出報名", () => {
   it("支會不屬於所選的支聯會時被拒絕", async () => {
     const result = await submitRegistration(anonClient(), validInput({ wardId: taichungWardId }));
 
-    expect(result).toEqual({ ok: false, errors: { ward: "wardNotInStake" } });
+    expect(result).toEqual({ ok: false, errors: { ward: "wardUnavailable" } });
   });
 
   // 教會重新劃分後，舊單位停用；報名表上已不顯示，送出時也不接受。
@@ -196,7 +196,7 @@ describe("送出報名", () => {
 
     const result = await submitRegistration(anonClient(), validInput());
 
-    expect(result).toEqual({ ok: false, errors: { ward: "wardNotInStake" } });
+    expect(result).toEqual({ ok: false, errors: { ward: "wardUnavailable" } });
   });
 
   it("停用的支聯會不能選", async () => {
@@ -204,7 +204,17 @@ describe("送出報名", () => {
 
     const result = await submitRegistration(anonClient(), validInput());
 
-    expect(result).toEqual({ ok: false, errors: { stake: "stakeRequired" } });
+    expect(result).toEqual({ ok: false, errors: { stake: "stakeUnavailable" } });
+  });
+
+  // 填表時場地被刪掉（或不屬於目前年度）：請她重新選，不是說她沒選。
+  it("場地已不在可選的名單中時被拒絕", async () => {
+    const result = await submitRegistration(
+      anonClient(),
+      validInput({ venueId: crypto.randomUUID() }),
+    );
+
+    expect(result).toEqual({ ok: false, errors: { venue: "venueUnavailable" } });
   });
 
   it("每個有問題的欄位各自標出錯誤", async () => {

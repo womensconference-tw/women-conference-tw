@@ -91,6 +91,20 @@ export function RegistrationForm({
   const [pending, startTransition] = useTransition();
   const sessions = venueSessions(options, input.venueId);
 
+  // 送出失敗後頁面會重新讀取名單。新名單裡已經沒有她選的場地、支聯會、支會或課程時，
+  // 一次全部取消選取並標出來，跳到最前面有問題的那一步；不必送出好幾次才一個一個發現。
+  const [checkedOptions, setCheckedOptions] = useState(options);
+  if (options !== checkedOptions) {
+    setCheckedOptions(options);
+    const stale = staleSelections(input, options);
+    if (Object.keys(stale.errors).length > 0) {
+      const merged = { ...errors, ...stale.errors };
+      setInput({ ...input, ...stale.changes });
+      setErrors(merged);
+      setStep(stepFields.findIndex((fields) => fields.some((field) => merged[field])));
+    }
+  }
+
   // 改了哪個欄位，就收起那個欄位的錯誤；整張表單的錯誤（例如不在報名期間）留著。
   function update(changes: Partial<RegistrationInput>) {
     setInput((prev) => ({ ...prev, ...changes }));
@@ -132,7 +146,8 @@ export function RegistrationForm({
       showErrors(stepErrors);
       return;
     }
-    setErrors({});
+    // 這一步已經沒問題；後面幾步的錯誤（例如送出後才發現場地不能選）留著，到那一步才看得到。
+    setErrors((prev) => pick(prev, stepFields.slice(step + 1).flat()));
     if (step < lastStep) {
       goTo(step + 1);
       return;
@@ -149,6 +164,11 @@ export function RegistrationForm({
       if (result.ok) {
         setRegistration(result.registration);
       } else {
+        // 已經不能選的場地、支聯會、支會取消選取，等新的名單讀進來讓她重選；不然畫面上看起來還選著。
+        const { venue, stake, ward } = result.errors;
+        if (venue === "venueUnavailable") setInput((prev) => ({ ...prev, venueId: "", courseIds: [] }));
+        if (stake === "stakeUnavailable") setInput((prev) => ({ ...prev, stakeId: "", wardId: "" }));
+        if (ward === "wardUnavailable") setInput((prev) => ({ ...prev, wardId: "" }));
         if (result.errors.courses) {
           const filled = result.fullCourseIds ?? [];
           setFilledCourseIds((prev) => [...prev, ...filled]);
@@ -709,6 +729,39 @@ function Completed({
       </Link>
     </section>
   );
+}
+
+/** 已經不在名單裡的選擇：要清掉的值，與要顯示的錯誤。 */
+function staleSelections(
+  input: RegistrationInput,
+  options: RegistrationOptions,
+): { changes: Partial<RegistrationInput>; errors: RegistrationErrors } {
+  const changes: Partial<RegistrationInput> = {};
+  const errors: RegistrationErrors = {};
+  const stake = options.stakes.find((option) => option.id === input.stakeId);
+  if (input.stakeId && !stake) {
+    changes.stakeId = "";
+    changes.wardId = "";
+    errors.stake = "stakeUnavailable";
+  } else if (input.wardId && !stake?.wards.some((ward) => ward.id === input.wardId)) {
+    changes.wardId = "";
+    errors.ward = "wardUnavailable";
+  }
+  if (input.venueId && !options.venues.some((venue) => venue.id === input.venueId)) {
+    changes.venueId = "";
+    changes.courseIds = [];
+    errors.venue = "venueUnavailable";
+  } else {
+    const offered = venueSessions(options, input.venueId).flatMap((session) =>
+      session.courses.map((course) => course.id),
+    );
+    const kept = input.courseIds.filter((id) => offered.includes(id));
+    if (kept.length < input.courseIds.length) {
+      changes.courseIds = kept;
+      errors.courses = "courseRequired";
+    }
+  }
+  return { changes, errors };
 }
 
 /** 所選場地的場次；還沒選場地時沒有。 */

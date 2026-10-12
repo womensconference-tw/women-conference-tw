@@ -43,9 +43,11 @@ export type RegistrationError =
   | "emailInvalid"
   | "lineIdTooLong"
   | "stakeRequired"
+  | "stakeUnavailable"
   | "wardRequired"
-  | "wardNotInStake"
+  | "wardUnavailable"
   | "venueRequired"
+  | "venueUnavailable"
   | "courseRequired"
   | "courseFull"
   | "portraitConsentRequired"
@@ -159,10 +161,10 @@ export function validateRegistration(
 const databaseErrors: Record<string, RegistrationErrors> = {
   registration_not_open: { form: "notOpen" },
   portrait_consent_required: { portraitConsent: "portraitConsentRequired" },
-  // 場地或支聯會不在可選的名單中（例如剛被停用），請她重新選。
-  venue_invalid: { venue: "venueRequired" },
-  stake_invalid: { stake: "stakeRequired" },
-  ward_not_in_stake: { ward: "wardNotInStake" },
+  // 場地、支聯會、支會不在可選的名單中（例如她填表時剛被停用或刪除），請她重新選。
+  venue_invalid: { venue: "venueUnavailable" },
+  stake_invalid: { stake: "stakeUnavailable" },
+  ward_not_in_stake: { ward: "wardUnavailable" },
   // 課程不在所選場地、有場次沒選或選了兩門：請她回選課步驟重新選。
   courses_invalid: { courses: "courseRequired" },
 };
