@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /*
  * 報名服務：前台寫入報名的唯一入口。
  * 欄位檢查（validateRegistration）不碰資料庫，報名表在每一步也用它即時提示；
- * 要看資料庫當下狀態的規則（是否報名中、支會是否屬於該支聯會）由資料庫函式 submit_registration 檢查。
+ * 要看資料庫當下狀態的規則（是否報名中、支會是否屬於該支聯會、課程名額）由資料庫函式 submit_registration 檢查。
  */
 
 /** 報名表送出的內容，都是使用者輸入的原樣，整理與檢查由報名服務負責。 */
@@ -17,6 +17,8 @@ export type RegistrationInput = {
   stakeId: string;
   wardId: string;
   venueId: string;
+  /** 所選場地每個場次各選一門的課程。 */
+  courseIds: string[];
   portraitConsent: boolean;
 };
 
@@ -29,6 +31,7 @@ export type RegistrationField =
   | "stake"
   | "ward"
   | "venue"
+  | "courses"
   | "portraitConsent"
   | "form";
 
@@ -43,6 +46,8 @@ export type RegistrationError =
   | "wardRequired"
   | "wardNotInStake"
   | "venueRequired"
+  | "courseRequired"
+  | "courseFull"
   | "portraitConsentRequired"
   | "notOpen"
   | "unknown";
@@ -62,11 +67,16 @@ export type Registration = {
   stakeId: string;
   wardId: string;
   venueId: string;
+  courseIds: string[];
 };
 
 export type SubmitResult =
   | { ok: true; registration: Registration }
-  | { ok: false; errors: RegistrationErrors };
+  /** 送出時有課程額滿，fullCourseIds 列出是哪幾門。 */
+  | { ok: false; errors: RegistrationErrors; fullCourseIds?: string[] };
+
+/** 選課檢查需要的場次資料：每個場次開了哪些課。 */
+export type SessionCourses = { courses: { id: string }[] };
 
 const NAME_MAX_LENGTH = 50;
 const LINE_ID_MAX_LENGTH = 50;
@@ -81,6 +91,8 @@ const EMAIL_PATTERN = new RegExp(`^[^@${BLANK}]+@[^@${BLANK}]+\\.[^@${BLANK}]+$`
 export function trimBlank(value: string): string {
   return value.replace(EDGE_BLANKS, "");
 }
+// 一個場地的場次不會超過這個數；送來更多的不必交給資料庫逐一檢查。
+const MAX_COURSES = 20;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // 與資料庫產生的規則一致：100000–999999。
 const REGISTRATION_NUMBER_PATTERN = /^[1-9]\d{5}$/;
@@ -100,8 +112,14 @@ export function normalizePhone(raw: string): string {
     .replace(new RegExp(`[${BLANK}\\-().]`, "g"), "");
 }
 
-/** 檢查欄位格式，不碰資料庫。沒有錯誤時回傳空物件。 */
-export function validateRegistration(input: RegistrationInput): RegistrationErrors {
+/**
+ * 檢查欄位格式，不碰資料庫。沒有錯誤時回傳空物件。
+ * 有給所選場地的場次時，也檢查每個有開課的場次都剛好選了一門。
+ */
+export function validateRegistration(
+  input: RegistrationInput,
+  sessions?: SessionCourses[],
+): RegistrationErrors {
   const errors: RegistrationErrors = {};
 
   const name = trimBlank(input.name);
@@ -123,6 +141,15 @@ export function validateRegistration(input: RegistrationInput): RegistrationErro
   if (!UUID_PATTERN.test(input.wardId)) errors.ward = "wardRequired";
   if (!UUID_PATTERN.test(input.venueId)) errors.venue = "venueRequired";
 
+  const coursesValid =
+    input.courseIds.length <= MAX_COURSES && input.courseIds.every((id) => UUID_PATTERN.test(id));
+  const sessionsCovered = (sessions ?? []).every(
+    (session) =>
+      session.courses.length === 0 ||
+      session.courses.filter((course) => input.courseIds.includes(course.id)).length === 1,
+  );
+  if (!coursesValid || !sessionsCovered) errors.courses = "courseRequired";
+
   if (input.portraitConsent !== true) errors.portraitConsent = "portraitConsentRequired";
 
   return errors;
@@ -136,6 +163,8 @@ const databaseErrors: Record<string, RegistrationErrors> = {
   venue_invalid: { venue: "venueRequired" },
   stake_invalid: { stake: "stakeRequired" },
   ward_not_in_stake: { ward: "wardNotInStake" },
+  // 課程不在所選場地、有場次沒選或選了兩門：請她回選課步驟重新選。
+  courses_invalid: { courses: "courseRequired" },
 };
 
 // 欄位檢查與資料表限制本來就一致；萬一資料表擋下了，也標在對應的欄位旁，不只顯示「系統出了問題」。
@@ -167,10 +196,18 @@ export async function submitRegistration(
       p_phone: input.noPhone ? null : normalizePhone(input.phone),
       p_email: trimBlank(input.email) || null,
       p_line_id: trimBlank(input.lineId) || null,
+      p_course_ids: input.courseIds,
       p_portrait_consent: input.portraitConsent,
     })
     .single<RegistrationRow>();
   if (error) {
+    if (error.message === "course_full") {
+      return {
+        ok: false,
+        errors: { courses: "courseFull" },
+        fullCourseIds: error.details ? error.details.split(",") : [],
+      };
+    }
     const known = databaseErrors[error.message] ?? constraintErrors[violatedConstraint(error.message)];
     if (known) return { ok: false, errors: known };
     console.error("submit_registration failed", error);
@@ -189,6 +226,8 @@ export async function submitRegistration(
       stakeId: data.stake_id,
       wardId: data.ward_id,
       venueId: data.venue_id,
+      // 資料庫在同一個交易裡存下了所選的每一門課，成功就是送出的這些。
+      courseIds: input.courseIds,
     },
   };
 }

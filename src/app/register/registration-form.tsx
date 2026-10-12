@@ -12,7 +12,12 @@ import {
   type RegistrationField,
   type RegistrationInput,
 } from "@/lib/registration";
-import { searchWards, type RegistrationOptions } from "@/lib/registration-options";
+import {
+  searchWards,
+  type CourseOption,
+  type RegistrationOptions,
+  type SessionOption,
+} from "@/lib/registration-options";
 import { cn } from "@/lib/utils";
 import { register } from "./actions";
 
@@ -20,6 +25,7 @@ import { register } from "./actions";
 const stepFields: RegistrationField[][] = [
   ["name", "phone", "email", "lineId", "stake", "ward"],
   ["venue"],
+  ["courses"],
   ["portraitConsent", "form"],
 ];
 const lastStep = stepFields.length - 1;
@@ -33,7 +39,9 @@ const inputFields: Record<keyof RegistrationInput, RegistrationField[]> = {
   lineId: ["lineId"],
   stakeId: ["stake", "ward"],
   wardId: ["ward"],
-  venueId: ["venue"],
+  // 換場地時課程會清空，所以課程的錯誤一起收起。
+  venueId: ["venue", "courses"],
+  courseIds: ["courses"],
   portraitConsent: ["portraitConsent"],
 };
 
@@ -46,6 +54,7 @@ const emptyInput: RegistrationInput = {
   stakeId: "",
   wardId: "",
   venueId: "",
+  courseIds: [],
   portraitConsent: false,
 };
 
@@ -60,9 +69,10 @@ const choiceClass =
 const radioClass = "size-6 shrink-0 accent-primary";
 
 /**
- * 報名表：基本資料 → 選場地 → 肖像權同意與確認 → 完成頁。
- * 三步都在同一頁切換，回上一步不會清掉已填的資料；送出後在同一頁顯示完成頁。
- * 不用下拉選單：支聯會、支會、場地都是攤開的大選項。
+ * 報名表：基本資料 → 選場地 → 選課程 → 肖像權同意與確認 → 完成頁。
+ * 各步都在同一頁切換，回上一步不會清掉已填的資料；送出後在同一頁顯示完成頁。
+ * 不用下拉選單：支聯會、支會、場地、課程都是攤開的大選項。
+ * 送出時有課程剛被選滿：回到選課步驟，那門課標成已額滿並取消選取，其他資料都保留。
  */
 export function RegistrationForm({
   locale,
@@ -76,7 +86,10 @@ export function RegistrationForm({
   const [input, setInput] = useState<RegistrationInput>(emptyInput);
   const [errors, setErrors] = useState<RegistrationErrors>({});
   const [registration, setRegistration] = useState<Registration | null>(null);
+  // 送出時才發現額滿的課程；讀取頁面時已額滿的由 options 標出。
+  const [filledCourseIds, setFilledCourseIds] = useState<string[]>([]);
   const [pending, startTransition] = useTransition();
+  const sessions = venueSessions(options, input.venueId);
 
   // 改了哪個欄位，就收起那個欄位的錯誤；整張表單的錯誤（例如不在報名期間）留著。
   function update(changes: Partial<RegistrationInput>) {
@@ -100,7 +113,7 @@ export function RegistrationForm({
     requestAnimationFrame(() => {
       document
         .querySelector<HTMLElement>(
-          `[data-field="${first}"][tabindex], [data-field="${first}"] :is(input, button, [tabindex])`,
+          `[data-field="${first}"][tabindex], [data-field="${first}"] :is(input:enabled, button, [tabindex])`,
         )
         ?.focus();
     });
@@ -114,7 +127,7 @@ export function RegistrationForm({
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (pending) return;
-    const stepErrors = pick(validateRegistration(input), stepFields[step]);
+    const stepErrors = pick(validateRegistration(input, sessions), stepFields[step]);
     if (Object.keys(stepErrors).length > 0) {
       showErrors(stepErrors);
       return;
@@ -137,6 +150,15 @@ export function RegistrationForm({
         setRegistration(result.registration);
         window.scrollTo({ top: 0 });
       } else {
+        if (result.errors.courses) {
+          const filled = result.fullCourseIds ?? [];
+          setFilledCourseIds((prev) => [...prev, ...filled]);
+          // 知道哪幾門額滿就只取消那幾門；不知道，或場次、課程有變動時，全部重選。
+          setInput((prev) => ({
+            ...prev,
+            courseIds: filled.length > 0 ? prev.courseIds.filter((id) => !filled.includes(id)) : [],
+          }));
+        }
         showErrors(result.errors);
       }
     });
@@ -178,7 +200,8 @@ export function RegistrationForm({
                 name="venue"
                 className={radioClass}
                 checked={input.venueId === venue.id}
-                onChange={() => update({ venueId: venue.id })}
+                // 課程屬於場地，換場地就要重新選課。
+                onChange={() => update({ venueId: venue.id, courseIds: [] })}
                 {...errorAria("venue", errors, "venue-hint")}
               />
               {venue.name}
@@ -188,6 +211,17 @@ export function RegistrationForm({
       )}
 
       {step === 2 && (
+        <Courses
+          sessions={sessions}
+          filledCourseIds={filledCourseIds}
+          input={input}
+          update={update}
+          errors={errors}
+          t={t}
+        />
+      )}
+
+      {step === 3 && (
         <>
           <section className="flex flex-col gap-3">
             <h2 className="text-heading font-bold">{t.register.reviewHeading}</h2>
@@ -245,6 +279,77 @@ export function RegistrationForm({
         )}
       </div>
     </form>
+  );
+}
+
+function Courses({
+  sessions,
+  filledCourseIds,
+  input,
+  update,
+  errors,
+  t,
+}: {
+  sessions: SessionOption[];
+  filledCourseIds: string[];
+  input: RegistrationInput;
+  update: (changes: Partial<RegistrationInput>) => void;
+  errors: RegistrationErrors;
+  t: Messages;
+}) {
+  const isFull = (course: CourseOption) => course.isFull || filledCourseIds.includes(course.id);
+  return (
+    <div data-field="courses" className="flex flex-col gap-8">
+      <div className="flex flex-col gap-3">
+        <p id="courses-hint">{sessions.length > 0 ? t.register.coursesHint : t.register.noCourses}</p>
+        <FieldError field="courses" errors={errors} t={t} />
+      </div>
+      {sessions.map((session) => (
+        <fieldset key={session.id} className="flex flex-col gap-3">
+          <legend className="mb-2 text-lead font-bold">{session.name}</legend>
+          {session.courses.every(isFull) && (
+            <p className="font-semibold">{t.register.sessionAllFull}</p>
+          )}
+          {session.courses.map((course) => {
+            const full = isFull(course);
+            return (
+              <label
+                key={course.id}
+                className={cn(
+                  choiceClass,
+                  full && "cursor-not-allowed border-dashed bg-muted text-muted-foreground",
+                )}
+              >
+                <input
+                  type="radio"
+                  name={`session-${session.id}`}
+                  className={radioClass}
+                  disabled={full}
+                  checked={input.courseIds.includes(course.id)}
+                  // 同一場次只能選一門：換掉這個場次原本選的課。
+                  onChange={() =>
+                    update({
+                      courseIds: [
+                        ...input.courseIds.filter(
+                          (id) => !session.courses.some((option) => option.id === id),
+                        ),
+                        course.id,
+                      ],
+                    })
+                  }
+                  {...errorAria("courses", errors, "courses-hint")}
+                />
+                <span className="flex flex-1 flex-col">
+                  <span>{course.name}</span>
+                  {course.description && <span className="font-normal">{course.description}</span>}
+                </span>
+                {full && <span className="shrink-0 font-bold">{t.register.courseFull}</span>}
+              </label>
+            );
+          })}
+        </fieldset>
+      ))}
+    </div>
   );
 }
 
@@ -486,7 +591,7 @@ function FieldError({
   );
 }
 
-type Details = Pick<RegistrationInput, "name" | "stakeId" | "wardId" | "venueId"> & {
+type Details = Pick<RegistrationInput, "name" | "stakeId" | "wardId" | "venueId" | "courseIds"> & {
   phone: string | null;
   email: string | null;
   lineId: string | null;
@@ -517,11 +622,16 @@ function RegistrationDetails({
     [t.register.stakeLabel, stake?.name ?? ""],
     [t.register.wardLabel, ward?.name ?? ""],
     [t.register.venueLabel, venue?.name ?? ""],
+    // 每個場次一列：場次名稱、所選課程。
+    ...venueSessions(options, registration.venueId).map((session): [string, string] => [
+      session.name,
+      session.courses.find((course) => registration.courseIds.includes(course.id))?.name ?? "",
+    ]),
   ];
   return (
     <dl className="flex flex-col gap-3 rounded-lg border-2 border-card-outline p-5">
-      {rows.map(([label, value]) => (
-        <div key={label}>
+      {rows.map(([label, value], index) => (
+        <div key={index}>
           <dt className="font-semibold">{label}</dt>
           <dd className="break-words">{value}</dd>
         </div>
@@ -559,6 +669,11 @@ function Completed({
       </Link>
     </section>
   );
+}
+
+/** 所選場地的場次；還沒選場地時沒有。 */
+function venueSessions(options: RegistrationOptions, venueId: string): SessionOption[] {
+  return options.venues.find((venue) => venue.id === venueId)?.sessions ?? [];
 }
 
 /** 讓輔助科技從選項讀到錯誤：標成有錯，並連到錯誤訊息（與其他說明文字）。 */

@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { adminClient, anonClient, must } from "../../test/supabase";
-import { isRegistrationNumber, submitRegistration, type RegistrationInput } from "./registration";
+import { adminClient, anonClient, databaseClient, must } from "../../test/supabase";
+import {
+  isRegistrationNumber,
+  submitRegistration,
+  validateRegistration,
+  type RegistrationInput,
+} from "./registration";
 
 const admin = adminClient();
 const DAY = 24 * 60 * 60 * 1000;
@@ -98,6 +103,7 @@ function validInput(overrides: Partial<RegistrationInput> = {}): RegistrationInp
     stakeId: taipeiStakeId,
     wardId: xindianWardId,
     venueId,
+    courseIds: [],
     portraitConsent: true,
     ...overrides,
   };
@@ -122,6 +128,7 @@ describe("送出報名", () => {
         stakeId: taipeiStakeId,
         wardId: xindianWardId,
         venueId,
+        courseIds: [],
       },
     });
   });
@@ -245,6 +252,198 @@ describe("送出報名", () => {
   });
 });
 
+// 名額在送出時於資料庫交易內一次檢查並佔用（ADR 0006）。
+describe("課程名額", () => {
+  async function addSession(position: number, venue = venueId) {
+    return must(
+      await admin
+        .from("sessions")
+        .insert({ conference_id: conferenceId, venue_id: venue, position, name_zh: `第${position}場` })
+        .select("id")
+        .single(),
+    ).id;
+  }
+
+  async function addCourse(sessionId: string, capacity: number | null, title = "測試課程") {
+    return must(
+      await admin
+        .from("courses")
+        .insert({ conference_id: conferenceId, session_id: sessionId, title_zh: title, capacity })
+        .select("id")
+        .single(),
+    ).id;
+  }
+
+  async function registrationCount(name: string) {
+    const rows = must(
+      await admin.from("registrations").select("id").eq("conference_id", conferenceId!).eq("name", name),
+    );
+    return rows.length;
+  }
+
+  it("每個場次選一門課，報名成功並記下所選課程", async () => {
+    const first = await addCourse(await addSession(1), 30);
+    const second = await addCourse(await addSession(2), null);
+
+    const result = await submitRegistration(anonClient(), validInput({ courseIds: [first, second] }));
+
+    expect(result.ok && result.registration.courseIds.toSorted()).toEqual([first, second].toSorted());
+    if (!result.ok) return;
+    const saved = must(
+      await admin
+        .from("registration_courses")
+        .select("course_id")
+        .eq("registration_id", result.registration.id),
+    );
+    expect(saved.map((row) => row.course_id).toSorted()).toEqual([first, second].toSorted());
+  });
+
+  // 兩個請求很少剛好在同一瞬間數名額，所以讓甲的報名寫到一半、交易還沒結束時，乙送出。
+  // 有鎖住課程時，乙會等甲寫完才數到已滿；沒鎖的話乙看不到甲還沒完成的報名，兩人都會成功。
+  it("最後一個名額兩人同時送出，只有一人成功，另一人收到額滿資訊且資料不寫入", async () => {
+    const course = await addCourse(await addSession(1), 1);
+    const sql = databaseClient();
+    try {
+      let held!: () => void;
+      let release!: () => void;
+      const firstHolding = new Promise<void>((resolve) => (held = resolve));
+      const firstMayCommit = new Promise<void>((resolve) => (release = resolve));
+      const first = sql.begin(async (tx) => {
+        await tx`set local role anon`;
+        await tx`
+          select id from public.submit_registration(
+            ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶位甲', '0912345678', null, null, true,
+            ${[course]}::uuid[]
+          )`;
+        held();
+        await firstMayCommit;
+      });
+      await firstHolding;
+
+      const second = submitRegistration(anonClient(), validInput({ name: "搶位乙", courseIds: [course] }));
+      await Promise.race([second, new Promise((resolve) => setTimeout(resolve, 1000))]);
+      release();
+      await first;
+
+      expect(await second).toEqual({
+        ok: false,
+        errors: { courses: "courseFull" },
+        fullCourseIds: [course],
+      });
+      expect(await registrationCount("搶位甲")).toBe(1);
+      expect(await registrationCount("搶位乙")).toBe(0);
+    } finally {
+      await sql.end();
+    }
+  });
+
+  it("任一門額滿則整筆不寫入，只回傳額滿的那門", async () => {
+    const full = await addCourse(await addSession(1), 1);
+    const open = await addCourse(await addSession(2), 10);
+    expect((await submitRegistration(anonClient(), validInput({ name: "先報的", courseIds: [full, open] }))).ok).toBe(true);
+
+    const result = await submitRegistration(
+      anonClient(),
+      validInput({ name: "後報的", courseIds: [full, open] }),
+    );
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseFull" }, fullCourseIds: [full] });
+    expect(await registrationCount("後報的")).toBe(0);
+  });
+
+  it("不限人數的課程不會額滿", async () => {
+    const course = await addCourse(await addSession(1), null);
+
+    const results = [];
+    for (const name of ["甲", "乙", "丙", "丁", "戊"]) {
+      results.push(await submitRegistration(anonClient(), validInput({ name, courseIds: [course] })));
+    }
+
+    expect(results.map((result) => result.ok)).toEqual([true, true, true, true, true]);
+  });
+
+  it("已取消的報名不佔名額", async () => {
+    const course = await addCourse(await addSession(1), 1);
+    const first = await submitRegistration(anonClient(), validInput({ courseIds: [course] }));
+    if (!first.ok) throw new Error("報名失敗");
+    must(
+      await admin
+        .from("registrations")
+        .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+        .eq("id", first.registration.id),
+    );
+
+    const result = await submitRegistration(anonClient(), validInput({ courseIds: [course] }));
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("有場次沒選課時被拒絕", async () => {
+    const first = await addCourse(await addSession(1), null);
+    await addCourse(await addSession(2), null);
+
+    const result = await submitRegistration(anonClient(), validInput({ courseIds: [first] }));
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+
+  it("同一場次選兩門課時被拒絕", async () => {
+    const session = await addSession(1);
+    const a = await addCourse(session, null, "甲課");
+    const b = await addCourse(session, null, "乙課");
+
+    const result = await submitRegistration(anonClient(), validInput({ courseIds: [a, b] }));
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+
+  it("其他場地的課程不能選", async () => {
+    await addCourse(await addSession(1), null);
+    const otherVenue = must(
+      await admin
+        .from("venues")
+        .insert({ conference_id: conferenceId, name_zh: "台中大雅教堂" })
+        .select("id")
+        .single(),
+    ).id;
+    const otherCourse = await addCourse(await addSession(1, otherVenue), null);
+
+    const result = await submitRegistration(anonClient(), validInput({ courseIds: [otherCourse] }));
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+
+  it("課程數量多到不合理時直接擋下", async () => {
+    const courseIds = Array.from({ length: 21 }, () => crypto.randomUUID());
+
+    const result = await submitRegistration(anonClient(), validInput({ courseIds }));
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+
+  it("課程編號格式不對時標在課程旁", async () => {
+    const result = await submitRegistration(anonClient(), validInput({ courseIds: ["abc"] }));
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+});
+
+// 選課步驟按「下一步」時，用所選場地的場次檢查，不必等到送出。
+describe("選課檢查", () => {
+  const a = "00000000-0000-4000-8000-00000000000a";
+  const b = "00000000-0000-4000-8000-00000000000b";
+  const c = "00000000-0000-4000-8000-00000000000c";
+  const sessions = [{ courses: [{ id: a }, { id: b }] }, { courses: [{ id: c }] }, { courses: [] }];
+
+  it.each([
+    { what: "每個場次都選了一門", courseIds: [a, c], error: undefined },
+    { what: "有場次沒選", courseIds: [a], error: "courseRequired" },
+    { what: "同一場次選兩門", courseIds: [a, b, c], error: "courseRequired" },
+  ])("$what", ({ courseIds, error }) => {
+    expect(validateRegistration(validInput({ courseIds }), sessions).courses).toBe(error);
+  });
+});
+
 // 有人可能看不到的空白字元，報名服務與資料庫要用同一套規則判斷。
 describe("看不見的空白字元", () => {
   it.each([
@@ -287,6 +486,7 @@ describe("直接呼叫資料庫的送出函式", () => {
         p_phone: "0912345678",
         p_email: null,
         p_line_id: null,
+        p_course_ids: [],
         p_portrait_consent: true,
         ...overrides,
       })

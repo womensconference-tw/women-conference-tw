@@ -87,3 +87,42 @@ join (values
   ('高雄支聯會', 3, '左營支會', 'Zuoying Ward', true),
   ('舊台北東支聯會', 1, '舊南港支會', 'Former Nangang Ward', true)
 ) as w(stake_name, position, name_zh, name_en, is_active) on w.stake_name = s.name_zh;
+
+-- 每個場地三個場次，各有幾門課。有的限量、有的不限人數（容量空白）。
+insert into public.sessions (conference_id, venue_id, position, name_zh, name_en)
+select v.conference_id, v.id, s.position, s.name_zh, s.name_en
+from public.venues v, (values
+  (1, '第一場 10:00–10:50', 'Session 1, 10:00–10:50'),
+  (2, '第二場 11:00–11:50', 'Session 2, 11:00–11:50'),
+  (3, '第三場 13:30–14:20', 'Session 3, 13:30–14:20')
+) as s(position, name_zh, name_en);
+
+insert into public.courses (conference_id, session_id, position, title_zh, title_en, description_zh, description_en, capacity)
+select s.conference_id, s.id, c.position, c.title_zh, c.title_en, c.description_zh, c.description_en, c.capacity
+from public.sessions s
+join (values
+  (1, 1, '在家庭中研讀經文', 'Studying the scriptures as a family', '講師：林姊妹', 'Teacher: Sister Lin', 40),
+  (1, 2, '家譜入門', 'Getting started with family history', '請帶手機', 'Please bring your phone', 1),
+  (1, 3, '詩歌欣賞', 'Enjoying sacred music', '', '', null),
+  (2, 1, '健康的飲食', 'Healthy eating', '', '', 30),
+  (2, 2, '溝通與傾聽', 'Communicating and listening', '講師：陳姊妹', 'Teacher: Sister Chen', 30),
+  (3, 1, '手作卡片', 'Handmade cards', '材料由大會提供', 'Materials provided', 20),
+  (3, 2, '分享見證', 'Sharing testimonies', '', '', null)
+) as c(session_position, position, title_zh, title_en, description_zh, description_en, capacity)
+  on c.session_position = s.position;
+
+-- 一筆假報名，佔掉金華教堂「家譜入門」（容量 1）唯一的名額，選課畫面會顯示「已額滿」。
+with registration as (
+  insert into public.registrations (conference_id, venue_id, stake_id, ward_id, name, phone, portrait_consented_at)
+  select v.conference_id, v.id, w.stake_id, w.id, '測試報名者', '0912000000', now()
+  from public.venues v, public.wards w
+  where v.name_zh = '台北金華教堂' and w.name_zh = '新店支會'
+  returning id, venue_id
+)
+insert into public.registration_courses (registration_id, venue_id, session_id, course_id)
+select r.id, r.venue_id, c.session_id, c.id
+from registration r
+join public.sessions s on s.venue_id = r.venue_id
+join public.courses c on c.session_id = s.id
+-- 第一場選家譜入門，其他場次選第一門課。
+where case when s.position = 1 then c.title_zh = '家譜入門' else c.position = 1 end;

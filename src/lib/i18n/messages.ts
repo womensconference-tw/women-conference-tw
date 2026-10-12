@@ -48,7 +48,7 @@ const zh = {
     title: "報名台灣姐妹大會",
     stepProgress: (current: number, total: number, title: string) =>
       `第 ${current} 步（共 ${total} 步）：${title}`,
-    stepTitles: ["基本資料", "選擇場地", "肖像權同意與確認"],
+    stepTitles: ["基本資料", "選擇場地", "選擇課程", "肖像權同意與確認"],
     nameLabel: "姓名",
     phoneLabel: "電話",
     phoneHint: "手機或家裡電話都可以。幫家人報名，可以填您自己的電話。",
@@ -64,6 +64,10 @@ const zh = {
     wardWithStake: (ward: string, stake: string) => `${ward}（${stake}）`,
     venueLabel: "場地",
     venueHint: "任何一個場地都可以選，不限所屬的支聯會。",
+    coursesHint: "每個場次請選一門課。標示「已額滿」的課程不能選。",
+    noCourses: "這個場地不用選課，請按「下一步」。",
+    courseFull: "已額滿",
+    sessionAllFull: "這個場次的課程都額滿了。請回上一步改選其他場地，或聯絡大會管理員。",
     portraitConsentHeading: "肖像權同意",
     portraitConsentText:
       "大會當天會拍攝照片與影片。我同意大會使用拍到我的影像，作為教會內部的大會紀錄，以及教會網站、社群媒體與往後大會的介紹。",
@@ -90,6 +94,8 @@ const zh = {
       wardRequired: "請選擇支會。",
       wardNotInStake: "這個支會不在您選的支聯會裡，請重新選擇支會。",
       venueRequired: "請選擇場地。",
+      courseRequired: "每個場次都要選一門課，請選擇還沒選的場次。",
+      courseFull: "您選的課程剛剛被選滿了，請改選其他課程。其他資料都還在，不用重填。",
       portraitConsentRequired: "需要同意肖像權才能報名。如有疑問，請先聯絡大會管理員。",
       notOpen: "目前不在報名期間，報名沒有送出。",
       unknown: "系統暫時出了問題，報名沒有送出。請稍後再試一次，或聯絡大會管理員。",
@@ -155,7 +161,7 @@ const en = {
     title: "Register for the Taiwan Women's Conference",
     stepProgress: (current: number, total: number, title: string) =>
       `Step ${current} of ${total}: ${title}`,
-    stepTitles: ["Your details", "Choose a venue", "Photo consent and review"],
+    stepTitles: ["Your details", "Choose a venue", "Choose your classes", "Photo consent and review"],
     nameLabel: "Name",
     phoneLabel: "Phone number",
     phoneHint:
@@ -172,6 +178,11 @@ const en = {
     wardWithStake: (ward: string, stake: string) => `${ward} (${stake})`,
     venueLabel: "Venue",
     venueHint: "You can choose any venue, whichever stake you belong to.",
+    coursesHint: "Please choose one class for each session. Classes marked \"Full\" can't be chosen.",
+    noCourses: "There are no classes to choose at this venue. Please press \"Next\".",
+    courseFull: "Full",
+    sessionAllFull:
+      "All classes in this session are full. Please go back and choose another venue, or contact the conference administrator.",
     portraitConsentHeading: "Photo consent",
     portraitConsentText:
       "Photos and videos will be taken at the conference. I agree that the conference may use images of me for the Church's internal record of the conference, and to introduce this and future conferences on Church websites and social media.",
@@ -201,6 +212,9 @@ const en = {
       wardRequired: "Please choose your ward.",
       wardNotInStake: "This ward is not in the stake you chose. Please choose your ward again.",
       venueRequired: "Please choose a venue.",
+      courseRequired: "Please choose one class for each session.",
+      courseFull:
+        "A class you chose has just filled up. Please choose another class. Everything else you entered is still here.",
       portraitConsentRequired:
         "You need to agree to the photo consent to register. If you have questions, please contact the conference administrator first.",
       notOpen: "Registration is not open right now. Your registration was not submitted.",
