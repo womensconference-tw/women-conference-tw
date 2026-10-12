@@ -2,14 +2,79 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/*
+ * ============================================================
+ * 主視覺設定：美編定案後，改這一區就好
+ * ============================================================
+ * 網站的顏色、字型、字級、按鈕高度都從這裡來。頁面程式裡不直接寫色碼，
+ * 所以改了這裡，整站會一起換。
+ *
+ * 改之前請注意（給年長姐妹看的網站，這幾條是規格，不是美感選擇）：
+ * - 內文字級不能小於 19px（--text-body-size）。
+ * - 按鈕高度不能小於 56px（--button-min-height）。
+ * - 文字和背景要高對比：一般文字至少 4.5:1，可用 https://webaim.org/resources/contrastchecker/ 檢查。
+ *   主要按鈕的文字（--brand-foreground）與按鈕底色（--brand）也要符合。
+ *
+ * 分享到 LINE 的預覽圖是另一張圖片（src/app/opengraph-image.png），不會跟著這裡變，
+ * 換主視覺時請一起重做，做法見 scripts/og-image.html 開頭的說明。
+ */
+:root {
+  /* ---- 顏色 ---- */
+  /* 主色：「我要報名」等主要按鈕、步驟數字的底色 */
+  --brand: oklch(0.205 0 0);
+  /* 放在主色上的文字顏色 */
+  --brand-foreground: oklch(0.985 0 0);
+  /* 頁面背景與一般文字 */
+  --page-background: oklch(1 0 0);
+  --page-foreground: oklch(0.145 0 0);
+  /* 場地卡片的外框 */
+  --card-outline: oklch(0.145 0 0 / 20%);
+  /* 主題經文左邊的直線 */
+  --quote-line: oklch(0.145 0 0 / 40%);
+
+  /* ---- 字型 ---- */
+  /* 英文字用 Geist（layout.tsx 載入），中文字用使用者手機內建的黑體 */
+  --font-body: var(--font-geist-sans), "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+
+  /* ---- 字級 ---- */
+  /* 內文（不能小於 19px；1rem = 16px） */
+  --text-body-size: 1.25rem;
+  /* 第一屏的日期、時間、狀態，與小標題 */
+  --text-lead-size: 1.5rem;
+  /* 各區塊標題，例如「大會場地」 */
+  --text-heading-size: 1.875rem;
+  /* 頁面最上方的「台灣姐妹大會」 */
+  --text-title-size: 2.25rem;
+
+  /* ---- 按鈕與版面 ---- */
+  /* 一般按鈕最小高度（不能小於 56px = 3.5rem） */
+  --button-min-height: 3.5rem;
+  /* 「我要報名」這種最重要的大按鈕 */
+  --button-primary-min-height: 4rem;
+  /* 圓角大小 */
+  --radius: 0.625rem;
+  /* 內容最大寬度（電腦上看時，內容不會拉得太寬） */
+  --content-max-width: 42rem;
+}
+
+/* ============================================================
+ * 以下是把上面的設定接到元件庫（shadcn）與 Tailwind，一般不用改
+ * ============================================================ */
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --text-body: var(--text-body-size);
+  --text-lead: var(--text-lead-size);
+  --text-heading: var(--text-heading-size);
+  --text-title: var(--text-title-size);
+  --color-card-outline: var(--card-outline);
+  --color-quote-line: var(--quote-line);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-body);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-heading: var(--font-body);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,14 +114,14 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: var(--page-background);
+  --foreground: var(--page-foreground);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -72,7 +137,6 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);

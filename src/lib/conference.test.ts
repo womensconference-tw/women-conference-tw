@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { adminClient, anonClient } from "../../test/supabase";
+import { adminClient, anonClient, must } from "../../test/supabase";
 import { getCurrentConference } from "./conference";
 
 const FIXTURE_YEAR = 2099;
@@ -44,12 +44,6 @@ afterEach(async () => {
     must(await admin.from("conferences").update({ is_current: true }).in("id", previousCurrentIds));
   }
 });
-
-// Fixture steps must never fail silently, or the shared database is left in a bad state.
-function must<T>(result: { data: T; error: null } | { error: Error }): T {
-  if (result.error) throw result.error;
-  return (result as { data: T }).data;
-}
 
 describe("目前年度的時程", () => {
   it("報名開放到報名截止之間是報名中", async () => {

@@ -1,0 +1,24 @@
+<!--
+  分享到 LINE、Facebook 時顯示的預覽圖（src/app/opengraph-image.png）的原始檔。
+  換主視覺時：改這個檔案的顏色、文字，用瀏覽器打開確認，再在 repo 根目錄執行下面這行重新產生圖片：
+
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --hide-scrollbars \
+    --window-size=1200,630 --screenshot=src/app/opengraph-image.png "file://$PWD/scripts/og-image.html"
+
+  （Windows 上把 Chrome 路徑換成 chrome.exe 的位置。）圖片固定 1200×630，檔案不要超過 8MB。
+  美編如果直接給一張 1200×630 的圖，也可以直接換掉 src/app/opengraph-image.png，不用這個檔案。
+  圖片說明文字在 src/app/opengraph-image.alt.txt。
+-->
+<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;width:1200px;height:630px;overflow:hidden}
+body{background:#1f3a5f;color:#fff;font-family:"PingFang TC","Heiti TC",sans-serif;display:flex;flex-direction:column;justify-content:center;padding:0 96px;box-sizing:border-box}
+.zh{font-size:120px;font-weight:700;letter-spacing:8px;margin:0}
+.en{font-size:52px;font-weight:500;margin:20px 0 0;opacity:.95}
+.bar{width:160px;height:10px;background:#f2c14e;border-radius:5px;margin:48px 0 40px}
+.sub{font-size:44px;margin:0}
+</style></head><body>
+<p class="zh">台灣姐妹大會</p>
+<p class="en">Taiwan Women's Conference</p>
+<div class="bar"></div>
+<p class="sub">官方網站與報名 · Official website &amp; registration</p>
+</body></html>

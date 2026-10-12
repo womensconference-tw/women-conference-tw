@@ -20,7 +20,7 @@ export async function LanguageSwitch() {
         type="submit"
         variant="outline"
         lang={languageTags[target]}
-        className="h-14 px-6 text-xl"
+        className="h-auto min-h-(--button-min-height) px-6 text-(length:--text-body-size)"
       >
         {messages[locale].languageSwitch}
       </Button>

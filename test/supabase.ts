@@ -12,3 +12,9 @@ export function anonClient() {
 export function adminClient() {
   return createClient(inject("supabaseUrl"), inject("supabaseSecretKey"), { auth });
 }
+
+/** Unwraps a fixture step's result. Fixture steps must never fail silently, or the shared database is left in a bad state. */
+export function must<T>(result: { data: T; error: null } | { error: Error }): T {
+  if (result.error) throw result.error;
+  return (result as { data: T }).data;
+}
