@@ -358,12 +358,18 @@ describe("課程名額", () => {
     await openRegistration();
 
     const result = await submitWhileHolding(
-      (tx) => tx`update public.courses set capacity = 20 where id = ${second}`,
+      async (tx) => {
+        // 資料庫偵測到互相等待時，中止哪一邊不一定；讓管理員這邊等久一點才檢查，
+        // 先發現的一定是報名，被中止的就是報名，才測得到自動重送。
+        await tx`set local deadlock_timeout = '10s'`;
+        await tx`update public.courses set capacity = 20 where id = ${second}`;
+      },
       () => submit(validInput({ name: "調名額時報名", courseIds: [first, second] })),
       (tx) => tx`update public.courses set capacity = 20 where id = ${first}`,
     );
 
     expect(result.ok).toBe(true);
+    expect(await registrationCount("調名額時報名")).toBe(1);
   });
 
   it("任一門額滿則整筆不寫入，只回傳額滿的那門", async () => {
@@ -510,7 +516,10 @@ async function submitWhileHolding<T>(
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     release();
-    await transaction;
+    // 互相等待時資料庫也可能中止這個交易（不一定是 submit 那邊），那不是 submit 的問題。
+    await transaction.catch((error) => {
+      if (error?.code !== "40P01") throw error;
+    });
     return await submitted;
   } finally {
     release();
@@ -623,28 +632,74 @@ describe("開放報名後的場次與課程", () => {
   });
 });
 
-// 開放前就開始、開放後才寫入的修改也要擋下：要用寫入當下的時間判斷，不是交易開始的時間。
-it("開放前開始的修改，開放後才寫入也被擋下", async () => {
-  must(
-    await admin
-      .from("conferences")
-      .update({ registration_opens_at: new Date(Date.now() + 2000).toISOString() })
-      .eq("id", conferenceId!),
-  );
-  const sql = databaseClient();
-  try {
-    const attempt = sql.begin(async (tx) => {
-      await tx`select now()`;
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      await tx`
-        insert into public.sessions (conference_id, venue_id, name_zh)
-        values (${conferenceId!}, ${venueId}, '開放後才寫入的場次')`;
-    });
+// 開放前就開始、開放後才確定的修改也要擋下：要用確定當下的時間判斷，不是交易開始的時間。
+describe("跨過開放時間的修改", () => {
+  it("開放前開始新增場次，開放後才確定，整個修改不算數", async () => {
+    const sql = databaseClient();
+    try {
+      const attempt = sql.begin(async (tx) => {
+        const [{ started }] = await tx<{ started: Date }[]>`select now() as started`;
+        // 交易開始之後才把開放時間設在一秒後，確保交易真的是開放前開始的。
+        const opensAt = new Date(Date.now() + 1000);
+        must(
+          await admin
+            .from("conferences")
+            .update({ registration_opens_at: opensAt.toISOString() })
+            .eq("id", conferenceId!),
+        );
+        expect(started.getTime()).toBeLessThan(opensAt.getTime());
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await tx`
+          insert into public.sessions (conference_id, venue_id, name_zh)
+          values (${conferenceId!}, ${venueId}, '開放後才確定的場次')`;
+      });
 
-    await expect(attempt).rejects.toThrow("programme_locked");
-  } finally {
-    await sql.end();
-  }
+      await expect(attempt).rejects.toThrow("programme_locked");
+    } finally {
+      await sql.end();
+    }
+  });
+
+  // 延後開放時間的修改還沒確定時，原定時間到了，別人已經看到開放並報名成功；
+  // 這時延後不能生效，一起做的課程修改也不算數。
+  it("開放前開始延後開放時間，原定時間過了才確定，整個修改不算數", async () => {
+    const opensAt = new Date(Date.now() + 1000);
+    must(
+      await admin
+        .from("conferences")
+        .update({ registration_opens_at: opensAt.toISOString() })
+        .eq("id", conferenceId!),
+    );
+    opened = true;
+    const sql = databaseClient();
+    try {
+      let visitor: SubmitResult | undefined;
+      const attempt = sql.begin(async (tx) => {
+        await tx`
+          update public.conferences
+          set registration_opens_at = ${new Date(Date.now() + DAY / 2)}
+          where id = ${conferenceId!}`;
+        await tx`
+          insert into public.sessions (conference_id, venue_id, name_zh)
+          values (${conferenceId!}, ${venueId}, '延後時偷加的場次')`;
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        visitor = await submitRegistration(anonClient(), validInput({ name: "原定時間報名" }));
+      });
+
+      await expect(attempt).rejects.toThrow(/registration_opens_at_locked|programme_locked/);
+      expect(visitor?.ok).toBe(true);
+      const [conference] = must(
+        await admin.from("conferences").select("registration_opens_at").eq("id", conferenceId!),
+      );
+      expect(new Date(conference.registration_opens_at).getTime()).toBe(opensAt.getTime());
+      const sessions = must(
+        await admin.from("sessions").select("id").eq("name_zh", "延後時偷加的場次"),
+      );
+      expect(sessions).toEqual([]);
+    } finally {
+      await sql.end();
+    }
+  });
 });
 
 // 選課步驟按「下一步」時檢查每個場次都選了一門課或「不選課」，免得漏選。

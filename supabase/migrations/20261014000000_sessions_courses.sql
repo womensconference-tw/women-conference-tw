@@ -96,8 +96,8 @@ revoke all on public.registration_courses from anon, authenticated;
  * 這樣報名期間她選的課不會消失或換時段，送出報名時也不必防範這些變動。
  * 刪除整個年度大會時連帶刪除的場次、課程不受限制（那時年度大會已經不在了）。
  *
- * 用實際的當下時間（clock_timestamp），不用交易開始的時間（now）：
- * 開放前就開始、開放後才寫入的修改也要擋下。
+ * 在修改確定生效（交易提交）的那一刻才檢查，並用實際的當下時間（clock_timestamp），
+ * 不用交易開始的時間（now）：開放前就開始、開放後才確定的修改也要擋下。
  * 以函式擁有者的權限讀年度大會，不受呼叫者看不看得到這個年度影響，免得讀不到被當成還沒開放。
  */
 create function public.registration_opened(p_conference_id uuid)
@@ -114,6 +114,7 @@ as $$
 $$;
 
 -- 開放時間到了之後就不能再改或清空，不然把時間改到未來就能改課程再改回來，繞過上面的規則。
+-- 同樣在確定生效時才檢查：開放前開始延後時間、原定時間過了才確定，這段期間已經有人報名，整個修改不算數。
 create function public.conferences_opens_at_locked()
 returns trigger
 language plpgsql
@@ -129,8 +130,9 @@ begin
 end;
 $$;
 
-create trigger conferences_opens_at_locked
-  before update of registration_opens_at on public.conferences
+create constraint trigger conferences_opens_at_locked
+  after update of registration_opens_at on public.conferences
+  deferrable initially deferred
   for each row execute function public.conferences_opens_at_locked();
 
 create function public.sessions_locked_after_opening()
@@ -173,12 +175,14 @@ begin
 end;
 $$;
 
-create trigger sessions_locked_after_opening
-  before insert or update or delete on public.sessions
+create constraint trigger sessions_locked_after_opening
+  after insert or update or delete on public.sessions
+  deferrable initially deferred
   for each row execute function public.sessions_locked_after_opening();
 
-create trigger courses_locked_after_opening
-  before insert or update or delete on public.courses
+create constraint trigger courses_locked_after_opening
+  after insert or update or delete on public.courses
+  deferrable initially deferred
   for each row execute function public.courses_locked_after_opening();
 
 
