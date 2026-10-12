@@ -224,5 +224,53 @@ describe("首頁內容", () => {
 
     expect(visible).toEqual([{ conference_id: currentId }]);
   });
+
+  // 按鈕網址會直接放進連結，只能是 http(s) 網址或站內路徑，不能偷渡到別的網站或協定。
+  it.each([
+    "javascript:alert(1)",
+    "//evil.com",
+    "/\\evil.com",
+    "/\t/evil.com",
+    "/\n/evil.com",
+    "https://",
+    "https://   ",
+    "https://exa mple.org",
+  ])("自訂區塊的按鈕網址 %j 存不進去", async (url) => {
+    const { error } = await admin.from("custom_blocks").insert({
+      conference_id: currentId,
+      title_zh: "區塊",
+      button_label_zh: "按鈕",
+      button_url: url,
+    });
+
+    expect(error?.code).toBe("23514");
+  });
+
+  it.each(["https://example.org/a?b=1", "HTTPS://Example.org", "http://example.org", "/lookup", "/"])(
+    "自訂區塊的按鈕網址 %j 可以存",
+    async (url) => {
+      const { error } = await admin.from("custom_blocks").insert({
+        conference_id: currentId,
+        title_zh: "區塊",
+        button_label_zh: "按鈕",
+        button_url: url,
+      });
+
+      expect(error).toBeNull();
+    },
+  );
+
+  // 只有空白、tab 或換行的文字，畫面上會變成看不見的標題或按鈕。
+  it.each([
+    { table: "venues", row: { name_zh: "\n\t " } },
+    { table: "faqs", row: { question_zh: "\n", answer_zh: "回答" } },
+    { table: "faqs", row: { question_zh: "問題", answer_zh: "\t" } },
+    { table: "custom_blocks", row: { title_zh: "\n" } },
+    { table: "custom_blocks", row: { title_zh: "區塊", button_label_zh: "\n", button_url: "/" } },
+  ])("$table 的必填文字只有空白時存不進去：$row", async ({ table, row }) => {
+    const { error } = await admin.from(table).insert({ conference_id: currentId, ...row });
+
+    expect(error?.code).toBe("23514");
+  });
 });
 

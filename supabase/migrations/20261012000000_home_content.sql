@@ -35,7 +35,7 @@ create table public.venues (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
 
-  constraint venues_name_not_blank check (btrim(name_zh) <> '')
+  constraint venues_name_not_blank check (name_zh ~ '[^[:space:]]')
 );
 
 create index venues_conference_id on public.venues (conference_id, position);
@@ -52,7 +52,7 @@ create table public.faqs (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
 
-  constraint faqs_not_blank check (btrim(question_zh) <> '' and btrim(answer_zh) <> '')
+  constraint faqs_not_blank check (question_zh ~ '[^[:space:]]' and answer_zh ~ '[^[:space:]]')
 );
 
 create index faqs_conference_id on public.faqs (conference_id, position);
@@ -73,11 +73,17 @@ create table public.custom_blocks (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
 
-  constraint custom_blocks_title_not_blank check (btrim(title_zh) <> ''),
-  constraint custom_blocks_button_has_label check (button_url is null or btrim(button_label_zh) <> ''),
-  -- 只接受站內路徑或 http(s) 網址，擋掉 javascript: 之類的連結。
+  constraint custom_blocks_title_not_blank check (title_zh ~ '[^[:space:]]'),
+  constraint custom_blocks_button_has_label check (button_url is null or button_label_zh ~ '[^[:space:]]'),
+  -- 只接受有網域的 http(s) 網址（大小寫不拘）或站內路徑，擋掉 javascript: 之類的連結。
+  -- 站內路徑的第二個字不能是 / 或 \，整個網址也不能有空白或控制字元：
+  -- 瀏覽器會把 //、/\、以及中間夾 tab／換行的 /\t/ 都當成連到別的網站。
   constraint custom_blocks_button_url_safe check (
-    button_url is null or button_url ~ '^(https?://|/[^/\\])' or button_url = '/'
+    button_url is null
+    or (
+      button_url ~* '^(https?://[^/\\?#]+|/([^/\\]|$))'
+      and button_url !~ '[[:space:][:cntrl:]]'
+    )
   )
 );
 

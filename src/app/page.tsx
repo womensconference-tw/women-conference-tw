@@ -35,15 +35,15 @@ export default async function Home() {
   ]);
 
   return (
-    <main className="mx-auto flex w-full max-w-(--content-max-width) flex-1 flex-col gap-12 px-5 py-8 text-body leading-relaxed">
-      <div className="flex justify-end">
-        <LanguageSwitch />
-      </div>
+    <main className="mx-auto flex w-full max-w-(--content-max-width) flex-1 flex-col gap-12 px-5 pt-3 pb-8 text-body leading-relaxed">
       {!conference || !content || conference.phase === "unannounced" ? (
-        <>
-          <h1 className="text-title font-bold">{t.site.title}</h1>
+        <section className="flex flex-col gap-3">
+          <div className="flex justify-end">
+            <LanguageSwitch />
+          </div>
+          <h1 className="text-title leading-tight font-bold">{t.site.title}</h1>
           <p>{t.home.comingSoon}</p>
-        </>
+        </section>
       ) : (
         <>
           <RegistrationSection conference={conference} content={content} t={t} locale={locale} />
@@ -75,7 +75,11 @@ export default async function Home() {
 
 type SectionProps = { t: Messages };
 
-/** 第一屏：日期、時間、三地同步、報名狀態與最大的「我要報名」。 */
+/**
+ * 第一屏：日期、時間、報名狀態、最大的「我要報名」與三地同步。
+ * 小手機（375×667）、英文版、LINE 內建瀏覽器的工具列都算進去，按鈕還是要在第一屏看得到，
+ * 所以這裡間距收緊、次要的字用內文字級，場地名稱放在按鈕下方（英文名稱很長，會佔四行）。
+ */
 function RegistrationSection({
   conference,
   content,
@@ -87,16 +91,19 @@ function RegistrationSection({
   );
 
   return (
-    <section className="flex flex-col gap-4">
-      <h1 className="text-title font-bold">{t.site.title}</h1>
-      <p className="text-lead font-semibold">
+    <section className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <LanguageSwitch />
+      </div>
+      <h1 className="text-title leading-tight font-bold">{t.site.title}</h1>
+      <p className="text-lead leading-snug font-semibold">
         {t.home.conferenceDate(
           conference.year,
           formatConferenceDate(conference.conferenceDate, locale),
         )}
       </p>
       {content.time && (
-        <p className="text-lead">
+        <p>
           {content.time.end
             ? t.home.conferenceTime(
                 formatTime(conference.conferenceDate, content.time.start, locale),
@@ -107,8 +114,7 @@ function RegistrationSection({
               )}
         </p>
       )}
-      {content.venues.length > 0 && <p className="text-lead">{t.home.simultaneous(places)}</p>}
-      <p className="text-lead font-semibold">{statusText(conference, t, locale)}</p>
+      <p className="font-semibold">{statusText(conference, t, locale)}</p>
       {conference.phase === "open" && (
         <ActionLink href={registerPath} className={primaryActionClass}>
           {t.home.registerButton}
@@ -137,6 +143,7 @@ function RegistrationSection({
           </ActionLink>
         </>
       )}
+      {content.venues.length > 0 && <p>{t.home.simultaneous(places)}</p>}
     </section>
   );
 }
