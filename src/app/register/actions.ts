@@ -30,8 +30,8 @@ function sanitize(input: unknown): RegistrationInput {
   // 單選的午餐等：null 是「不需要」；其他不是字串的換成空字串，交給欄位檢查擋下。
   const choice = (key: string) => (raw[key] === null || raw[key] === undefined ? null : text(key));
   // 不是字串的項目換成空字串，交給欄位檢查擋下。
-  const list = (key: string) =>
-    Array.isArray(raw[key]) ? raw[key].map((item) => (typeof item === "string" ? item : "")) : [];
+  const items = (key: string) =>
+    (raw[key] as unknown[]).map((item) => (typeof item === "string" ? item : ""));
   return {
     name: text("name"),
     phone: text("phone"),
@@ -41,12 +41,14 @@ function sanitize(input: unknown): RegistrationInput {
     stakeId: text("stakeId"),
     wardId: text("wardId"),
     venueId: text("venueId"),
-    courseIds: list("courseIds"),
+    courseIds: Array.isArray(raw.courseIds) ? items("courseIds") : [],
     lunchOptionId: choice("lunchOptionId"),
     afternoonActivityId: choice("afternoonActivityId"),
     choirPart: choice("choirPart"),
-    services: list("services"),
-    printedHandbook: raw.printedHandbook === true,
+    // 服務意願不是清單時，換成一個空字串，交給欄位檢查擋下，不默默當成沒有服務意願。
+    services: Array.isArray(raw.services) ? items("services") : [""],
+    // 不是 true 或 false 就當成還沒選，交給欄位檢查擋下，不默默當成不要。
+    printedHandbook: typeof raw.printedHandbook === "boolean" ? raw.printedHandbook : null,
     portraitConsent: raw.portraitConsent === true,
   };
 }

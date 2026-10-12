@@ -38,8 +38,8 @@ export type RegistrationInput = {
   choirPart: string | null;
   /** 其他服務意願（SERVICES）。 */
   services: string[];
-  /** 要領取紙本手冊。 */
-  printedHandbook: boolean;
+  /** 要不要領取紙本手冊；null 表示還沒選，送出時會被擋下。 */
+  printedHandbook: boolean | null;
   portraitConsent: boolean;
 };
 
@@ -195,6 +195,8 @@ export function validateRegistration(input: RegistrationInput): RegistrationErro
     errors.services = "servicesInvalid";
   }
 
+  if (input.printedHandbook === null) errors.printedHandbook = "printedHandbookRequired";
+
   if (input.portraitConsent !== true) errors.portraitConsent = "portraitConsentRequired";
 
   return errors;
@@ -241,14 +243,14 @@ export type ExtraChoices = {
 /** 檢查午餐等選擇需要的場地資料：這個場地有哪些午餐與午后動態。 */
 export type VenueExtras = { lunchOptions: { id: string }[]; afternoonActivities: { id: string }[] };
 
-/** 送出用的午餐、午后動態、紙本手冊。還沒選的當成不需要。 */
+/** 送出用的午餐、午后動態、紙本手冊。還沒選的午餐、午后動態當成不需要；手冊沒選是 null，送出時會被擋下。 */
 export function extraInputOf(
   choices: ExtraChoices,
 ): Pick<RegistrationInput, "lunchOptionId" | "afternoonActivityId" | "printedHandbook"> {
   return {
     lunchOptionId: choices.lunch ?? null,
     afternoonActivityId: choices.afternoonActivity ?? null,
-    printedHandbook: choices.printedHandbook ?? false,
+    printedHandbook: choices.printedHandbook ?? null,
   };
 }
 

@@ -725,6 +725,13 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
     expect(result).toEqual({ ok: false, errors: { services: "servicesInvalid" } });
   });
 
+  // 報名表上一定要選要或不要；直接送來沒選的，報名服務也要擋下，不能默默當成不要。
+  it("沒有選要不要紙本手冊時被拒絕", async () => {
+    const result = await submit(validInput({ printedHandbook: null }));
+
+    expect(result).toEqual({ ok: false, errors: { printedHandbook: "printedHandbookRequired" } });
+  });
+
   it.each([
     { what: "午餐", input: { lunchOptionId: "abc" }, errors: { lunch: "lunchUnavailable" } },
     {

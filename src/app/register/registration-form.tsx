@@ -16,6 +16,7 @@ import {
   type CourseChoices,
   type ExtraChoices,
   type Registration,
+  type RegistrationError,
   type RegistrationErrors,
   type RegistrationField,
   type RegistrationInput,
@@ -74,7 +75,7 @@ const emptyInput: RegistrationInput = {
   afternoonActivityId: null,
   choirPart: null,
   services: [],
-  printedHandbook: false,
+  printedHandbook: null,
   portraitConsent: false,
 };
 
@@ -129,17 +130,23 @@ export function RegistrationForm({
     // 新名單已經帶著最新的額滿狀態；之後有人取消或加開名額，才會恢復可選。
     setFilledIds([]);
     const stale = staleSelections(input, choices, extras, options);
+    setInput({
+      ...input,
+      ...stale.changes,
+      courseIds: courseIdsOf(stale.choices),
+      ...extraInputOf(stale.extras),
+    });
+    setChoicesState(stale.choices);
+    setExtrasState(stale.extras);
+    // 已經不用回答的題目（例如場地的午餐全刪了），送出時的錯誤一起收起，不留下看不到的錯誤。
+    const merged = {
+      ...Object.fromEntries(
+        Object.entries(errors).filter(([field]) => !stale.dropped.includes(field as RegistrationField)),
+      ),
+      ...stale.errors,
+    };
+    setErrors(merged);
     if (Object.keys(stale.errors).length > 0) {
-      const merged = { ...errors, ...stale.errors };
-      setInput({
-        ...input,
-        ...stale.changes,
-        courseIds: courseIdsOf(stale.choices),
-        ...extraInputOf(stale.extras),
-      });
-      setChoicesState(stale.choices);
-      setExtrasState(stale.extras);
-      setErrors(merged);
       setStep(stepFields.findIndex((fields) => fields.some((field) => merged[field])));
     }
   }
@@ -155,6 +162,12 @@ export function RegistrationForm({
         Object.entries(prev).filter(([field]) => !touched.includes(field as RegistrationField)),
       ),
     );
+  }
+
+  // 同一欄位已經有比較具體的錯誤（例如送出後才知道「剛剛被訂完了」）時，保留那一句，
+  // 不換成一般的「請選擇」。
+  function withKnownErrors(next: RegistrationErrors): RegistrationErrors {
+    return { ...next, ...pick(errors, Object.keys(next) as RegistrationField[]) };
   }
 
   function showErrors(next: RegistrationErrors) {
@@ -212,7 +225,7 @@ export function RegistrationForm({
   function backToReview() {
     const before = pick(allErrors(), stepFields.slice(0, lastStep).flat());
     if (Object.keys(before).length > 0) {
-      showErrors(before);
+      showErrors(withKnownErrors(before));
       return;
     }
     setErrors({});
@@ -227,7 +240,7 @@ export function RegistrationForm({
     // （例如新增了場次），有問題就跳回那一步。
     const stepErrors = step === lastStep ? errorsNow : pick(errorsNow, stepFields[step]);
     if (Object.keys(stepErrors).length > 0) {
-      showErrors(stepErrors);
+      showErrors(withKnownErrors(stepErrors));
       return;
     }
     // 這一步已經沒問題；後面幾步的錯誤（例如送出後才發現場地不能選）留著，到那一步才看得到。
@@ -1125,7 +1138,9 @@ function serviceSummary(registration: Pick<Details, "choirPart" | "services">, t
 }
 
 /**
- * 已經不在名單裡的選擇：要清掉的值、整理後的選課，與要顯示的錯誤。
+ * 已經不在名單裡或剛額滿的選擇：要清掉的值、整理後的選課與午餐等選擇、要顯示的錯誤，
+ * 以及已經不用回答、錯誤要收起的題目（場地的午餐或午后動態全被刪掉時）。
+ * 剛額滿的選擇也取消選取並標出來，不必等再次送出才被拒絕。
  * 選的課已經不在原本那個場次（被刪除，或被管理員移到別的場次）時，清掉那個場次的選擇請她重選，
  * 不會不知不覺換到別的時段。
  */
@@ -1139,9 +1154,11 @@ function staleSelections(
   choices: CourseChoices;
   extras: ExtraChoices;
   errors: RegistrationErrors;
+  dropped: RegistrationField[];
 } {
   const changes: Partial<RegistrationInput> = {};
   const errors: RegistrationErrors = {};
+  const dropped: RegistrationField[] = [];
   const stake = options.stakes.find((option) => option.id === input.stakeId);
   if (input.stakeId && !stake) {
     changes.stakeId = "";
@@ -1154,32 +1171,55 @@ function staleSelections(
   if (input.venueId && !options.venues.some((venue) => venue.id === input.venueId)) {
     changes.venueId = "";
     errors.venue = "venueUnavailable";
-    return { changes, choices: {}, extras: { printedHandbook: extras.printedHandbook }, errors };
+    return {
+      changes,
+      choices: {},
+      extras: { printedHandbook: extras.printedHandbook },
+      errors,
+      dropped,
+    };
   }
   const venue = options.venues.find((option) => option.id === input.venueId);
   const keptExtras = { ...extras };
-  if (extras.lunch && !venue?.lunchOptions.some((lunch) => lunch.id === extras.lunch)) {
-    delete keptExtras.lunch;
-    errors.lunch = "lunchUnavailable";
-  }
-  if (
-    extras.afternoonActivity &&
-    !venue?.afternoonActivities.some((activity) => activity.id === extras.afternoonActivity)
-  ) {
-    delete keptExtras.afternoonActivity;
-    errors.afternoonActivity = "afternoonActivityUnavailable";
-  }
+  const checkExtra = (
+    key: "lunch" | "afternoonActivity",
+    options: LimitedOption[],
+    unavailable: RegistrationError,
+    full: RegistrationError,
+  ) => {
+    const choice = extras[key];
+    if (venue && options.length === 0) {
+      delete keptExtras[key];
+      dropped.push(key);
+      return;
+    }
+    if (!choice) return;
+    const option = options.find((candidate) => candidate.id === choice);
+    if (!option || option.isFull) {
+      delete keptExtras[key];
+      errors[key] = option ? full : unavailable;
+    }
+  };
+  checkExtra("lunch", venue?.lunchOptions ?? [], "lunchUnavailable", "lunchFull");
+  checkExtra(
+    "afternoonActivity",
+    venue?.afternoonActivities ?? [],
+    "afternoonActivityUnavailable",
+    "afternoonActivityFull",
+  );
   const sessions = venue?.sessions ?? [];
   const kept: CourseChoices = {};
   for (const [sessionId, courseId] of Object.entries(choices)) {
-    const session = sessions.find((option) => option.id === sessionId);
-    if (session && (courseId === null || session.courses.some((course) => course.id === courseId))) {
+    const course = sessions
+      .find((option) => option.id === sessionId)
+      ?.courses.find((option) => option.id === courseId);
+    if (courseId === null ? sessions.some((option) => option.id === sessionId) : course && !course.isFull) {
       kept[sessionId] = courseId;
     } else if (courseId !== null) {
-      errors.courses = "courseRequired";
+      errors.courses = course ? "courseFull" : "courseRequired";
     }
   }
-  return { changes, choices: kept, extras: keptExtras, errors };
+  return { changes, choices: kept, extras: keptExtras, errors, dropped };
 }
 
 
