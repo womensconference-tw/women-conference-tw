@@ -86,7 +86,7 @@ export function RegistrationForm({
   const [input, setInput] = useState<RegistrationInput>(emptyInput);
   const [errors, setErrors] = useState<RegistrationErrors>({});
   const [registration, setRegistration] = useState<Registration | null>(null);
-  // 送出時才發現額滿的課程；讀取頁面時已額滿的由 options 標出。
+  // 送出時才發現額滿的課程，在新的名單讀進來之前先標成已額滿；讀取頁面時已額滿的由 options 標出。
   const [filledCourseIds, setFilledCourseIds] = useState<string[]>([]);
   const [pending, startTransition] = useTransition();
   const sessions = venueSessions(options, input.venueId);
@@ -96,6 +96,8 @@ export function RegistrationForm({
   const [checkedOptions, setCheckedOptions] = useState(options);
   if (options !== checkedOptions) {
     setCheckedOptions(options);
+    // 新名單已經帶著最新的額滿狀態；之後有人取消或加開名額，課程才會恢復可選。
+    setFilledCourseIds([]);
     const stale = staleSelections(input, options);
     if (Object.keys(stale.errors).length > 0) {
       const merged = { ...errors, ...stale.errors };

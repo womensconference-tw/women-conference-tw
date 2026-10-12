@@ -1,3 +1,4 @@
+import type { TransactionSql } from "postgres";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { adminClient, anonClient, databaseClient, must } from "../../test/supabase";
 import {
@@ -309,42 +310,37 @@ describe("課程名額", () => {
   });
 
   // 兩個請求很少剛好在同一瞬間數名額，所以讓甲的報名寫到一半、交易還沒結束時，乙送出。
-  // 有鎖住課程時，乙會等甲寫完才數到已滿；沒鎖的話乙看不到甲還沒完成的報名，兩人都會成功。
+  // 有鎖住課程時，乙會等甲寫完才數到已滿；沒鎖的話乙不會等，測試直接失敗。
   it("最後一個名額兩人同時送出，只有一人成功，另一人收到額滿資訊且資料不寫入", async () => {
     const course = await addCourse(await addSession(1), 1);
-    const sql = databaseClient();
-    try {
-      let held!: () => void;
-      let release!: () => void;
-      const firstHolding = new Promise<void>((resolve) => (held = resolve));
-      const firstMayCommit = new Promise<void>((resolve) => (release = resolve));
-      const first = sql.begin(async (tx) => {
-        await tx`set local role anon`;
-        await tx`
-          select id from public.submit_registration(
-            ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶位甲', '0912345678', null, null, true,
-            ${[course]}::uuid[]
-          )`;
-        held();
-        await firstMayCommit;
-      });
-      await firstHolding;
 
-      const second = submitRegistration(anonClient(), validInput({ name: "搶位乙", courseIds: [course] }));
-      await Promise.race([second, new Promise((resolve) => setTimeout(resolve, 1000))]);
-      release();
-      await first;
+    const second = await submitWhileHolding(
+      (tx) => tx`
+        select id from public.submit_registration(
+          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶位甲', '0912345678', null, null, true,
+          ${[course]}::uuid[]
+        )`,
+      () => submitRegistration(anonClient(), validInput({ name: "搶位乙", courseIds: [course] })),
+    );
 
-      expect(await second).toEqual({
-        ok: false,
-        errors: { courses: "courseFull" },
-        fullCourseIds: [course],
-      });
-      expect(await registrationCount("搶位甲")).toBe(1);
-      expect(await registrationCount("搶位乙")).toBe(0);
-    } finally {
-      await sql.end();
-    }
+    expect(second).toEqual({ ok: false, errors: { courses: "courseFull" }, fullCourseIds: [course] });
+    expect(await registrationCount("搶位甲")).toBe(1);
+    expect(await registrationCount("搶位乙")).toBe(0);
+  });
+
+  // 管理員刪課的交易還沒結束時她送出：等刪除完成後要重新檢查，不能寫入缺課的報名。
+  it("所選課程在送出時剛被刪除，整筆不寫入", async () => {
+    const session = await addSession(1);
+    const removed = await addCourse(session, 10, "要刪的課");
+    await addCourse(session, 10, "留下的課");
+
+    const result = await submitWhileHolding(
+      (tx) => tx`delete from public.courses where id = ${removed}`,
+      () => submitRegistration(anonClient(), validInput({ name: "刪課時報名", courseIds: [removed] })),
+    );
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+    expect(await registrationCount("刪課時報名")).toBe(0);
   });
 
   it("任一門額滿則整筆不寫入，只回傳額滿的那門", async () => {
@@ -437,6 +433,50 @@ describe("課程名額", () => {
     expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
   });
 });
+
+/**
+ * 在一個還沒結束的資料庫交易裡做 hold，交易開著時呼叫 submit；
+ * 確認 submit 真的卡在等這個交易的鎖之後，才結束交易，回傳 submit 的結果。
+ * submit 一直沒有等這個交易（例如送出函式沒有上鎖），測試直接失敗，不靠時間碰運氣。
+ */
+async function submitWhileHolding<T>(
+  hold: (tx: TransactionSql) => Promise<unknown>,
+  submit: () => Promise<T>,
+): Promise<T> {
+  const sql = databaseClient();
+  const watcher = databaseClient();
+  let release!: () => void;
+  const mayCommit = new Promise<void>((resolve) => (release = resolve));
+  let holderPid!: number;
+  let held!: () => void;
+  const holding = new Promise<void>((resolve) => (held = resolve));
+  const transaction = sql.begin(async (tx) => {
+    [{ pid: holderPid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+    await hold(tx);
+    held();
+    await mayCommit;
+  });
+  try {
+    await holding;
+    const submitted = submit();
+    for (let waited = 0; ; waited += 50) {
+      const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
+        select exists (
+          select 1 from pg_stat_activity where ${holderPid}::int = any(pg_blocking_pids(pid))
+        ) as blocked`;
+      if (blocked) break;
+      if (waited > 3000) throw new Error("送出沒有等那個交易的鎖：送出函式可能沒有鎖住課程");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    release();
+    await transaction;
+    return await submitted;
+  } finally {
+    release();
+    await transaction.catch(() => {});
+    await Promise.all([sql.end(), watcher.end()]);
+  }
+}
 
 // 選課步驟按「下一步」時，用所選場地的場次檢查，不必等到送出。
 describe("選課檢查", () => {

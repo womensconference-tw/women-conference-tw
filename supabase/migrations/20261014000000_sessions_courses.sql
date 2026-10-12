@@ -133,7 +133,7 @@ drop function public.submit_registration(uuid, uuid, uuid, text, text, text, tex
  * 所選課程是否在該場地且每個場次剛好一門，以及課程名額。
  * 不符合時丟出代碼（例如 registration_not_open），由報名服務轉成欄位旁的錯誤訊息。
  *
- * 名額（ADR 0006）：先鎖住所選的課程，再數已佔用的名額，整個函式在同一個交易裡。
+ * 名額（ADR 0006）：先鎖住所選的課程，再檢查課程、數已佔用的名額，整個函式在同一個交易裡。
  * 兩人同時搶最後一個名額時，後到的會等先到的寫完，才數到已滿。
  * 任何一門額滿就丟出 course_full，detail 是額滿課程的 id（以逗號分隔），整筆都不寫入。
  */
@@ -157,6 +157,7 @@ declare
   v_conference public.conferences;
   v_course_ids uuid[] := coalesce(p_course_ids, '{}');
   v_full uuid[];
+  v_saved integer;
   v_number text;
   v_registration public.registrations;
 begin
@@ -191,6 +192,10 @@ begin
     raise exception 'ward_not_in_stake';
   end if;
 
+  -- 先鎖住所選課程，下面的檢查與數名額才看得到最新狀態：管理員正在刪改這些課時，等他完成再檢查。
+  -- 依 id 順序上鎖，同時送出的人不會互相卡住。
+  perform 1 from public.courses where id = any(v_course_ids) order by id for update;
+
   -- 每門課都要在所選場地，同一場次只能一門（重複的同一門也算），有開課的場次都要選。
   if exists (
       select 1 from unnest(v_course_ids) as selected(id)
@@ -214,9 +219,6 @@ begin
   then
     raise exception 'courses_invalid';
   end if;
-
-  -- 依 id 順序上鎖，同時送出的人不會互相卡住。
-  perform 1 from public.courses where id = any(v_course_ids) order by id for update;
 
   select array_agg(id order by id) into v_full
   from public.courses
@@ -255,6 +257,11 @@ begin
   select v_registration.id, p_venue_id, session_id, id
   from public.courses
   where id = any(v_course_ids);
+  -- 保險：存下的課程少於所選的（檢查之後課程才消失），丟出錯誤，整筆報名一起撤回。
+  get diagnostics v_saved = row_count;
+  if v_saved <> cardinality(v_course_ids) then
+    raise exception 'courses_invalid';
+  end if;
 
   return v_registration;
 end;
