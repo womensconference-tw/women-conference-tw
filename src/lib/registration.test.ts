@@ -1,12 +1,21 @@
+import type { TransactionSql } from "postgres";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { adminClient, anonClient, must } from "../../test/supabase";
-import { isRegistrationNumber, submitRegistration, type RegistrationInput } from "./registration";
+import { adminClient, anonClient, databaseClient, must } from "../../test/supabase";
+import {
+  isRegistrationNumber,
+  submitRegistration,
+  validateCourseChoices,
+  type CourseChoices,
+  type RegistrationInput,
+  type SubmitResult,
+} from "./registration";
 
 const admin = adminClient();
 const DAY = 24 * 60 * 60 * 1000;
 
 let previousCurrentIds: string[] = [];
 let conferenceId: string | undefined;
+let opened = false;
 let venueId: string;
 let stakeIds: string[] = [];
 let taipeiStakeId: string;
@@ -28,7 +37,8 @@ beforeEach(async () => {
         year: 2099,
         conference_date: "2099-05-15",
         announce_at: new Date(now - 2 * DAY).toISOString(),
-        registration_opens_at: new Date(now - DAY).toISOString(),
+        // 一開始還沒開放：場次與課程要在開放前建好，第一次送出時才開放（見 openRegistration）。
+        registration_opens_at: new Date(now + DAY / 2).toISOString(),
         registration_closes_at: new Date(now + DAY).toISOString(),
         is_current: true,
       })
@@ -36,6 +46,7 @@ beforeEach(async () => {
       .single(),
   );
   conferenceId = conference.id;
+  opened = false;
 
   venueId = must(
     await admin
@@ -88,6 +99,24 @@ afterEach(async () => {
   }
 });
 
+/** 開放報名：把開放時間移到現在之前。開放後場次與課程就不能再增刪，所以要先建好。 */
+async function openRegistration() {
+  if (opened) return;
+  must(
+    await admin
+      .from("conferences")
+      .update({ registration_opens_at: new Date(Date.now() - DAY).toISOString() })
+      .eq("id", conferenceId!),
+  );
+  opened = true;
+}
+
+/** 以前台訪客的身分送出報名；還沒開放報名的話先開放。 */
+async function submit(input: RegistrationInput): Promise<SubmitResult> {
+  await openRegistration();
+  return submitRegistration(anonClient(), input);
+}
+
 function validInput(overrides: Partial<RegistrationInput> = {}): RegistrationInput {
   return {
     name: "王小美",
@@ -98,6 +127,7 @@ function validInput(overrides: Partial<RegistrationInput> = {}): RegistrationInp
     stakeId: taipeiStakeId,
     wardId: xindianWardId,
     venueId,
+    courseIds: [],
     portraitConsent: true,
     ...overrides,
   };
@@ -105,8 +135,7 @@ function validInput(overrides: Partial<RegistrationInput> = {}): RegistrationInp
 
 describe("送出報名", () => {
   it("資料齊全時報名成功，回傳存下的資料", async () => {
-    const result = await submitRegistration(
-      anonClient(),
+    const result = await submit(
       validInput({ email: " mei@example.com ", lineId: "mei123" }),
     );
 
@@ -122,24 +151,23 @@ describe("送出報名", () => {
         stakeId: taipeiStakeId,
         wardId: xindianWardId,
         venueId,
+        courseIds: [],
       },
     });
   });
 
   // 代報人用自己的電話幫家人報名。
   it("同一支電話可以報 3 位", async () => {
-    const supabase = anonClient();
     const results = [];
     for (const name of ["王媽媽", "王小美", "王小華"]) {
-      results.push(await submitRegistration(supabase, validInput({ name })));
+      results.push(await submit(validInput({ name })));
     }
 
     expect(results.map((result) => result.ok)).toEqual([true, true, true]);
   });
 
   it("沒有電話的人拿到 6 碼報名編號", async () => {
-    const result = await submitRegistration(
-      anonClient(),
+    const result = await submit(
       validInput({ phone: "", noPhone: true }),
     );
 
@@ -151,7 +179,7 @@ describe("送出報名", () => {
   });
 
   it("沒有同意肖像權不能送出", async () => {
-    const result = await submitRegistration(anonClient(), validInput({ portraitConsent: false }));
+    const result = await submit(validInput({ portraitConsent: false }));
 
     expect(result).toEqual({ ok: false, errors: { portraitConsent: "portraitConsentRequired" } });
   });
@@ -178,31 +206,39 @@ describe("送出報名", () => {
   });
 
   it("支會不屬於所選的支聯會時被拒絕", async () => {
-    const result = await submitRegistration(anonClient(), validInput({ wardId: taichungWardId }));
+    const result = await submit(validInput({ wardId: taichungWardId }));
 
-    expect(result).toEqual({ ok: false, errors: { ward: "wardNotInStake" } });
+    expect(result).toEqual({ ok: false, errors: { ward: "wardUnavailable" } });
   });
 
   // 教會重新劃分後，舊單位停用；報名表上已不顯示，送出時也不接受。
   it("停用的支會不能選", async () => {
     must(await admin.from("wards").update({ is_active: false }).eq("id", xindianWardId));
 
-    const result = await submitRegistration(anonClient(), validInput());
+    const result = await submit(validInput());
 
-    expect(result).toEqual({ ok: false, errors: { ward: "wardNotInStake" } });
+    expect(result).toEqual({ ok: false, errors: { ward: "wardUnavailable" } });
   });
 
   it("停用的支聯會不能選", async () => {
     must(await admin.from("stakes").update({ is_active: false }).eq("id", taipeiStakeId));
 
-    const result = await submitRegistration(anonClient(), validInput());
+    const result = await submit(validInput());
 
-    expect(result).toEqual({ ok: false, errors: { stake: "stakeRequired" } });
+    expect(result).toEqual({ ok: false, errors: { stake: "stakeUnavailable" } });
+  });
+
+  // 填表時場地被刪掉（或不屬於目前年度）：請她重新選，不是說她沒選。
+  it("場地已不在可選的名單中時被拒絕", async () => {
+    const result = await submit(
+      validInput({ venueId: crypto.randomUUID() }),
+    );
+
+    expect(result).toEqual({ ok: false, errors: { venue: "venueUnavailable" } });
   });
 
   it("每個有問題的欄位各自標出錯誤", async () => {
-    const result = await submitRegistration(
-      anonClient(),
+    const result = await submit(
       validInput({
         name: "  ",
         phone: "",
@@ -233,15 +269,463 @@ describe("送出報名", () => {
     { phone: "+886 912 345 678", saved: "+886912345678" },
     { phone: "０９１２３４５６７８", saved: "0912345678" },
   ])("電話 $phone 整理成 $saved", async ({ phone, saved }) => {
-    const result = await submitRegistration(anonClient(), validInput({ phone }));
+    const result = await submit(validInput({ phone }));
 
     expect(result.ok && result.registration.phone).toBe(saved);
   });
 
   it.each(["1234", "0912-ABC-678", "09123456789012345"])("電話 %s 格式不對", async (phone) => {
-    const result = await submitRegistration(anonClient(), validInput({ phone }));
+    const result = await submit(validInput({ phone }));
 
     expect(result).toEqual({ ok: false, errors: { phone: "phoneInvalid" } });
+  });
+});
+
+// 場次與課程只能在開放報名前建立，所以每個測試先建好，送出時才開放報名。
+async function addSession(position: number, venue = venueId) {
+  return must(
+    await admin
+      .from("sessions")
+      .insert({ conference_id: conferenceId, venue_id: venue, position, name_zh: `第${position}場` })
+      .select("id")
+      .single(),
+  ).id;
+}
+
+async function addCourse(sessionId: string, capacity: number | null, title = "測試課程") {
+  return must(
+    await admin
+      .from("courses")
+      .insert({ conference_id: conferenceId, session_id: sessionId, title_zh: title, capacity })
+      .select("id")
+      .single(),
+  ).id;
+}
+
+// 名額在送出時於資料庫交易內一次檢查並佔用（ADR 0006）。
+describe("課程名額", () => {
+  async function registrationCount(name: string) {
+    const rows = must(
+      await admin.from("registrations").select("id").eq("conference_id", conferenceId!).eq("name", name),
+    );
+    return rows.length;
+  }
+
+  it("每個場次選一門課，報名成功並記下所選課程", async () => {
+    const first = await addCourse(await addSession(1), 30);
+    const second = await addCourse(await addSession(2), null);
+
+    const result = await submit(validInput({ courseIds: [first, second] }));
+
+    expect(result.ok && result.registration.courseIds.toSorted()).toEqual([first, second].toSorted());
+    if (!result.ok) return;
+    const saved = must(
+      await admin
+        .from("registration_courses")
+        .select("course_id")
+        .eq("registration_id", result.registration.id),
+    );
+    expect(saved.map((row) => row.course_id).toSorted()).toEqual([first, second].toSorted());
+  });
+
+  // 兩個請求很少剛好在同一瞬間數名額，所以讓甲的報名寫到一半、交易還沒結束時，乙送出。
+  // 有鎖住課程時，乙會等甲寫完才數到已滿；沒鎖的話乙不會等，測試直接失敗。
+  it("最後一個名額兩人同時送出，只有一人成功，另一人收到額滿資訊且資料不寫入", async () => {
+    const course = await addCourse(await addSession(1), 1);
+    await openRegistration();
+
+    const second = await submitWhileHolding(
+      (tx) => tx`
+        select id from public.submit_registration(
+          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶位甲', '0912345678', null, null, true,
+          ${[course]}::uuid[]
+        )`,
+      () => submit(validInput({ name: "搶位乙", courseIds: [course] })),
+    );
+
+    expect(second).toEqual({ ok: false, errors: { courses: "courseFull" }, fullCourseIds: [course] });
+    expect(await registrationCount("搶位甲")).toBe(1);
+    expect(await registrationCount("搶位乙")).toBe(0);
+  });
+
+  // 報名依 id 順序鎖課程；管理員同一次反過來調整兩門課的名額時，兩邊互等，資料庫會中止其中一邊。
+  // 被中止的是報名時，報名服務要自動重送，不能讓她看到「系統出了問題」。
+  it("管理員同時調整多門課的名額時，報名照樣成功", async () => {
+    const [first, second] = [
+      await addCourse(await addSession(1), 10),
+      await addCourse(await addSession(2), 10),
+    ].sort();
+    await openRegistration();
+
+    const result = await submitWhileHolding(
+      async (tx) => {
+        // 資料庫偵測到互相等待時，中止哪一邊不一定；讓管理員這邊等久一點才檢查，
+        // 先發現的一定是報名，被中止的就是報名，才測得到自動重送。
+        await tx`set local deadlock_timeout = '10s'`;
+        await tx`update public.courses set capacity = 20 where id = ${second}`;
+      },
+      () => submit(validInput({ name: "調名額時報名", courseIds: [first, second] })),
+      (tx) => tx`update public.courses set capacity = 20 where id = ${first}`,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(await registrationCount("調名額時報名")).toBe(1);
+  });
+
+  it("任一門額滿則整筆不寫入，只回傳額滿的那門", async () => {
+    const full = await addCourse(await addSession(1), 1);
+    const open = await addCourse(await addSession(2), 10);
+    expect((await submit(validInput({ name: "先報的", courseIds: [full, open] }))).ok).toBe(true);
+
+    const result = await submit(
+      validInput({ name: "後報的", courseIds: [full, open] }),
+    );
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseFull" }, fullCourseIds: [full] });
+    expect(await registrationCount("後報的")).toBe(0);
+  });
+
+  it("不限人數的課程不會額滿", async () => {
+    const course = await addCourse(await addSession(1), null);
+
+    const results = [];
+    for (const name of ["甲", "乙", "丙", "丁", "戊"]) {
+      results.push(await submit(validInput({ name, courseIds: [course] })));
+    }
+
+    expect(results.map((result) => result.ok)).toEqual([true, true, true, true, true]);
+  });
+
+  it("已取消的報名不佔名額", async () => {
+    const course = await addCourse(await addSession(1), 1);
+    const first = await submit(validInput({ courseIds: [course] }));
+    if (!first.ok) throw new Error("報名失敗");
+    must(
+      await admin
+        .from("registrations")
+        .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+        .eq("id", first.registration.id),
+    );
+
+    const result = await submit(validInput({ courseIds: [course] }));
+
+    expect(result.ok).toBe(true);
+  });
+
+  // 有的姐妹不是每個時段都上課：沒存課程的場次就是「不選課」。
+  it("有場次不選課也能報名，只存選了的課", async () => {
+    const first = await addCourse(await addSession(1), null);
+    await addCourse(await addSession(2), null);
+
+    const result = await submit(validInput({ courseIds: [first] }));
+
+    expect(result.ok && result.registration.courseIds).toEqual([first]);
+  });
+
+  it("每個場次都不選課也能報名", async () => {
+    await addCourse(await addSession(1), null);
+
+    const result = await submit(validInput({ courseIds: [] }));
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("同一場次選兩門課時被拒絕", async () => {
+    const session = await addSession(1);
+    const a = await addCourse(session, null, "甲課");
+    const b = await addCourse(session, null, "乙課");
+
+    const result = await submit(validInput({ courseIds: [a, b] }));
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+
+  it("其他場地的課程不能選", async () => {
+    await addCourse(await addSession(1), null);
+    const otherVenue = must(
+      await admin
+        .from("venues")
+        .insert({ conference_id: conferenceId, name_zh: "台中大雅教堂" })
+        .select("id")
+        .single(),
+    ).id;
+    const otherCourse = await addCourse(await addSession(1, otherVenue), null);
+
+    const result = await submit(validInput({ courseIds: [otherCourse] }));
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+
+  it("課程數量多到不合理時直接擋下", async () => {
+    const courseIds = Array.from({ length: 21 }, () => crypto.randomUUID());
+
+    const result = await submit(validInput({ courseIds }));
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+
+  it("課程編號格式不對時標在課程旁", async () => {
+    const result = await submit(validInput({ courseIds: ["abc"] }));
+
+    expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+});
+
+/**
+ * 在一個還沒結束的資料庫交易裡做 hold，交易開著時呼叫 submit；
+ * 確認 submit 的送出函式真的卡在等這個交易的鎖之後，再做 thenDo（有給的話），才結束交易，回傳 submit 的結果。
+ * 送出函式一直沒有等這個交易（例如沒有上鎖），測試直接失敗，不靠時間碰運氣。
+ */
+async function submitWhileHolding<T>(
+  hold: (tx: TransactionSql) => Promise<unknown>,
+  submit: () => Promise<T>,
+  thenDo?: (tx: TransactionSql) => Promise<unknown>,
+): Promise<T> {
+  const sql = databaseClient();
+  const watcher = databaseClient();
+  let release!: () => void;
+  const mayCommit = new Promise<void>((resolve) => (release = resolve));
+  let held!: (pid: number) => void;
+  const holding = new Promise<number>((resolve) => (held = resolve));
+  const transaction = sql.begin(async (tx) => {
+    const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+    await hold(tx);
+    held(pid);
+    await mayCommit;
+    await thenDo?.(tx);
+  });
+  try {
+    // 交易在通知之前就失敗（例如 hold 的 SQL 有錯）時，直接把錯誤拋出來，不要一直等下去。
+    const holderPid = await Promise.race([
+      holding,
+      transaction.then(() => {
+        throw new Error("交易結束了卻沒有進入等待狀態");
+      }),
+    ]);
+    const submitted = submit();
+    // 只認正在執行送出函式、而且被這個交易擋住的連線，其他連線的等待不算。
+    for (let waited = 0; ; waited += 50) {
+      const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
+        select exists (
+          select 1 from pg_stat_activity
+          where ${holderPid}::int = any(pg_blocking_pids(pid))
+            and query like '%submit_registration%'
+        ) as blocked`;
+      if (blocked) break;
+      if (waited > 3000) throw new Error("送出函式沒有等那個交易的鎖：可能沒有上鎖");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    release();
+    // 互相等待時資料庫也可能中止這個交易（不一定是 submit 那邊），那不是 submit 的問題。
+    await transaction.catch((error) => {
+      if (error?.code !== "40P01") throw error;
+    });
+    return await submitted;
+  } finally {
+    release();
+    await transaction.catch(() => {});
+    await Promise.all([sql.end(), watcher.end()]);
+  }
+}
+
+// 課程與時段在開放報名前定案；開放後只能修正文字、調整名額與排序（GLOSSARY「報名開放」）。
+describe("開放報名後的場次與課程", () => {
+  let sessionId: string;
+  let otherSessionId: string;
+  let courseId: string;
+
+  beforeEach(async () => {
+    sessionId = await addSession(1);
+    otherSessionId = await addSession(2);
+    courseId = await addCourse(sessionId, 10);
+    await openRegistration();
+  });
+
+  it.each<[string, () => PromiseLike<{ error: { message: string } | null }>]>([
+    [
+      "新增場次",
+      () => admin.from("sessions").insert({ conference_id: conferenceId, venue_id: venueId, name_zh: "新場次" }),
+    ],
+    [
+      "新增課程",
+      () => admin.from("courses").insert({ conference_id: conferenceId, session_id: sessionId, title_zh: "新課" }),
+    ],
+    ["刪除課程", () => admin.from("courses").delete().eq("id", courseId)],
+    ["換掉課程的編號", () => admin.from("courses").update({ id: crypto.randomUUID() }).eq("id", courseId)],
+    ["換掉場次的編號", () => admin.from("sessions").update({ id: crypto.randomUUID() }).eq("id", otherSessionId)],
+    ["刪除場次", () => admin.from("sessions").delete().eq("id", sessionId)],
+    [
+      "把課程移到別的場次",
+      () => admin.from("courses").update({ session_id: otherSessionId }).eq("id", courseId),
+    ],
+    [
+      "把場次移到別的場地",
+      async () => {
+        const otherVenue = must(
+          await admin
+            .from("venues")
+            .insert({ conference_id: conferenceId, name_zh: "台中大雅教堂" })
+            .select("id")
+            .single(),
+        ).id;
+        return admin.from("sessions").update({ venue_id: otherVenue }).eq("id", sessionId);
+      },
+    ],
+  ])("%s被拒絕", async (_, change) => {
+    const { error } = await change();
+
+    expect(error?.message).toBe("programme_locked");
+  });
+
+  it("可以修正文字、調整名額與排序", async () => {
+    const results = [
+      await admin
+        .from("courses")
+        .update({ title_zh: "改正的課名", description_zh: "講師：王姊妹", capacity: 40, position: 3 })
+        .eq("id", courseId),
+      await admin.from("courses").update({ capacity: null }).eq("id", courseId),
+      await admin.from("sessions").update({ name_zh: "第一場 10:00–10:50", position: 2 }).eq("id", sessionId),
+    ];
+
+    expect(results.map((result) => result.error)).toEqual([null, null, null]);
+  });
+
+  // 將來後台帳號不一定看得到每個年度；看不到也不能被當成還沒開放而放行。
+  it("看不到那個年度的人，也判斷得出已經開放", async () => {
+    must(await admin.from("conferences").update({ is_current: false }).eq("id", conferenceId!));
+
+    const { data } = await anonClient().rpc("registration_opened", { p_conference_id: conferenceId });
+
+    expect(data).toBe(true);
+  });
+
+  // 不然把開放時間改到未來，就能改課程再改回來，繞過這條規則。
+  it.each([
+    ["改到未來", new Date(Date.now() + DAY / 2).toISOString()],
+    ["改到更早", new Date(Date.now() - 1.5 * DAY).toISOString()],
+  ])("開放時間到了之後不能再%s", async (_, opensAt) => {
+    const { error } = await admin
+      .from("conferences")
+      .update({ registration_opens_at: opensAt })
+      .eq("id", conferenceId!);
+
+    expect(error?.message).toBe("registration_opens_at_locked");
+  });
+
+  it("開放時間到了之後不能清空", async () => {
+    must(await admin.from("conferences").update({ is_current: false }).eq("id", conferenceId!));
+
+    const { error } = await admin
+      .from("conferences")
+      .update({ registration_opens_at: null })
+      .eq("id", conferenceId!);
+
+    expect(error?.message).toBe("registration_opens_at_locked");
+  });
+
+  // 刪除整個年度大會時，場次與課程跟著刪除，不受這條規則限制（每個測試結束時也靠這個清掉資料）。
+  it("刪除整個年度大會時一起刪掉", async () => {
+    const { error } = await admin.from("conferences").delete().eq("id", conferenceId!);
+    conferenceId = undefined;
+
+    expect(error).toBeNull();
+  });
+});
+
+// 開放前就開始、開放後才確定的修改也要擋下：要用確定當下的時間判斷，不是交易開始的時間。
+describe("跨過開放時間的修改", () => {
+  // 在開放前新增場次，等開放時間過了才確定：檢查要在確定那一刻、用當下的時間做，才擋得下來。
+  it("開放前新增場次，開放後才確定，整個修改不算數", async () => {
+    const sql = databaseClient();
+    try {
+      const attempt = sql.begin(async (tx) => {
+        const [{ started }] = await tx<{ started: Date }[]>`select now() as started`;
+        // 交易開始之後才把開放時間設在一秒後，確保新增場次時還沒開放。
+        const opensAt = new Date(Date.now() + 1000);
+        must(
+          await admin
+            .from("conferences")
+            .update({ registration_opens_at: opensAt.toISOString() })
+            .eq("id", conferenceId!),
+        );
+        await tx`
+          insert into public.sessions (conference_id, venue_id, name_zh)
+          values (${conferenceId!}, ${venueId}, '開放後才確定的場次')`;
+        const [{ inserted }] = await tx<{ inserted: Date }[]>`select clock_timestamp() as inserted`;
+        expect(started.getTime()).toBeLessThan(opensAt.getTime());
+        expect(inserted.getTime()).toBeLessThan(opensAt.getTime());
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      });
+
+      await expect(attempt).rejects.toThrow("programme_locked");
+      expect(must(await admin.from("sessions").select("id").eq("name_zh", "開放後才確定的場次"))).toEqual([]);
+    } finally {
+      await sql.end();
+    }
+  });
+
+  // 延後開放時間的修改還沒確定時，原定時間到了，別人已經看到開放並報名成功；
+  // 這時延後不能生效，一起做的課程修改也不算數。
+  it("開放前開始延後開放時間，原定時間過了才確定，整個修改不算數", async () => {
+    const opensAt = new Date(Date.now() + 1000);
+    must(
+      await admin
+        .from("conferences")
+        .update({ registration_opens_at: opensAt.toISOString() })
+        .eq("id", conferenceId!),
+    );
+    opened = true;
+    const sql = databaseClient();
+    try {
+      let visitor: SubmitResult | undefined;
+      const attempt = sql.begin(async (tx) => {
+        await tx`
+          update public.conferences
+          set registration_opens_at = ${new Date(Date.now() + DAY / 2)}
+          where id = ${conferenceId!}`;
+        await tx`
+          insert into public.sessions (conference_id, venue_id, name_zh)
+          values (${conferenceId!}, ${venueId}, '延後時偷加的場次')`;
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        visitor = await submitRegistration(anonClient(), validInput({ name: "原定時間報名" }));
+      });
+
+      await expect(attempt).rejects.toThrow(/registration_opens_at_locked|programme_locked/);
+      expect(visitor?.ok).toBe(true);
+      const [conference] = must(
+        await admin.from("conferences").select("registration_opens_at").eq("id", conferenceId!),
+      );
+      expect(new Date(conference.registration_opens_at).getTime()).toBe(opensAt.getTime());
+      const sessions = must(
+        await admin.from("sessions").select("id").eq("name_zh", "延後時偷加的場次"),
+      );
+      expect(sessions).toEqual([]);
+    } finally {
+      await sql.end();
+    }
+  });
+});
+
+// 選課步驟按「下一步」時檢查每個場次都選了一門課或「不選課」，免得漏選。
+describe("選課檢查", () => {
+  const a = "00000000-0000-4000-8000-00000000000a";
+  const b = "00000000-0000-4000-8000-00000000000b";
+  const c = "00000000-0000-4000-8000-00000000000c";
+  const sessions = [
+    { id: "s1", courses: [{ id: a }, { id: b }] },
+    { id: "s2", courses: [{ id: c }] },
+    { id: "s3", courses: [] },
+  ];
+
+  it.each<{ what: string; choices: CourseChoices; error?: string }>([
+    { what: "每個場次都選了一門", choices: { s1: a, s2: c }, error: undefined },
+    { what: "一個場次選課、一個場次不選課", choices: { s1: a, s2: null }, error: undefined },
+    { what: "每個場次都不選課", choices: { s1: null, s2: null }, error: undefined },
+    { what: "有場次沒選也沒按不選課", choices: { s1: a }, error: "courseRequired" },
+    // 課程被管理員移到別的場次後，原本那個場次的選擇不算數。
+    { what: "選的課已不在那個場次", choices: { s1: c, s2: null }, error: "courseRequired" },
+  ])("$what", ({ choices, error }) => {
+    expect(validateCourseChoices(choices, sessions).courses).toBe(error);
   });
 });
 
@@ -256,14 +740,13 @@ describe("看不見的空白字元", () => {
       errors: { email: "emailInvalid" },
     },
   ])("$what時標在該欄位旁", async ({ input, errors }) => {
-    const result = await submitRegistration(anonClient(), validInput(input));
+    const result = await submit(validInput(input));
 
     expect(result).toEqual({ ok: false, errors });
   });
 
   it("前後的看不見空白會去掉", async () => {
-    const result = await submitRegistration(
-      anonClient(),
+    const result = await submit(
       validInput({ name: "\uFEFF王小美\u0085", lineId: "\t", email: "\u00A0mei@example.com\u3000" }),
     );
 
@@ -277,7 +760,8 @@ describe("看不見的空白字元", () => {
 
 // 匿名訪客可以不經過報名服務，直接呼叫資料庫的送出函式，所以資料庫自己也要擋。
 describe("直接呼叫資料庫的送出函式", () => {
-  function callDirectly(overrides: Record<string, unknown> = {}) {
+  async function callDirectly(overrides: Record<string, unknown> = {}) {
+    await openRegistration();
     return anonClient()
       .rpc("submit_registration", {
         p_venue_id: venueId,
@@ -287,6 +771,7 @@ describe("直接呼叫資料庫的送出函式", () => {
         p_phone: "0912345678",
         p_email: null,
         p_line_id: null,
+        p_course_ids: [],
         p_portrait_consent: true,
         ...overrides,
       })
@@ -318,7 +803,7 @@ describe("直接呼叫資料庫的送出函式", () => {
 
 describe("報名資料表", () => {
   it("匿名訪客無法直接讀取或列舉", async () => {
-    const saved = await submitRegistration(anonClient(), validInput());
+    const saved = await submit(validInput());
     expect(saved.ok).toBe(true);
 
     const { data } = await anonClient().from("registrations").select("*");
@@ -341,7 +826,7 @@ describe("報名資料表", () => {
   });
 
   it("同時存下報名當下的支聯會與支會", async () => {
-    const result = await submitRegistration(anonClient(), validInput());
+    const result = await submit(validInput());
     if (!result.ok) throw new Error("報名失敗");
 
     const row = must(

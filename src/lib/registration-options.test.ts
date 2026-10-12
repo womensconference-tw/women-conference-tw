@@ -56,6 +56,37 @@ async function addWard(ward: {
   must(await admin.from("wards").insert(ward));
 }
 
+/** 不經過報名服務，直接佔一個課程名額。 */
+async function takeSeat(venueId: string, sessionId: string, courseId: string) {
+  const stake = await addStake({ position: 99, name_zh: "測試佔位支聯會" });
+  const ward = must(
+    await admin.from("wards").insert({ stake_id: stake, name_zh: "測試佔位支會" }).select("id").single(),
+  );
+  const registration = must(
+    await admin
+      .from("registrations")
+      .insert({
+        conference_id: conferenceId,
+        venue_id: venueId,
+        stake_id: stake,
+        ward_id: ward.id,
+        name: "佔位",
+        phone: "0912345678",
+        portrait_consented_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single(),
+  );
+  must(
+    await admin.from("registration_courses").insert({
+      registration_id: registration.id,
+      venue_id: venueId,
+      session_id: sessionId,
+      course_id: courseId,
+    }),
+  );
+}
+
 /** 只看測試建立的支聯會，不受 seed 資料影響。 */
 function fixtureStakes(stakes: StakeOption[]) {
   return stakes
@@ -75,6 +106,71 @@ describe("報名表的選項", () => {
     const options = await getRegistrationOptions(anonClient(), "en");
 
     expect(options.venues.map((venue) => venue.name)).toEqual(["Taipei Jinhua Chapel", "高雄鳥松教堂"]);
+  });
+
+  it("每個場地帶著自己的場次與課程，依排序，標出已額滿", async () => {
+    const [jinhua, daya] = must(
+      await admin
+        .from("venues")
+        .insert([
+          { conference_id: conferenceId, position: 1, name_zh: "台北金華教堂" },
+          { conference_id: conferenceId, position: 2, name_zh: "台中大雅教堂" },
+        ])
+        .select("id, position")
+        .order("position"),
+    );
+    const [second, first, dayaSession] = must(
+      await admin
+        .from("sessions")
+        .insert([
+          { conference_id: conferenceId, venue_id: jinhua.id, position: 2, name_zh: "第二場", name_en: "Session 2" },
+          { conference_id: conferenceId, venue_id: jinhua.id, position: 1, name_zh: "第一場", name_en: "" },
+          { conference_id: conferenceId, venue_id: daya.id, position: 1, name_zh: "大雅第一場" },
+          // 還沒開課的場次不列出。
+          { conference_id: conferenceId, venue_id: daya.id, position: 2, name_zh: "大雅第二場" },
+        ], { defaultToNull: false })
+        .select("id"),
+    );
+    const [full, , unlimited] = must(
+      await admin
+        .from("courses")
+        .insert([
+          { conference_id: conferenceId, session_id: first.id, position: 1, title_zh: "家譜", title_en: "Family history", capacity: 1 },
+          { conference_id: conferenceId, session_id: first.id, position: 2, title_zh: "音樂", description_zh: "王老師", capacity: 20 },
+          { conference_id: conferenceId, session_id: second.id, position: 1, title_zh: "烹飪", capacity: null },
+          { conference_id: conferenceId, session_id: dayaSession.id, position: 1, title_zh: "插花", capacity: 5 },
+        ], { defaultToNull: false })
+        .select("id"),
+    );
+    await takeSeat(jinhua.id, first.id, full.id);
+    await takeSeat(jinhua.id, second.id, unlimited.id);
+
+    const options = await getRegistrationOptions(anonClient(), "en");
+
+    expect(options.venues.map((venue) => venue.sessions)).toEqual([
+      [
+        {
+          id: first.id,
+          name: "第一場",
+          courses: [
+            { id: full.id, name: "Family history", description: "", isFull: true },
+            { id: expect.any(String), name: "音樂", description: "王老師", isFull: false },
+          ],
+        },
+        {
+          id: second.id,
+          name: "Session 2",
+          courses: [{ id: unlimited.id, name: "烹飪", description: "", isFull: false }],
+        },
+      ],
+      [
+        {
+          id: dayaSession.id,
+          name: "大雅第一場",
+          courses: [{ id: expect.any(String), name: "插花", description: "", isFull: false }],
+        },
+      ],
+    ]);
   });
 
   it("支聯會依排序列出，各自帶著自己的支會", async () => {
