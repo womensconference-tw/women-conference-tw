@@ -151,6 +151,29 @@ const zh = {
       screenshotHint: "您沒有填 Email，請把上面的報名資料截圖保存，或請家人幫忙記下來。",
     },
   },
+  lookup: {
+    title: "查詢我的報名",
+    description: "請輸入報名時填的姓名和電話。沒有電話的姐妹，請填報名編號。",
+    nameLabel: "姓名",
+    phoneOrNumberLabel: "電話或報名編號",
+    phoneOrNumberHint: "如果是家人幫您報名，請填報名時用的那支電話。",
+    submitButton: "查詢",
+    submittingButton: "查詢中，請稍候…",
+    resultHeading: "您的報名資料",
+    cancelled: "這筆報名已經取消。",
+    closedHeading: "報名已截止，現在只能查詢",
+    closedDescription: "要修改或取消報名，請用 LINE 聯絡大會管理員。",
+    errors: {
+      nameRequired: "請填寫姓名。",
+      phoneOrNumberRequired: "請填寫電話。沒有電話的姐妹，請填報名編號。",
+      phoneOrNumberInvalid:
+        "電話或報名編號的格式不對。電話請只填數字，例如 0912345678；報名編號是 6 個數字。",
+      notFound:
+        "找不到符合的報名。請確認姓名和電話（或報名編號）跟報名時填的一樣，再試一次。如果還是找不到，請聯絡大會管理員。",
+      tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試，或聯絡大會管理員。",
+      unknown: "系統暫時出了問題，請稍後再試一次，或聯絡大會管理員。",
+    },
+  },
 };
 
 export type Messages = typeof zh;
@@ -328,6 +351,34 @@ const en = {
         "Look up your registration with your name and this number. Please write it down.",
       screenshotHint:
         "You didn't give an email address. Please take a screenshot of your registration details above, or ask a family member to write them down.",
+    },
+  },
+  lookup: {
+    title: "Look up my registration",
+    description:
+      "Enter the name and phone number you registered with. If you have no phone, enter your registration number.",
+    nameLabel: "Name",
+    phoneOrNumberLabel: "Phone number or registration no.",
+    phoneOrNumberHint:
+      "If someone registered for you, use the phone number they entered.",
+    submitButton: "Look up",
+    submittingButton: "Looking up, please wait…",
+    resultHeading: "Your registration",
+    cancelled: "This registration has been cancelled.",
+    closedHeading: "Registration has closed. You can only look up your registration now.",
+    closedDescription:
+      "To change or cancel your registration, please contact the conference administrator on LINE.",
+    errors: {
+      nameRequired: "Please enter your name.",
+      phoneOrNumberRequired:
+        "Please enter your phone number. If you have no phone, enter your registration number.",
+      phoneOrNumberInvalid:
+        "That phone number or registration number doesn't look right. Phone numbers are digits only, e.g. 0912345678; registration numbers are 6 digits.",
+      notFound:
+        "We couldn't find a matching registration. Please check that your name and phone number (or registration number) are exactly as you registered, and try again. If you still can't find it, please contact the conference administrator.",
+      tooManyAttempts:
+        "There have been too many unsuccessful lookups for this name. Please try again in an hour, or contact the conference administrator.",
+      unknown: "Something went wrong. Please try again later, or contact the conference administrator.",
     },
   },
 } satisfies Messages;
