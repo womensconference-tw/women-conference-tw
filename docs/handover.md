@@ -55,4 +55,4 @@ bash scripts/setup-production.sh
 - **出現「正式資料庫查詢失敗：Supabase 專案可能已暫停」的 issue**：防暫停 workflow 查詢失敗時會自動開這張 issue。到 Supabase 後台恢復專案，再到 Actions 分頁手動重跑「Keep Supabase awake」，成功後關閉 issue。
   不靠 GitHub 的失敗通知信，因為那只會寄給建立 workflow、最後修改 cron 排程，或最後重新啟用 workflow 的人，換屆後不一定是現任維護者。
 
-<!-- TODO: 之後補上報名資料匿名化（ADR 0005）等每年的固定工作 -->
+<!-- TODO: 匯出與清除的實際操作畫面做好後，補上每年的步驟（ADR 0008）：大會結束後下載 Excel 名單、存到籌備委員會的雲端、確認打得開，再到後台清除個資 -->
