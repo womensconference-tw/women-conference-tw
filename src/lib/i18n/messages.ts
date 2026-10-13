@@ -142,6 +142,8 @@ const zh = {
       printedHandbookRequired: "請選擇是否需要紙本手冊。",
       portraitConsentRequired: "需要同意肖像權才能報名。如有疑問，請先聯絡大會管理員。",
       notOpen: "目前不在報名期間，報名沒有送出。",
+      notFound: "找不到這筆報名，可能已經取消了。請重新查詢，或聯絡大會管理員。",
+      tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試，或聯絡大會管理員。",
       unknown: "系統暫時出了問題，報名沒有送出。請稍後再試一次，或聯絡大會管理員。",
     },
     done: {
@@ -163,6 +165,7 @@ const zh = {
     cancelled: "這筆報名已經取消。",
     closedHeading: "報名已截止，現在只能查詢",
     closedDescription: "要修改或取消報名，請用 LINE 聯絡大會管理員。",
+    editButton: "修改這筆報名",
     errors: {
       nameRequired: "請填寫姓名。",
       phoneOrNumberRequired: "請填寫電話。沒有電話的姐妹，請填報名編號。",
@@ -172,6 +175,24 @@ const zh = {
         "找不到符合的報名。請確認姓名和電話（或報名編號）跟報名時填的一樣，再試一次。如果還是找不到，請聯絡大會管理員。",
       tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試，或聯絡大會管理員。",
       unknown: "系統暫時出了問題，請稍後再試一次，或聯絡大會管理員。",
+    },
+  },
+  // 修改報名：沿用報名表的步驟與確認頁，只有這些地方的文字不同。
+  edit: {
+    title: "修改報名",
+    stepTitles: ["聯絡資料", "選擇場地", "選擇課程", "午餐與服務", "確認修改"],
+    editButtons: ["修改聯絡資料", "修改場地", "修改課程", "修改午餐與服務"],
+    fixedDetailsHint: "姓名和支會不能在這裡修改。要修改的話，請聯絡大會管理員。",
+    reviewHeading: "請確認修改後的資料",
+    submitButton: "確認送出修改",
+    cancelButton: "不修改了，回到查詢結果",
+    doneHeading: "修改完成",
+    backToLookupButton: "回到查詢結果",
+    errors: {
+      notOpen: "目前不在報名期間，修改沒有送出。",
+      // 連線中斷時修改可能已經存下，所以不說「沒有送出」。
+      unknown:
+        "系統暫時出了問題，不確定修改有沒有存下來。請再按一次「確認送出修改」；還是不行的話，請稍後重新查詢，看看目前的資料，或聯絡大會管理員。",
     },
   },
 };
@@ -341,6 +362,10 @@ const en = {
       portraitConsentRequired:
         "You need to agree to the photo consent to register. If you have questions, please contact the conference administrator first.",
       notOpen: "Registration is not open right now. Your registration was not submitted.",
+      notFound:
+        "We couldn't find this registration. It may have been cancelled. Please look it up again, or contact the conference administrator.",
+      tooManyAttempts:
+        "There have been too many unsuccessful lookups for this name. Please try again in an hour, or contact the conference administrator.",
       unknown:
         "Something went wrong and your registration was not submitted. Please try again later, or contact the conference administrator.",
     },
@@ -368,6 +393,7 @@ const en = {
     closedHeading: "Registration has closed. You can only look up your registration now.",
     closedDescription:
       "To change or cancel your registration, please contact the conference administrator on LINE.",
+    editButton: "Change this registration",
     errors: {
       nameRequired: "Please enter your name.",
       phoneOrNumberRequired:
@@ -379,6 +405,23 @@ const en = {
       tooManyAttempts:
         "There have been too many unsuccessful lookups for this name. Please try again in an hour, or contact the conference administrator.",
       unknown: "Something went wrong. Please try again later, or contact the conference administrator.",
+    },
+  },
+  edit: {
+    title: "Change my registration",
+    stepTitles: ["Contact details", "Choose a venue", "Choose your classes", "Lunch and service", "Review changes"],
+    editButtons: ["Change contact details", "Change venue", "Change classes", "Change lunch and service"],
+    fixedDetailsHint:
+      "Your name and ward can't be changed here. To change them, please contact the conference administrator.",
+    reviewHeading: "Please check your changed details",
+    submitButton: "Save my changes",
+    cancelButton: "Don't change anything, back to my registration",
+    doneHeading: "Your changes are saved",
+    backToLookupButton: "Back to my registration",
+    errors: {
+      notOpen: "Registration is not open right now. Your changes were not saved.",
+      unknown:
+        "Something went wrong, and we're not sure whether your changes were saved. Please press \"Save my changes\" again. If that doesn't work, look up your registration again later to check your details, or contact the conference administrator.",
     },
   },
 } satisfies Messages;

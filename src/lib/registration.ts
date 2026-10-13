@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PostgrestSingleResponse, SupabaseClient } from "@supabase/supabase-js";
 import type { Locale } from "./i18n/locale";
 import { localized } from "./i18n/localized";
 
@@ -7,6 +7,7 @@ import { localized } from "./i18n/localized";
  * 欄位檢查（validateRegistration）不碰資料庫，報名表在每一步也用它即時提示；
  * 要看資料庫當下狀態的規則（是否報名中、支會是否屬於該支聯會、課程與午餐等名額）由資料庫函式 submit_registration 檢查。
  * 查詢（lookupRegistration）是前台唯一能讀取報名的地方，由資料庫函式 lookup_registration 比對。
+ * 修改（updateRegistration）由資料庫函式 update_registration 再比對一次姓名與電話（或報名編號），和送出走同一套名額檢查。
  */
 
 /** 即席唱詩班的聲部。與資料庫 registrations_choir_part_valid 用同一組代碼。 */
@@ -45,6 +46,19 @@ export type RegistrationInput = {
   printedHandbook: boolean | null;
   portraitConsent: boolean;
 };
+
+/**
+ * 修改報名時可以改的部分：聯絡資料（電話、Email、LINE ID）與場地以後的每一步。
+ * 姓名、支聯會、支會不能改，肖像權已經同意過；有沒有電話在報名時就決定了，noPhone 要和原本的一樣。
+ */
+export type RegistrationChanges = Omit<RegistrationInput, "name" | "stakeId" | "wardId" | "portraitConsent">;
+
+/** 報名表內容裡修改時會送出的部分；姓名、支聯會、支會、肖像權同意不送。 */
+export function changesOf(input: RegistrationInput): RegistrationChanges {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { name, stakeId, wardId, portraitConsent, ...changes } = input;
+  return changes;
+}
 
 /** 錯誤顯示的位置：各欄位旁，或 form（整張表單上方）。 */
 export type RegistrationField =
@@ -88,6 +102,10 @@ export type RegistrationError =
   | "printedHandbookRequired"
   | "portraitConsentRequired"
   | "notOpen"
+  /** 修改時找不到這筆報名：姓名、電話不符，或剛被取消。 */
+  | "notFound"
+  /** 修改時同一個姓名猜錯太多次，和查詢一起暫停一陣子。 */
+  | "tooManyAttempts"
   | "unknown";
 
 export type RegistrationErrors = Partial<Record<RegistrationField, RegistrationError>>;
@@ -157,6 +175,54 @@ export function normalizePhone(raw: string): string {
     .replace(new RegExp(`[${BLANK}\\-().]`, "g"), "");
 }
 
+/**
+ * 把送來的報名表內容整理成 RegistrationInput。報名、修改的伺服器動作任何人都能直接打，
+ * 送來的不一定是報名表的形狀；型別不對的一律當成空白，交給欄位檢查擋下。
+ */
+export function registrationInputFrom(input: unknown): RegistrationInput {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const text = (key: string) => (typeof raw[key] === "string" ? (raw[key] as string) : "");
+  // 單選的午餐等：null 是「不需要」；其他不是字串的換成空字串，交給欄位檢查擋下。
+  const choice = (key: string) => (raw[key] === null || raw[key] === undefined ? null : text(key));
+  // 不是字串的項目換成空字串，交給欄位檢查擋下。
+  const items = (key: string) =>
+    (raw[key] as unknown[]).map((item) => (typeof item === "string" ? item : ""));
+  return {
+    name: text("name"),
+    phone: text("phone"),
+    noPhone: raw.noPhone === true,
+    email: text("email"),
+    lineId: text("lineId"),
+    stakeId: text("stakeId"),
+    wardId: text("wardId"),
+    venueId: text("venueId"),
+    courseIds: Array.isArray(raw.courseIds) ? items("courseIds") : [],
+    lunchOptionId: choice("lunchOptionId"),
+    afternoonActivityId: choice("afternoonActivityId"),
+    choirPart: choice("choirPart"),
+    // 服務意願不是清單時，換成一個空字串，交給欄位檢查擋下，不默默當成沒有服務意願。
+    services: Array.isArray(raw.services) ? items("services") : [""],
+    // 不是 true 或 false 就當成還沒選，交給欄位檢查擋下，不默默當成不要。
+    printedHandbook: typeof raw.printedHandbook === "boolean" ? raw.printedHandbook : null,
+    portraitConsent: raw.portraitConsent === true,
+  };
+}
+
+/**
+ * 送出或修改之後，頁面上的選項是否要重新讀取。已填的資料留在瀏覽器裡，不受影響。
+ * 失敗時：她選的場地、支聯會、支會、午餐、午后動態已不能選，或課程、午餐、午后動態剛額滿、有變動，
+ * 回到那一步時才會顯示最新的名單。
+ * 成功時：課程可能剛被移到別的場次，完成頁才會用最新的場次顯示她的課；名額也變了。
+ */
+export function optionsMayHaveChanged(result: SubmitResult): boolean {
+  return (
+    result.ok ||
+    (["venue", "stake", "ward", "courses", "lunch", "afternoonActivity"] as const).some(
+      (field) => result.errors[field],
+    )
+  );
+}
+
 /** 檢查欄位格式，不碰資料庫。沒有錯誤時回傳空物件。 */
 export function validateRegistration(input: RegistrationInput): RegistrationErrors {
   const errors: RegistrationErrors = {};
@@ -164,6 +230,20 @@ export function validateRegistration(input: RegistrationInput): RegistrationErro
   const name = trimBlank(input.name);
   if (!name) errors.name = "nameRequired";
   else if ([...name].length > NAME_MAX_LENGTH) errors.name = "nameTooLong";
+
+  Object.assign(errors, validateChanges(input));
+
+  if (!UUID_PATTERN.test(input.stakeId)) errors.stake = "stakeRequired";
+  if (!UUID_PATTERN.test(input.wardId)) errors.ward = "wardRequired";
+
+  if (input.portraitConsent !== true) errors.portraitConsent = "portraitConsentRequired";
+
+  return errors;
+}
+
+/** 報名與修改共同的欄位檢查：聯絡資料與場地以後的每一步。 */
+function validateChanges(input: RegistrationChanges): RegistrationErrors {
+  const errors: RegistrationErrors = {};
 
   if (!input.noPhone) {
     const phone = normalizePhone(input.phone);
@@ -176,8 +256,6 @@ export function validateRegistration(input: RegistrationInput): RegistrationErro
 
   if ([...trimBlank(input.lineId)].length > LINE_ID_MAX_LENGTH) errors.lineId = "lineIdTooLong";
 
-  if (!UUID_PATTERN.test(input.stakeId)) errors.stake = "stakeRequired";
-  if (!UUID_PATTERN.test(input.wardId)) errors.ward = "wardRequired";
   if (!UUID_PATTERN.test(input.venueId)) errors.venue = "venueRequired";
 
   if (input.courseIds.length > MAX_COURSES || !input.courseIds.every((id) => UUID_PATTERN.test(id))) {
@@ -199,8 +277,6 @@ export function validateRegistration(input: RegistrationInput): RegistrationErro
   }
 
   if (input.printedHandbook === null) errors.printedHandbook = "printedHandbookRequired";
-
-  if (input.portraitConsent !== true) errors.portraitConsent = "portraitConsentRequired";
 
   return errors;
 }
@@ -275,6 +351,38 @@ export function validateExtraChoices(choices: ExtraChoices, venue: VenueExtras):
   return errors;
 }
 
+/** 報名表上課程與午餐等的選擇。 */
+export type FormChoices = { courses: CourseChoices; extras: ExtraChoices };
+
+/**
+ * 修改報名時，報名表一開始的選擇：每個有開課的場次是她選的課，沒存課程的場次是「不選課」；
+ * 午餐、午后動態、紙本手冊照她存下的（null 是「不需要」「不參加」）。
+ */
+export function choicesOf(
+  registration: Pick<Registration, "courseIds" | "lunchOptionId" | "afternoonActivityId" | "printedHandbook">,
+  venue: { sessions: SessionCourses[] } | undefined,
+): FormChoices {
+  const courses: CourseChoices = {};
+  for (const session of venue?.sessions ?? []) {
+    if (session.courses.length === 0) continue;
+    courses[session.id] =
+      session.courses.find((course) => registration.courseIds.includes(course.id))?.id ?? null;
+  }
+  return {
+    courses,
+    extras: {
+      lunch: registration.lunchOptionId,
+      afternoonActivity: registration.afternoonActivityId,
+      printedHandbook: registration.printedHandbook,
+    },
+  };
+}
+
+/** 換場地後的選擇：課程、午餐、午后動態屬於場地，全部清空要她重選；紙本手冊不受影響。 */
+export function choicesAfterVenueChange(choices: FormChoices): FormChoices {
+  return { courses: {}, extras: { printedHandbook: choices.extras.printedHandbook } };
+}
+
 // submit_registration 丟出的代碼對應到哪個欄位的哪個錯誤。
 const databaseErrors: Record<string, RegistrationErrors> = {
   registration_not_open: { form: "notOpen" },
@@ -288,6 +396,10 @@ const databaseErrors: Record<string, RegistrationErrors> = {
   // 午餐、午后動態不在所選場地（例如她填表時剛被刪除）：請她重新選。
   lunch_invalid: { lunch: "lunchUnavailable" },
   afternoon_activity_invalid: { afternoonActivity: "afternoonActivityUnavailable" },
+  // 以下只有修改時會出現：同一個姓名猜錯太多次，或想改掉有沒有電話。
+  // 找不到她的報名（姓名、電話不符或已取消）時，修改函式回傳空值，不丟出代碼（見 saved）。
+  too_many_attempts: { form: "tooManyAttempts" },
+  phone_invalid: { phone: "phoneInvalid" },
 };
 
 // 欄位檢查與資料表限制本來就一致；萬一資料表擋下了，也標在對應的欄位旁，不只顯示「系統出了問題」。
@@ -312,25 +424,81 @@ export async function submitRegistration(
   const errors = validateRegistration(input);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
-  const call = () =>
-    supabase
-      .rpc("submit_registration", {
-        p_venue_id: input.venueId,
-        p_stake_id: input.stakeId,
-        p_ward_id: input.wardId,
-        p_name: trimBlank(input.name),
-        p_phone: input.noPhone ? null : normalizePhone(input.phone),
-        p_email: trimBlank(input.email) || null,
-        p_line_id: trimBlank(input.lineId) || null,
-        p_course_ids: input.courseIds,
-        p_lunch_option_id: input.lunchOptionId,
-        p_afternoon_activity_id: input.afternoonActivityId,
-        p_choir_part: input.choirPart,
-        p_services: input.services,
-        p_printed_handbook: input.printedHandbook,
-        p_portrait_consent: input.portraitConsent,
-      })
-      .single<RegistrationRow>();
+  return saved(
+    "submit_registration",
+    () =>
+      supabase
+        .rpc("submit_registration", {
+          p_venue_id: input.venueId,
+          p_stake_id: input.stakeId,
+          p_ward_id: input.wardId,
+          p_name: trimBlank(input.name),
+          p_phone: input.noPhone ? null : normalizePhone(input.phone),
+          p_email: trimBlank(input.email) || null,
+          p_line_id: trimBlank(input.lineId) || null,
+          p_course_ids: input.courseIds,
+          p_lunch_option_id: input.lunchOptionId,
+          p_afternoon_activity_id: input.afternoonActivityId,
+          p_choir_part: input.choirPart,
+          p_services: input.services,
+          p_printed_handbook: input.printedHandbook,
+          p_portrait_consent: input.portraitConsent,
+        })
+        .single<RegistrationRow>(),
+    input,
+  );
+}
+
+/** 修改報名的輸入：哪一筆、查詢時用的姓名與電話（或報名編號），以及修改後的內容。 */
+export type UpdateInput = { registrationId: string; lookup: LookupInput; changes: RegistrationChanges };
+
+/**
+ * 修改報名：在報名中、姓名與電話（或報名編號）仍符合這一筆時，整筆換成修改後的內容。
+ * 和送出同一套名額檢查；她原本已佔的課程、午餐、午后動態不再檢查名額，新選的才檢查。
+ * 任何一項不通過，整筆都不寫入，原本的報名完整保留。
+ */
+export async function updateRegistration(
+  supabase: SupabaseClient,
+  { registrationId, lookup, changes }: UpdateInput,
+): Promise<SubmitResult> {
+  const errors = validateChanges(changes);
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  const identifier = normalizePhone(lookup.phoneOrNumber);
+  const isNumber = isRegistrationNumber(identifier);
+  if (!UUID_PATTERN.test(registrationId) || !trimBlank(lookup.name) || !identifier) {
+    return { ok: false, errors: { form: "notFound" } };
+  }
+
+  return saved(
+    "update_registration",
+    () =>
+      supabase.rpc("update_registration", {
+        p_registration_id: registrationId,
+        p_lookup_name: trimBlank(lookup.name),
+        p_lookup_phone: isNumber ? null : identifier,
+        p_lookup_registration_number: isNumber ? identifier : null,
+        // 改電話的修改已經存下、回應卻斷掉時，她再送一次：資料庫也拿這支新的電話比對（見 update_registration）。
+        p_phone: changes.noPhone ? null : normalizePhone(changes.phone),
+        p_email: trimBlank(changes.email) || null,
+        p_line_id: trimBlank(changes.lineId) || null,
+        p_venue_id: changes.venueId,
+        p_course_ids: changes.courseIds,
+        p_lunch_option_id: changes.lunchOptionId,
+        p_afternoon_activity_id: changes.afternoonActivityId,
+        p_choir_part: changes.choirPart,
+        p_services: changes.services,
+        p_printed_handbook: changes.printedHandbook,
+      }),
+    changes,
+  );
+}
+
+/** 呼叫寫入報名的資料庫函式，把結果或丟出的代碼轉成 SubmitResult。 */
+async function saved(
+  name: string,
+  call: () => PromiseLike<PostgrestSingleResponse<RegistrationRow | null>>,
+  input: RegistrationChanges,
+): Promise<SubmitResult> {
   let response = await call();
   // 管理員同時調整幾門課的名額時，可能和報名互相等待，資料庫會中止其中一邊（deadlock detected）。
   // 被中止的報名整筆都沒寫入，直接重送就好，不必讓她看到「系統出了問題」。
@@ -346,9 +514,11 @@ export async function submitRegistration(
     }
     const known = databaseErrors[error.message] ?? constraintErrors[violatedConstraint(error.message)];
     if (known) return { ok: false, errors: known };
-    console.error("submit_registration failed", error);
+    console.error(`${name} failed`, error);
     return { ok: false, errors: { form: "unknown" } };
   }
+  // 修改時找不到她的報名，函式回傳 null（不丟出代碼，猜錯的紀錄才會留下）。
+  if (!data?.id) return { ok: false, errors: { form: "notFound" } };
 
   return {
     ok: true,
@@ -374,7 +544,7 @@ export async function submitRegistration(
 }
 
 /** 額滿的選項標在各自的欄位旁；不知道是哪一項時（不該發生），她選了的每一項都請她確認。 */
-function fullErrors(input: RegistrationInput, fullIds: string[]): RegistrationErrors {
+function fullErrors(input: RegistrationChanges, fullIds: string[]): RegistrationErrors {
   const errors: RegistrationErrors = {};
   const isFull = (id: string | null) =>
     id !== null && (fullIds.length === 0 || fullIds.includes(id));

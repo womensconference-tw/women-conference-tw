@@ -9,6 +9,9 @@ import { messages, type Messages } from "@/lib/i18n/messages";
 import {
   CHOIR_PARTS,
   SERVICES,
+  changesOf,
+  choicesAfterVenueChange,
+  choicesOf,
   courseIdsOf,
   extraInputOf,
   validateCourseChoices,
@@ -16,12 +19,14 @@ import {
   validateRegistration,
   type CourseChoices,
   type ExtraChoices,
+  type FoundRegistration,
+  type LookupInput,
   type Registration,
-  type RegistrationError,
   type RegistrationErrors,
   type RegistrationField,
   type RegistrationInput,
 } from "@/lib/registration";
+import { staleSelections } from "@/lib/stale-selections";
 import {
   searchWards,
   type LimitedOption,
@@ -30,6 +35,7 @@ import {
   type VenueOption,
 } from "@/lib/registration-options";
 import { cn } from "@/lib/utils";
+import { updateMine } from "../lookup/actions";
 import { register } from "./actions";
 
 // 每一步有哪些欄位：按「下一步」時只檢查這一步，送出失敗時跳回第一個有錯的那一步。
@@ -82,6 +88,16 @@ const emptyInput: RegistrationInput = {
 
 const noExtras = { lunchOptions: [], afternoonActivities: [] };
 
+/**
+ * 修改報名時要改的那一筆、查到它時用的姓名與電話（或報名編號，修改時再比對一次），
+ * 以及離開修改畫面時要做的事（改好了會帶著修改後的報名）。
+ */
+export type EditTarget = {
+  registration: FoundRegistration;
+  lookup: LookupInput;
+  onClose: (updated?: Registration) => void;
+};
+
 // 字級來自 globals.css 的主視覺設定。經過 cn() 的字級要寫成 text-(length:…)，見首頁的說明。
 const actionClass =
   "h-auto min-h-(--button-min-height) px-6 py-3 text-(length:--text-body-size) whitespace-normal text-center";
@@ -94,6 +110,8 @@ const radioClass = "size-6 shrink-0 accent-primary";
 
 /**
  * 報名表：基本資料 → 選場地 → 選課程 → 午餐與服務 → 肖像權同意與確認 → 完成頁。
+ * 有 edit 時是修改報名：同樣的步驟與確認頁，一開始就停在確認頁、填好她原本的資料；
+ * 姓名、支會不能改，不再問肖像權。她原本已佔的課程、午餐、午后動態就算額滿也照樣可選。
  * 各步都在同一頁切換，回上一步不會清掉已填的資料；送出後在同一頁顯示完成頁。
  * 確認頁可以跳回任一步修改，改好後直接回到確認頁。
  * 不用下拉選單：支聯會、支會、場地、課程、午餐都是攤開的大選項。
@@ -102,26 +120,34 @@ const radioClass = "size-6 shrink-0 accent-primary";
 export function RegistrationForm({
   locale,
   options,
+  edit,
 }: {
   locale: Locale;
   options: RegistrationOptions;
+  edit?: EditTarget;
 }) {
-  const t = messages[locale];
-  const [step, setStep] = useState(0);
-  const [input, setInput] = useState<RegistrationInput>(emptyInput);
+  const t = edit ? editMessages(messages[locale]) : messages[locale];
+  // 修改時一開始的資料：她原本的報名。只在第一次算，之後由她修改。
+  const [initial] = useState(() => (edit ? initialEditState(edit.registration, options) : null));
+  const [step, setStep] = useState(edit ? lastStep : 0);
+  const [input, setInput] = useState<RegistrationInput>(initial?.input ?? emptyInput);
   const [errors, setErrors] = useState<RegistrationErrors>({});
   const [registration, setRegistration] = useState<Registration | null>(null);
   // 送出時才發現額滿的課程、午餐、午后動態，在新的名單讀進來之前先標成已額滿；讀取頁面時已額滿的由 options 標出。
   const [filledIds, setFilledIds] = useState<string[]>([]);
   // 每個場次選了哪門課或「不選課」。送出用的 input.courseIds 一律由這裡算出，兩者不會不一致。
-  const [choices, setChoicesState] = useState<CourseChoices>({});
+  const [choices, setChoicesState] = useState<CourseChoices>(initial?.choices.courses ?? {});
   // 午餐、午后動態、紙本手冊的選擇（含還沒選）。送出用的值同樣一律由這裡算出。
-  const [extras, setExtrasState] = useState<ExtraChoices>({});
+  const [extras, setExtrasState] = useState<ExtraChoices>(initial?.choices.extras ?? {});
   // 到過確認頁之後，回到前面修改時可以直接回確認頁，不必一步一步按「下一步」。
-  const [reviewed, setReviewed] = useState(false);
+  const [reviewed, setReviewed] = useState(Boolean(edit));
   const [pending, startTransition] = useTransition();
   const selectedVenue = options.venues.find((option) => option.id === input.venueId);
   const sessions = selectedVenue?.sessions ?? [];
+  // 修改時她原本已佔的選項：名額仍是她的，就算額滿也照樣可選（ADR 0006）。
+  const [heldIds] = useState(() => (edit ? heldIdsOf(edit.registration) : []));
+  const isFull = (option: LimitedOption) =>
+    (option.isFull && !heldIds.includes(option.id)) || filledIds.includes(option.id);
 
   // 送出失敗後頁面會重新讀取名單。新名單裡已經沒有她選的場地、支聯會、支會或課程時，
   // 一次全部取消選取並標出來，跳到最前面有問題的那一步；不必送出好幾次才一個一個發現。
@@ -130,7 +156,7 @@ export function RegistrationForm({
     setCheckedOptions(options);
     // 新名單已經帶著最新的額滿狀態；之後有人取消或加開名額，才會恢復可選。
     setFilledIds([]);
-    const stale = staleSelections(input, choices, extras, options);
+    const stale = staleSelections(input, choices, extras, options, heldIds, Boolean(edit));
     setInput({
       ...input,
       ...stale.changes,
@@ -203,9 +229,10 @@ export function RegistrationForm({
 
   // 課程、午餐、午后動態屬於場地，換場地就要重新選；紙本手冊不受影響。
   function chooseVenue(venueId: string) {
+    const next = choicesAfterVenueChange({ courses: choices, extras });
     update({ venueId, courseIds: [], lunchOptionId: null, afternoonActivityId: null });
-    setChoicesState({});
-    setExtrasState(({ printedHandbook }) => ({ printedHandbook }));
+    setChoicesState(next.courses);
+    setExtrasState(next.extras);
   }
 
   function goTo(nextStep: number) {
@@ -253,7 +280,15 @@ export function RegistrationForm({
     startTransition(async () => {
       let result;
       try {
-        result = await register(input);
+        if (edit) {
+          result = await updateMine({
+            registrationId: edit.registration.id,
+            lookup: edit.lookup,
+            changes: changesOf(input),
+          });
+        } else {
+          result = await register(input);
+        }
       } catch {
         // 連線中斷或伺服器出錯：留在這一步、保留已填的資料，請她再按一次。
         showErrors({ form: "unknown" });
@@ -272,8 +307,9 @@ export function RegistrationForm({
             lunchOptionId: null,
             afternoonActivityId: null,
           }));
-          setChoicesState({});
-          setExtrasState(({ printedHandbook }) => ({ printedHandbook }));
+          const next = choicesAfterVenueChange({ courses: choices, extras });
+          setChoicesState(next.courses);
+          setExtrasState(next.extras);
         }
         if (stake === "stakeUnavailable") setInput((prev) => ({ ...prev, stakeId: "", wardId: "" }));
         if (ward === "wardUnavailable") setInput((prev) => ({ ...prev, wardId: "" }));
@@ -303,7 +339,17 @@ export function RegistrationForm({
   }
 
   if (registration) {
-    return <Completed registration={registration} options={options} t={t} />;
+    return (
+      <Completed
+        registration={registration}
+        stakeAndWard={
+          edit && { stakeName: edit.registration.stakeName, wardName: edit.registration.wardName }
+        }
+        onBack={edit && (() => edit.onClose(registration))}
+        options={options}
+        t={t}
+      />
+    );
   }
 
   return (
@@ -322,9 +368,12 @@ export function RegistrationForm({
         </p>
       )}
 
-      {step === 0 && (
-        <BasicDetails input={input} update={update} errors={errors} options={options} t={t} />
-      )}
+      {step === 0 &&
+        (edit ? (
+          <ContactDetails input={input} update={update} errors={errors} registration={edit.registration} t={t} />
+        ) : (
+          <BasicDetails input={input} update={update} errors={errors} options={options} t={t} />
+        ))}
 
       {step === 1 && (
         <fieldset data-field="venue" className="flex flex-col gap-3">
@@ -350,7 +399,7 @@ export function RegistrationForm({
       {step === 2 && (
         <Courses
           sessions={sessions}
-          filledIds={filledIds}
+          isFull={isFull}
           choices={choices}
           choose={chooseCourse}
           errors={errors}
@@ -361,7 +410,7 @@ export function RegistrationForm({
       {step === 3 && (
         <LunchAndService
           venue={selectedVenue}
-          filledIds={filledIds}
+          isFull={isFull}
           extras={extras}
           setExtras={setExtras}
           input={input}
@@ -376,7 +425,17 @@ export function RegistrationForm({
           <section className="flex flex-col gap-3">
             <h2 className="text-heading font-bold">{t.register.reviewHeading}</h2>
             <div className="rounded-lg border-2 border-card-outline p-4">
-              <RegistrationDetails registration={input} options={options} t={t} />
+              {/* 修改時她的支聯會、支會可能已停用、不在選項裡，用查詢時拿到的名稱；沒有電話的人列出報名編號。 */}
+              <RegistrationDetails
+                registration={
+                  edit
+                    ? { ...input, stakeName: edit.registration.stakeName, wardName: edit.registration.wardName }
+                    : input
+                }
+                registrationNumber={edit ? edit.registration.registrationNumber : undefined}
+                options={options}
+                t={t}
+              />
             </div>
             <p>{t.register.reviewEditHint}</p>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -396,21 +455,24 @@ export function RegistrationForm({
               ))}
             </div>
           </section>
-          <fieldset data-field="portraitConsent" className="flex flex-col gap-3">
-            <legend className="mb-2 text-heading font-bold">{t.register.portraitConsentHeading}</legend>
-            <p>{t.register.portraitConsentText}</p>
-            <FieldError field="portraitConsent" errors={errors} t={t} />
-            <label className={choiceClass}>
-              <input
-                type="checkbox"
-                className={radioClass}
-                checked={input.portraitConsent}
-                onChange={(event) => update({ portraitConsent: event.target.checked })}
-                {...errorAria("portraitConsent", errors)}
-              />
-              {t.register.portraitConsentCheckbox}
-            </label>
-          </fieldset>
+          {/* 修改時肖像權已經同意過，不再問。 */}
+          {!edit && (
+            <fieldset data-field="portraitConsent" className="flex flex-col gap-3">
+              <legend className="mb-2 text-heading font-bold">{t.register.portraitConsentHeading}</legend>
+              <p>{t.register.portraitConsentText}</p>
+              <FieldError field="portraitConsent" errors={errors} t={t} />
+              <label className={choiceClass}>
+                <input
+                  type="checkbox"
+                  className={radioClass}
+                  checked={input.portraitConsent}
+                  onChange={(event) => update({ portraitConsent: event.target.checked })}
+                  {...errorAria("portraitConsent", errors)}
+                />
+                {t.register.portraitConsentCheckbox}
+              </label>
+            </fieldset>
+          )}
           <div data-field="form" tabIndex={-1}>
             <FieldError field="form" errors={errors} t={t} />
           </div>
@@ -455,6 +517,16 @@ export function RegistrationForm({
             {t.register.backButton}
           </button>
         )}
+        {edit && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => edit.onClose()}
+            className={cn(buttonVariants({ variant: "outline" }), actionClass)}
+          >
+            {t.edit.cancelButton}
+          </button>
+        )}
       </div>
     </form>
   );
@@ -462,20 +534,19 @@ export function RegistrationForm({
 
 function Courses({
   sessions,
-  filledIds,
+  isFull,
   choices,
   choose,
   errors,
   t,
 }: {
   sessions: SessionOption[];
-  filledIds: string[];
+  isFull: (option: LimitedOption) => boolean;
   choices: CourseChoices;
   choose: (session: SessionOption, courseId: string | null) => void;
   errors: RegistrationErrors;
   t: Messages;
 }) {
-  const isFull = (course: LimitedOption) => course.isFull || filledIds.includes(course.id);
   return (
     <div data-field="courses" className="flex flex-col gap-8">
       <div className="flex flex-col gap-3">
@@ -566,7 +637,7 @@ function LimitedChoice({
  */
 function LunchAndService({
   venue,
-  filledIds,
+  isFull,
   extras,
   setExtras,
   input,
@@ -575,7 +646,7 @@ function LunchAndService({
   t,
 }: {
   venue: VenueOption | undefined;
-  filledIds: string[];
+  isFull: (option: LimitedOption) => boolean;
   extras: ExtraChoices;
   setExtras: (next: ExtraChoices) => void;
   input: RegistrationInput;
@@ -583,7 +654,6 @@ function LunchAndService({
   errors: RegistrationErrors;
   t: Messages;
 }) {
-  const isFull = (option: LimitedOption) => option.isFull || filledIds.includes(option.id);
   const lunchOptions = venue?.lunchOptions ?? [];
   const activities = venue?.afternoonActivities ?? [];
   const toggleService = (service: string, on: boolean) =>
@@ -887,6 +957,72 @@ function BasicDetails({ input, update, errors, options, t }: StepProps) {
   );
 }
 
+/**
+ * 修改報名的第一步：只能改聯絡資料。姓名、支會列出來但不能改；
+ * 沒有電話的人不問電話（報名編號列在確認頁），有電話的人不能改成沒有電話。
+ */
+function ContactDetails({
+  input,
+  update,
+  errors,
+  registration,
+  t,
+}: Omit<StepProps, "options"> & { registration: FoundRegistration }) {
+  return (
+    <>
+      <div className="flex flex-col gap-2 rounded-lg bg-muted px-4 py-3">
+        <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 leading-snug">
+          <dt className="font-semibold">{t.register.nameLabel}</dt>
+          <dd className="min-w-0 wrap-anywhere">{registration.name}</dd>
+          <dt className="font-semibold">{t.register.wardLabel}</dt>
+          <dd className="min-w-0 wrap-anywhere">
+            {t.register.wardWithStake(registration.wardName, registration.stakeName)}
+          </dd>
+        </dl>
+        <p>{t.edit.fixedDetailsHint}</p>
+      </div>
+
+      {!input.noPhone && (
+        <TextField
+          field="phone"
+          label={t.register.phoneLabel}
+          hint={t.register.phoneHint}
+          value={input.phone}
+          onChange={(phone) => update({ phone })}
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          errors={errors}
+          t={t}
+        />
+      )}
+
+      <TextField
+        field="email"
+        label={t.register.emailLabel}
+        hint={t.register.emailHint}
+        value={input.email}
+        onChange={(email) => update({ email })}
+        type="email"
+        inputMode="email"
+        autoComplete="email"
+        errors={errors}
+        t={t}
+      />
+
+      <TextField
+        field="lineId"
+        label={t.register.lineIdLabel}
+        value={input.lineId}
+        onChange={(lineId) => update({ lineId })}
+        autoComplete="off"
+        errors={errors}
+        t={t}
+      />
+    </>
+  );
+}
+
 function TextField({
   field,
   label,
@@ -955,10 +1091,16 @@ function FieldError({
 
 function Completed({
   registration,
+  stakeAndWard,
+  onBack,
   options,
   t,
 }: {
   registration: Registration;
+  /** 修改時查詢拿到的支聯會、支會名稱：它們可能已停用，不在選項裡。 */
+  stakeAndWard?: { stakeName: string; wardName: string };
+  /** 修改時回到查詢結果。 */
+  onBack?: () => void;
   options: RegistrationOptions;
   t: Messages;
 }) {
@@ -972,7 +1114,7 @@ function Completed({
       <div className="flex flex-col gap-3 rounded-lg border-4 border-primary px-4 py-3">
         <h1 className="text-heading leading-tight font-bold">{t.register.done.heading}</h1>
         <RegistrationDetails
-          registration={registration}
+          registration={{ ...registration, ...stakeAndWard }}
           registrationNumber={registration.registrationNumber}
           options={options}
           t={t}
@@ -986,6 +1128,11 @@ function Completed({
           {t.register.done.screenshotHint}
         </p>
       )}
+      {onBack && (
+        <button type="button" onClick={onBack} className={cn(buttonVariants(), actionClass, "font-bold")}>
+          {t.edit.backToLookupButton}
+        </button>
+      )}
       <Link href="/" className={cn(buttonVariants({ variant: "outline" }), actionClass)}>
         {t.register.homeButton}
       </Link>
@@ -993,91 +1140,51 @@ function Completed({
   );
 }
 
-/**
- * 已經不在名單裡或剛額滿的選擇：要清掉的值、整理後的選課與午餐等選擇、要顯示的錯誤，
- * 以及已經不用回答、錯誤要收起的題目（場地的午餐或午后動態全被刪掉時）。
- * 剛額滿的選擇也取消選取並標出來，不必等再次送出才被拒絕。
- * 選的課已經不在原本那個場次（被刪除，或被管理員移到別的場次）時，清掉那個場次的選擇請她重選，
- * 不會不知不覺換到別的時段。
- */
-function staleSelections(
-  input: RegistrationInput,
-  choices: CourseChoices,
-  extras: ExtraChoices,
-  options: RegistrationOptions,
-): {
-  changes: Partial<RegistrationInput>;
-  choices: CourseChoices;
-  extras: ExtraChoices;
-  errors: RegistrationErrors;
-  dropped: RegistrationField[];
-} {
-  const changes: Partial<RegistrationInput> = {};
-  const errors: RegistrationErrors = {};
-  const dropped: RegistrationField[] = [];
-  const stake = options.stakes.find((option) => option.id === input.stakeId);
-  if (input.stakeId && !stake) {
-    changes.stakeId = "";
-    changes.wardId = "";
-    errors.stake = "stakeUnavailable";
-  } else if (input.wardId && !stake?.wards.some((ward) => ward.id === input.wardId)) {
-    changes.wardId = "";
-    errors.ward = "wardUnavailable";
-  }
-  if (input.venueId && !options.venues.some((venue) => venue.id === input.venueId)) {
-    changes.venueId = "";
-    errors.venue = "venueUnavailable";
-    return {
-      changes,
-      choices: {},
-      extras: { printedHandbook: extras.printedHandbook },
-      errors,
-      dropped,
-    };
-  }
-  const venue = options.venues.find((option) => option.id === input.venueId);
-  const keptExtras = { ...extras };
-  const checkExtra = (
-    key: "lunch" | "afternoonActivity",
-    options: LimitedOption[],
-    unavailable: RegistrationError,
-    full: RegistrationError,
-  ) => {
-    const choice = extras[key];
-    if (venue && options.length === 0) {
-      delete keptExtras[key];
-      dropped.push(key);
-      return;
-    }
-    if (!choice) return;
-    const option = options.find((candidate) => candidate.id === choice);
-    if (!option || option.isFull) {
-      delete keptExtras[key];
-      errors[key] = option ? full : unavailable;
-    }
+/** 修改報名時表單一開始的資料：她原本的報名，選課與午餐等選擇由它算出。 */
+function initialEditState(registration: FoundRegistration, options: RegistrationOptions) {
+  const venue = options.venues.find((option) => option.id === registration.venueId);
+  const choices = choicesOf(registration, venue);
+  const input: RegistrationInput = {
+    name: registration.name,
+    phone: registration.phone ?? "",
+    noPhone: registration.phone === null,
+    email: registration.email ?? "",
+    lineId: registration.lineId ?? "",
+    stakeId: registration.stakeId,
+    wardId: registration.wardId,
+    venueId: registration.venueId,
+    courseIds: courseIdsOf(choices.courses),
+    ...extraInputOf(choices.extras),
+    choirPart: registration.choirPart,
+    services: registration.services,
+    portraitConsent: true,
   };
-  checkExtra("lunch", venue?.lunchOptions ?? [], "lunchUnavailable", "lunchFull");
-  checkExtra(
-    "afternoonActivity",
-    venue?.afternoonActivities ?? [],
-    "afternoonActivityUnavailable",
-    "afternoonActivityFull",
-  );
-  const sessions = venue?.sessions ?? [];
-  const kept: CourseChoices = {};
-  for (const [sessionId, courseId] of Object.entries(choices)) {
-    const course = sessions
-      .find((option) => option.id === sessionId)
-      ?.courses.find((option) => option.id === courseId);
-    if (courseId === null ? sessions.some((option) => option.id === sessionId) : course && !course.isFull) {
-      kept[sessionId] = courseId;
-    } else if (courseId !== null) {
-      errors.courses = course ? "courseFull" : "courseRequired";
-    }
-  }
-  return { changes, choices: kept, extras: keptExtras, errors, dropped };
+  return { input, choices };
 }
 
+/** 她原本已佔的課程、午餐、午后動態。 */
+function heldIdsOf(registration: Registration): string[] {
+  return [registration.lunchOptionId, registration.afternoonActivityId, ...registration.courseIds].filter(
+    (id): id is string => id !== null,
+  );
+}
+
+/** 修改報名的文字：和報名表大致相同，標題、步驟名稱、按鈕與幾則錯誤訊息換成修改用的。 */
+function editMessages(t: Messages): Messages {
+  return {
+    ...t,
+    register: {
+      ...t.register,
+      title: t.edit.title,
+      stepTitles: t.edit.stepTitles,
+      editButtons: t.edit.editButtons,
+      reviewHeading: t.edit.reviewHeading,
+      submitButton: t.edit.submitButton,
+      errors: { ...t.register.errors, ...t.edit.errors },
+      done: { ...t.register.done, heading: t.edit.doneHeading },
+    },
+  };
+}
 
 /** 讓輔助科技從選項讀到錯誤：標成有錯，並連到錯誤訊息（與其他說明文字）。 */
 function errorAria(field: RegistrationField, errors: RegistrationErrors, ...describedBy: string[]) {

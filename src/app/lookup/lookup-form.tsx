@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, useTransition, type FormEvent } from "react";
+import { useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { RegistrationDetails } from "@/components/registration-details";
 import { buttonVariants } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n/locale";
@@ -11,9 +11,11 @@ import type {
   LookupErrors,
   LookupField,
   LookupInput,
+  Registration,
 } from "@/lib/registration";
 import type { RegistrationOptions } from "@/lib/registration-options";
 import { cn } from "@/lib/utils";
+import { RegistrationForm } from "../register/registration-form";
 import { lookUp } from "./actions";
 
 // 與報名表同一套大按鈕、大輸入框。經過 cn() 的字級要寫成 text-(length:…)，見首頁的說明。
@@ -25,8 +27,21 @@ const textInputClass =
 /**
  * 查詢表單：姓名，以及電話或報名編號（同一格，系統依長度分辨）。
  * 查到後在表單下方顯示報名資料；查不到時只說找不到，不說是哪一項不對。
+ * 報名中（canEdit）時，未取消的報名可以按「修改這筆報名」，在同一頁換成報名表的修改模式；
+ * 修改時用這筆報名存下的姓名與電話（或報名編號）再比對一次。改好或不改了，回到查詢結果。
  */
-export function LookupForm({ locale, options }: { locale: Locale; options: RegistrationOptions }) {
+export function LookupForm({
+  locale,
+  options,
+  canEdit,
+  notice,
+}: {
+  locale: Locale;
+  options: RegistrationOptions;
+  canEdit: boolean;
+  /** 標題下方的說明，例如已截止時只能查詢。 */
+  notice?: ReactNode;
+}) {
   const t = messages[locale];
   const [input, setInput] = useState<LookupInput>({ name: "", phoneOrNumber: "" });
   const [errors, setErrors] = useState<LookupErrors>({});
@@ -35,6 +50,8 @@ export function LookupForm({ locale, options }: { locale: Locale; options: Regis
   const resultRef = useRef<HTMLElement>(null);
   // 輸入改過幾次。查詢期間有人改了輸入，晚回來的結果就是上一位的，不顯示。
   const edits = useRef(0);
+  // 正在修改的那一筆。
+  const [editing, setEditing] = useState<FoundRegistration | null>(null);
 
   // 改了哪一格就收起那一格的錯誤；「找不到」也一起收起，免得她改好了還看到舊訊息。
   // 查到的資料也收起：家人輪流用同一支手機查時，下一位不會看到上一位的個資。
@@ -77,8 +94,44 @@ export function LookupForm({ locale, options }: { locale: Locale; options: Regis
     });
   }
 
+  // 改好了：查詢結果換成修改後的資料（改了電話的話，之後再修改就用新的電話比對）。
+  function closeEdit(updated?: Registration) {
+    setEditing(null);
+    if (updated) {
+      setFound((prev) =>
+        prev.map((registration) =>
+          registration.id === updated.id ? { ...registration, ...updated } : registration,
+        ),
+      );
+    }
+    requestAnimationFrame(() => resultRef.current?.scrollIntoView({ block: "start" }));
+  }
+
+  if (editing) {
+    return (
+      <RegistrationForm
+        locale={locale}
+        options={options}
+        edit={{
+          registration: editing,
+          // 查到她時姓名與電話（或報名編號）就和存下的相符，修改時用存下的再比對一次。
+          lookup: {
+            name: editing.name,
+            phoneOrNumber: editing.phone ?? editing.registrationNumber ?? "",
+          },
+          onClose: closeEdit,
+        }}
+      />
+    );
+  }
+
   return (
     <>
+      <header className="flex flex-col gap-2">
+        <h1 className="text-title leading-tight font-bold">{t.lookup.title}</h1>
+        <p>{t.lookup.description}</p>
+      </header>
+      {notice}
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-6">
         <TextField
           field="name"
@@ -131,6 +184,18 @@ export function LookupForm({ locale, options }: { locale: Locale; options: Regis
                 options={options}
                 t={t}
               />
+              {canEdit && registration.status === "registered" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditing(registration);
+                    window.scrollTo({ top: 0 });
+                  }}
+                  className={cn(buttonVariants(), actionClass, "font-bold")}
+                >
+                  {t.lookup.editButton}
+                </button>
+              )}
             </div>
           ))}
         </section>

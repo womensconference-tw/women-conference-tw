@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * 查詢頁：用姓名＋電話（或報名編號）查自己的報名。任何時候都能查；
+ * 查詢頁：用姓名＋電話（或報名編號）查自己的報名。任何時候都能查；報名中可以接著修改。
  * 已截止時先說明現在只能查詢，修改與取消要聯絡管理員，並列出管理員 LINE。
  * 場地、課程、午餐的名稱用報名表的選項顯示，所以這裡一起讀進來。
  */
@@ -36,34 +36,37 @@ export default async function LookupPage() {
       <div className="flex justify-end">
         <LanguageSwitch />
       </div>
-      <header className="flex flex-col gap-2">
-        <h1 className="text-title leading-tight font-bold">{t.lookup.title}</h1>
-        <p>{t.lookup.description}</p>
-      </header>
-      {conference?.phase === "closed" && (
-        <section className="flex flex-col gap-3 rounded-lg border-2 border-card-outline p-5">
-          <h2 className="text-lead font-bold">{t.lookup.closedHeading}</h2>
-          <p>{t.lookup.closedDescription}</p>
-          {adminLine ? (
-            <>
-              <p className="font-semibold">{t.home.helpLineId(adminLine.id)}</p>
-              <a
-                href={adminLine.url}
-                className={cn(
-                  buttonVariants({ variant: "outline" }),
-                  "h-auto min-h-(--button-min-height) px-6 py-3 text-(length:--text-body-size) whitespace-normal text-center",
-                )}
-              >
-                {t.home.helpLineButton}
-              </a>
-            </>
-          ) : (
-            <p>{t.home.helpLineComingSoon}</p>
-          )}
-        </section>
-      )}
       {/* 查到的支聯會、支會名稱是依當時的語言挑好的；換語言時重新開始，不留下另一種語言的名稱。 */}
-      <LookupForm key={locale} locale={locale} options={options} />
+      <LookupForm
+        key={locale}
+        locale={locale}
+        options={options}
+        canEdit={conference?.phase === "open"}
+        notice={
+          conference?.phase === "closed" && (
+            <section className="flex flex-col gap-3 rounded-lg border-2 border-card-outline p-5">
+              <h2 className="text-lead font-bold">{t.lookup.closedHeading}</h2>
+              <p>{t.lookup.closedDescription}</p>
+              {adminLine ? (
+                <>
+                  <p className="font-semibold">{t.home.helpLineId(adminLine.id)}</p>
+                  <a
+                    href={adminLine.url}
+                    className={cn(
+                      buttonVariants({ variant: "outline" }),
+                      "h-auto min-h-(--button-min-height) px-6 py-3 text-(length:--text-body-size) whitespace-normal text-center",
+                    )}
+                  >
+                    {t.home.helpLineButton}
+                  </a>
+                </>
+              ) : (
+                <p>{t.home.helpLineComingSoon}</p>
+              )}
+            </section>
+          )
+        }
+      />
     </main>
   );
 }
