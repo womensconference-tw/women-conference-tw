@@ -5,6 +5,7 @@ import {
   changesOf,
   choicesAfterVenueChange,
   choicesOf,
+  chooseCourse,
   isRegistrationNumber,
   lookupRegistration,
   submitRegistration,
@@ -489,6 +490,191 @@ describe("課程名額", () => {
     const result = await submit(validInput({ courseIds: ["abc"] }));
 
     expect(result).toEqual({ ok: false, errors: { courses: "courseRequired" } });
+  });
+});
+
+/** 把兩堂課設成成對課程；和場次、課程一樣只能在開放報名前設定。 */
+async function addPair(first: string, second: string) {
+  must(
+    await admin
+      .from("course_pairs")
+      .insert({ conference_id: conferenceId, first_course_id: first, second_course_id: second }),
+  );
+}
+
+// 成對課程跨越連續兩個場次，兩堂一起選、一起判斷名額。
+describe("成對課程", () => {
+  let first: string;
+  let second: string;
+
+  /** 第一、二場是一組成對課程，第一場另有一門一般的課。 */
+  async function pairedCourses(capacities: [number | null, number | null] = [null, null]) {
+    const firstSession = await addSession(1);
+    first = await addCourse(firstSession, capacities[0], "手冊研習（上）");
+    second = await addCourse(await addSession(2), capacities[1], "手冊研習（下）");
+    await addPair(first, second);
+    return firstSession;
+  }
+
+  it("兩堂都選時報名成功，兩堂都記下", async () => {
+    await pairedCourses();
+
+    const result = await submit(validInput({ courseIds: [first, second] }));
+
+    expect(result.ok && result.registration.courseIds.toSorted()).toEqual([first, second].toSorted());
+  });
+
+  it.each([
+    ["只選前一堂", () => [first]],
+    ["只選後一堂", () => [second]],
+  ])("%s時被拒絕，不可能只報到其中一堂", async (_, courseIds) => {
+    await pairedCourses();
+
+    const result = await submit(validInput({ name: "只報一堂", courseIds: courseIds() }));
+
+    expect(result).toEqual({ ok: false, errors: { courses: "coursePairRequired" } });
+    const rows = must(
+      await admin.from("registrations").select("id").eq("conference_id", conferenceId!).eq("name", "只報一堂"),
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("其中一堂額滿時兩堂都不能選，送出被拒絕，兩堂都列為額滿", async () => {
+    await pairedCourses([10, 1]);
+    expect((await submit(validInput({ name: "先報的", courseIds: [first, second] }))).ok).toBe(true);
+
+    const result = await submit(validInput({ name: "後報的", courseIds: [first, second] }));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toEqual({ courses: "courseFull" });
+    expect(result.fullIds?.toSorted()).toEqual([first, second].toSorted());
+  });
+
+  it("其中一堂額滿時，選課畫面兩堂都標成已額滿", async () => {
+    await pairedCourses([1, null]);
+    expect((await submit(validInput({ courseIds: [first, second] }))).ok).toBe(true);
+
+    const { data, error } = await anonClient().rpc("full_courses");
+
+    expect(error).toBeNull();
+    expect((data as string[]).filter((id) => [first, second].includes(id)).toSorted()).toEqual(
+      [first, second].toSorted(),
+    );
+  });
+
+  it("修改時拿掉其中一堂、留著另一堂被拒絕，原報名不變", async () => {
+    const firstSession = await pairedCourses();
+    const other = await addCourse(firstSession, null, "一般的課");
+    const saved = await submit(validInput({ courseIds: [first, second] }));
+    if (!saved.ok) throw new Error("報名失敗");
+
+    const result = await updateRegistration(anonClient(), {
+      registrationId: saved.registration.id,
+      lookup: { name: "王小美", phoneOrNumber: "0912345678" },
+      changes: { ...changesOf(validInput()), courseIds: [other, second] },
+    });
+
+    expect(result).toEqual({ ok: false, errors: { courses: "coursePairRequired" } });
+    const kept = must(
+      await admin.from("registration_courses").select("course_id").eq("registration_id", saved.registration.id),
+    );
+    expect(kept.map((row) => row.course_id).toSorted()).toEqual([first, second].toSorted());
+  });
+
+  it("修改時原本的兩堂額滿了照樣保留", async () => {
+    await pairedCourses([1, 1]);
+    const saved = await submit(validInput({ courseIds: [first, second] }));
+    if (!saved.ok) throw new Error("報名失敗");
+
+    const result = await updateRegistration(anonClient(), {
+      registrationId: saved.registration.id,
+      lookup: { name: "王小美", phoneOrNumber: "0912345678" },
+      changes: { ...changesOf(validInput()), courseIds: [first, second], email: "mei@example.com" },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("前台讀得到目前年度的成對關係，但不能新增", async () => {
+    await pairedCourses();
+
+    const read = await anonClient().from("course_pairs").select("first_course_id, second_course_id");
+    const write = await anonClient()
+      .from("course_pairs")
+      .insert({ conference_id: conferenceId, first_course_id: second, second_course_id: first });
+
+    expect(read.data).toContainEqual({ first_course_id: first, second_course_id: second });
+    expect(write.error).not.toBeNull();
+  });
+
+  describe("成對關係的規則", () => {
+    it.each<[string, () => Promise<[string, string]>]>([
+      ["同一場次的兩堂", async () => {
+        const session = await addSession(1);
+        return [await addCourse(session, null, "甲課"), await addCourse(session, null, "乙課")];
+      }],
+      ["不同場地的兩堂", async () => [
+        await addCourse(await addSession(1), null),
+        await addCourse(await addSession(2, await addVenue()), null),
+      ]],
+    ])("%s不能成對", async (_, courses) => {
+      const [a, b] = await courses();
+
+      const { error } = await admin
+        .from("course_pairs")
+        .insert({ conference_id: conferenceId, first_course_id: a, second_course_id: b });
+
+      expect(error?.message).toBe("course_pair_invalid");
+    });
+
+    it("一堂課只能屬於一組", async () => {
+      await pairedCourses();
+      const third = await addCourse(await addSession(3), null);
+
+      const { error } = await admin
+        .from("course_pairs")
+        .insert({ conference_id: conferenceId, first_course_id: second, second_course_id: third });
+
+      expect(error?.message).toBe("course_pair_invalid");
+    });
+
+    it("成對後把其中一堂移到另一堂的場次被拒絕", async () => {
+      await pairedCourses();
+      const secondSession = must(await admin.from("courses").select("session_id").eq("id", second).single());
+
+      const { error } = await admin.from("courses").update({ session_id: secondSession.session_id }).eq("id", first);
+
+      expect(error?.message).toBe("course_pair_invalid");
+    });
+
+    it.each<[string, () => PromiseLike<{ error: { message: string } | null }>]>([
+      ["新增成對", async () => {
+        const [a, b] = [await addCourse(await addSession(3), null), await addCourse(await addSession(4), null)];
+        await openRegistration();
+        return admin.from("course_pairs").insert({ conference_id: conferenceId, first_course_id: a, second_course_id: b });
+      }],
+      ["取消成對", async () => {
+        await pairedCourses();
+        await openRegistration();
+        return admin.from("course_pairs").delete().eq("first_course_id", first);
+      }],
+    ])("報名開放後%s被拒絕", async (_, change) => {
+      const { error } = await change();
+
+      expect(error?.message).toBe("programme_locked");
+    });
+
+    it("刪除整個年度大會時一起刪掉", async () => {
+      await pairedCourses();
+      await openRegistration();
+
+      must(await admin.from("conferences").delete().eq("id", conferenceId!));
+      conferenceId = undefined;
+
+      const rows = must(await admin.from("course_pairs").select("first_course_id").eq("first_course_id", first));
+      expect(rows).toEqual([]);
+    });
   });
 });
 
@@ -1063,6 +1249,58 @@ describe("選課檢查", () => {
     { what: "選的課已不在那個場次", choices: { s1: c, s2: null }, error: "courseRequired" },
   ])("$what", ({ choices, error }) => {
     expect(validateCourseChoices(choices, sessions).courses).toBe(error);
+  });
+});
+
+// 成對課程在選課畫面上一起選、一起取消。
+describe("成對課程的選課", () => {
+  const sessions = [
+    { id: "s1", courses: [{ id: "a1", pairedWith: { sessionId: "s2", courseId: "a2" } }, { id: "x1" }] },
+    {
+      id: "s2",
+      courses: [
+        { id: "a2", pairedWith: { sessionId: "s1", courseId: "a1" } },
+        { id: "b2", pairedWith: { sessionId: "s3", courseId: "b3" } },
+        { id: "x2" },
+      ],
+    },
+    { id: "s3", courses: [{ id: "b3", pairedWith: { sessionId: "s2", courseId: "b2" } }, { id: "x3" }] },
+  ];
+
+  it.each<{ what: string; before: CourseChoices; session: string; course: string | null; after: CourseChoices }>([
+    { what: "選前一堂時自動選後一堂", before: {}, session: "s1", course: "a1", after: { s1: "a1", s2: "a2" } },
+    { what: "選後一堂時自動選前一堂", before: { s1: null }, session: "s2", course: "a2", after: { s1: "a1", s2: "a2" } },
+    {
+      what: "換成別的課時另一堂也取消，要重選那個場次",
+      before: { s1: "a1", s2: "a2", s3: "x3" },
+      session: "s1",
+      course: "x1",
+      after: { s1: "x1", s3: "x3" },
+    },
+    {
+      what: "改成不選課時另一堂也取消",
+      before: { s1: "a1", s2: "a2" },
+      session: "s2",
+      course: null,
+      after: { s2: null },
+    },
+    {
+      what: "自動選的那堂換掉了另一組的一堂時，那一組的另一堂也取消",
+      before: { s1: "x1", s2: "b2", s3: "b3" },
+      session: "s1",
+      course: "a1",
+      after: { s1: "a1", s2: "a2" },
+    },
+    { what: "一般的課不影響其他場次", before: { s2: "x2" }, session: "s1", course: "x1", after: { s1: "x1", s2: "x2" } },
+  ])("$what", ({ before, session, course, after }) => {
+    expect(chooseCourse(before, sessions, session, course)).toEqual(after);
+  });
+
+  it("只選到其中一堂時，選課步驟不能過", () => {
+    const choices = { s1: "a1", s2: "x2", s3: null };
+
+    expect(validateCourseChoices(choices, sessions)).toEqual({ courses: "coursePairRequired" });
+    expect(validateCourseChoices({ s1: "a1", s2: "a2", s3: null }, sessions)).toEqual({});
   });
 });
 

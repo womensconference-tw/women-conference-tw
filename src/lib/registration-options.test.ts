@@ -174,23 +174,62 @@ describe("報名表的選項", () => {
           id: first.id,
           name: "第一場",
           courses: [
-            { id: full.id, name: "Family history", description: "", isFull: true },
-            { id: expect.any(String), name: "音樂", description: "王老師", isFull: false },
+            { id: full.id, name: "Family history", description: "", isFull: true, pairedWith: null },
+            { id: expect.any(String), name: "音樂", description: "王老師", isFull: false, pairedWith: null },
           ],
         },
         {
           id: second.id,
           name: "Session 2",
-          courses: [{ id: unlimited.id, name: "烹飪", description: "", isFull: false }],
+          courses: [{ id: unlimited.id, name: "烹飪", description: "", isFull: false, pairedWith: null }],
         },
       ],
       [
         {
           id: dayaSession.id,
           name: "大雅第一場",
-          courses: [{ id: expect.any(String), name: "插花", description: "", isFull: false }],
+          courses: [{ id: expect.any(String), name: "插花", description: "", isFull: false, pairedWith: null }],
         },
       ],
+    ]);
+  });
+
+  it("成對課程帶著另一堂的場次與課程，其中一堂額滿時兩堂都標出已額滿", async () => {
+    const venue = must(
+      await admin.from("venues").insert({ conference_id: conferenceId, name_zh: "台北金華教堂" }).select("id").single(),
+    );
+    const [first, second] = must(
+      await admin
+        .from("sessions")
+        .insert([
+          { conference_id: conferenceId, venue_id: venue.id, position: 1, name_zh: "第一場" },
+          { conference_id: conferenceId, venue_id: venue.id, position: 2, name_zh: "第二場" },
+        ])
+        .select("id, position")
+        .order("position"),
+    );
+    const course = async (sessionId: string, title_zh: string, capacity: number) =>
+      must(
+        await admin
+          .from("courses")
+          .insert({ conference_id: conferenceId, session_id: sessionId, title_zh, capacity })
+          .select("id")
+          .single(),
+      );
+    const upper = await course(first.id, "手冊研習（上）", 1);
+    const lower = await course(second.id, "手冊研習（下）", 30);
+    must(
+      await admin
+        .from("course_pairs")
+        .insert({ conference_id: conferenceId, first_course_id: upper.id, second_course_id: lower.id }),
+    );
+    await takeSeat(venue.id, first.id, upper.id);
+
+    const options = await getRegistrationOptions(anonClient(), "zh");
+
+    expect(options.venues[0].sessions.map((session) => session.courses)).toEqual([
+      [expect.objectContaining({ id: upper.id, isFull: true, pairedWith: { sessionId: second.id, courseId: lower.id } })],
+      [expect.objectContaining({ id: lower.id, isFull: true, pairedWith: { sessionId: first.id, courseId: upper.id } })],
     ]);
   });
 

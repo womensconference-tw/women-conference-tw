@@ -12,6 +12,7 @@ import {
   changesOf,
   choicesAfterVenueChange,
   choicesOf,
+  chooseCourse,
   courseIdsOf,
   extraInputOf,
   validateCourseChoices,
@@ -29,6 +30,7 @@ import {
 import { staleSelections } from "@/lib/stale-selections";
 import {
   searchWards,
+  type CourseOption,
   type LimitedOption,
   type RegistrationOptions,
   type SessionOption,
@@ -217,9 +219,9 @@ export function RegistrationForm({
     update({ courseIds: courseIdsOf(next) });
   }
 
-  // 選某個場次的課；courseId 是 null 表示這個場次不選課。同一場次只有一個選擇，換掉原本的。
-  function chooseCourse(session: SessionOption, courseId: string | null) {
-    setChoices({ ...choices, [session.id]: courseId });
+  // 選某個場次的課；courseId 是 null 表示這個場次不選課。成對課程一起選、一起取消（見 chooseCourse）。
+  function chooseSessionCourse(session: SessionOption, courseId: string | null) {
+    setChoices(chooseCourse(choices, sessions, session.id, courseId));
   }
 
   function setExtras(next: ExtraChoices) {
@@ -401,7 +403,7 @@ export function RegistrationForm({
           sessions={sessions}
           isFull={isFull}
           choices={choices}
-          choose={chooseCourse}
+          choose={chooseSessionCourse}
           errors={errors}
           t={t}
         />
@@ -568,6 +570,7 @@ function Courses({
               checked={choices[session.id] === course.id}
               onChange={() => choose(session, course.id)}
               aria={errorAria("courses", errors, "courses-hint")}
+              note={pairNote(course, sessions, t)}
               t={t}
             />
           ))}
@@ -588,7 +591,14 @@ function Courses({
   );
 }
 
-/** 一個可能額滿的單選選項（課程、午餐、午后動態）：額滿時標示「已額滿」、不能選。 */
+/** 成對課程的說明：選這堂會一起選哪個場次的哪門課。不是成對課程時沒有。 */
+function pairNote(course: CourseOption, sessions: SessionOption[], t: Messages): string | undefined {
+  const session = sessions.find((option) => option.id === course.pairedWith?.sessionId);
+  const partner = session?.courses.find((option) => option.id === course.pairedWith?.courseId);
+  return session && partner ? t.register.pairedWith(session.name, partner.name) : undefined;
+}
+
+/** 一個可能額滿的單選選項（課程、午餐、午后動態）：額滿時標示「已額滿」、不能選。note 是額外的說明。 */
 function LimitedChoice({
   option,
   full,
@@ -596,6 +606,7 @@ function LimitedChoice({
   checked,
   onChange,
   aria,
+  note,
   t,
 }: {
   option: LimitedOption;
@@ -604,6 +615,7 @@ function LimitedChoice({
   checked: boolean;
   onChange: () => void;
   aria: ReturnType<typeof errorAria>;
+  note?: string;
   t: Messages;
 }) {
   return (
@@ -625,6 +637,7 @@ function LimitedChoice({
       <span className="flex flex-1 flex-col">
         <span>{option.name}</span>
         {option.description && <span className="font-normal">{option.description}</span>}
+        {note && <span className="font-normal">{note}</span>}
       </span>
       {full && <span className="shrink-0 font-bold">{t.register.full}</span>}
     </label>

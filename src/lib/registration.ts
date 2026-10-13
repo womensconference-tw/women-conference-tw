@@ -91,6 +91,8 @@ export type RegistrationError =
   | "venueRequired"
   | "venueUnavailable"
   | "courseRequired"
+  /** 成對課程只選了其中一堂。 */
+  | "coursePairRequired"
   | "courseFull"
   | "lunchRequired"
   | "lunchUnavailable"
@@ -136,8 +138,11 @@ export type SubmitResult =
   /** 送出時有課程、午餐或午后動態額滿，fullIds 列出是哪幾項。 */
   | { ok: false; errors: RegistrationErrors; fullIds?: string[] };
 
-/** 選課檢查需要的場次資料：每個場次開了哪些課。 */
-export type SessionCourses = { id: string; courses: { id: string }[] };
+/** 成對課程的另一堂：在哪個場次、是哪門課。 */
+export type PairedCourse = { sessionId: string; courseId: string };
+
+/** 選課檢查需要的場次資料：每個場次開了哪些課，成對課程帶著另一堂。 */
+export type SessionCourses = { id: string; courses: { id: string; pairedWith?: PairedCourse | null }[] };
 
 // Postgres 偵測到互相等待時的錯誤代碼。
 const DEADLOCK_DETECTED = "40P01";
@@ -306,7 +311,46 @@ export function validateCourseChoices(
     const choice = choices[session.id];
     return choice === null || session.courses.some((course) => course.id === choice);
   });
-  return answered ? {} : { courses: "courseRequired" };
+  if (!answered) return { courses: "courseRequired" };
+  // 成對課程兩堂都要選；只選到其中一堂，送出時資料庫也會擋下。
+  const halfPair = courseIdsOf(choices).some((id) => {
+    const partner = partnerOf(sessions, id);
+    return partner && choices[partner.sessionId] !== partner.courseId;
+  });
+  return halfPair ? { courses: "coursePairRequired" } : {};
+}
+
+/** 某門課成對的另一堂；不是成對課程，或不在這些場次裡時是 undefined。 */
+export function partnerOf(sessions: SessionCourses[], courseId: string): PairedCourse | undefined {
+  return (
+    sessions.flatMap((session) => session.courses).find((course) => course.id === courseId)?.pairedWith ??
+    undefined
+  );
+}
+
+/**
+ * 選某個場次的課；courseId 是 null 表示這個場次不選課。同一場次只有一個選擇，換掉原本的。
+ * 成對課程一起選、一起取消：選了其中一堂，另一堂的場次自動選另一堂；
+ * 換掉成對課程的其中一堂（包括被自動選的那堂換掉），另一堂的場次清空，請她重選。
+ */
+export function chooseCourse(
+  choices: CourseChoices,
+  sessions: SessionCourses[],
+  sessionId: string,
+  courseId: string | null,
+): CourseChoices {
+  const next = { ...choices };
+  const set = (session: string, course: string | null) => {
+    const previous = next[session];
+    next[session] = course;
+    if (!previous || previous === course) return;
+    const partner = partnerOf(sessions, previous);
+    if (partner && next[partner.sessionId] === partner.courseId) delete next[partner.sessionId];
+  };
+  set(sessionId, courseId);
+  const partner = courseId === null ? undefined : partnerOf(sessions, courseId);
+  if (partner) set(partner.sessionId, partner.courseId);
+  return next;
 }
 
 /**
@@ -393,6 +437,8 @@ const databaseErrors: Record<string, RegistrationErrors> = {
   ward_not_in_stake: { ward: "wardUnavailable" },
   // 課程不在所選場地，或同一場次選了兩門：請她回選課步驟重新選。
   courses_invalid: { courses: "courseRequired" },
+  // 成對課程只選了其中一堂。
+  course_pair_incomplete: { courses: "coursePairRequired" },
   // 午餐、午后動態不在所選場地（例如她填表時剛被刪除）：請她重新選。
   lunch_invalid: { lunch: "lunchUnavailable" },
   afternoon_activity_invalid: { afternoonActivity: "afternoonActivityUnavailable" },

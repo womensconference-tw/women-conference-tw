@@ -109,10 +109,24 @@ join (values
   (1, 3, '詩歌欣賞', 'Enjoying sacred music', '', '', null),
   (2, 1, '健康的飲食', 'Healthy eating', '', '', 30),
   (2, 2, '溝通與傾聽', 'Communicating and listening', '講師：陳姊妹', 'Teacher: Sister Chen', 30),
+  -- 成對課程：第一場與第二場連著上，下面設成一組。
+  (1, 4, '婦女會手冊研習（上）', 'Relief Society handbook study (part 1)', '與第二場的（下）連堂', 'Continues in session 2', 25),
+  (2, 3, '婦女會手冊研習（下）', 'Relief Society handbook study (part 2)', '', '', 25),
   (3, 1, '手作卡片', 'Handmade cards', '材料由大會提供', 'Materials provided', 20),
   (3, 2, '分享見證', 'Sharing testimonies', '', '', null)
 ) as c(session_position, position, title_zh, title_en, description_zh, description_en, capacity)
   on c.session_position = s.position;
+
+-- 每個場地的手冊研習上下兩堂設成成對課程，選了其中一堂就會一起選另一堂。
+alter table public.course_pairs disable trigger course_pairs_checked;
+insert into public.course_pairs (conference_id, first_course_id, second_course_id)
+select a.conference_id, a.id, b.id
+from public.courses a
+join public.sessions sa on sa.id = a.session_id
+join public.sessions sb on sb.venue_id = sa.venue_id
+join public.courses b on b.session_id = sb.id
+where a.title_zh = '婦女會手冊研習（上）' and b.title_zh = '婦女會手冊研習（下）';
+alter table public.course_pairs enable trigger course_pairs_checked;
 
 alter table public.sessions enable trigger sessions_locked_after_opening;
 alter table public.courses enable trigger courses_locked_after_opening;
