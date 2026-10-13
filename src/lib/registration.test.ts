@@ -1806,6 +1806,20 @@ describe("修改報名", () => {
     expect(again.ok && again.registration.phone).toBe("0987654321");
   });
 
+  // 原本的電話和改成的電話在同一次比對，重送只算一次嘗試，不會自己多記一次猜錯。
+  it("同一個姓名已經猜錯 9 次時，改了電話再送一次仍然成功，也不多記猜錯", async () => {
+    const before = await registered();
+    expect((await update(before.id, { phone: "0987654321" })).ok).toBe(true);
+    for (let attempt = 0; attempt < 9; attempt++) {
+      await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: `09000000${attempt}0` }, "zh");
+    }
+
+    const again = await update(before.id, { phone: "0987654321" });
+
+    expect(again.ok).toBe(true);
+    expect(must(await admin.from("lookup_failures").select("name_hash"))).toHaveLength(9);
+  });
+
   it("格式不對的欄位各自標出錯誤，不去資料庫", async () => {
     const before = await registered();
 
@@ -1817,3 +1831,67 @@ describe("修改報名", () => {
     });
   });
 });
+
+// 任何人都能拿匿名金鑰直接呼叫資料庫函式，不經過網站。要求「只回一筆」、加上篩選或用 GET（唯讀），
+// 可能讓猜錯時的回應出錯、整個交易撤銷，猜錯的紀錄也跟著不見；這些方法都不能用來無限次猜。
+describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
+  const wrongNumber = (number: string, attempt: number) => String(((Number(number) - 100000 + attempt + 1) % 900000) + 100000);
+
+  async function registeredWithNumber() {
+    const saved = await submit(validInput({ phone: "", noPhone: true }));
+    if (!saved.ok) throw new Error("報名失敗");
+    return saved.registration;
+  }
+
+  function updateArgs(id: string, number: string) {
+    return {
+      p_registration_id: id,
+      p_lookup_name: "王小美",
+      p_lookup_phone: null,
+      p_lookup_registration_number: number,
+      p_phone: null,
+      p_email: null,
+      p_line_id: null,
+      p_venue_id: venueId,
+    };
+  }
+
+  it.each([
+    {
+      how: "查詢要求只回一筆",
+      guess: (_id: string, number: string) =>
+        anonClient()
+          .rpc("lookup_registration", { p_name: "王小美", p_phone: null, p_registration_number: number })
+          .single(),
+    },
+    {
+      how: "查詢用 GET",
+      guess: (_id: string, number: string) =>
+        anonClient().rpc(
+          "lookup_registration",
+          { p_name: "王小美", p_phone: null, p_registration_number: number },
+          { get: true },
+        ),
+    },
+    {
+      how: "修改加上篩選、要求只回一筆",
+      guess: (id: string, number: string) =>
+        anonClient().rpc("update_registration", updateArgs(id, number)).not("id", "is", null).single(),
+    },
+    {
+      how: "修改用 GET",
+      guess: (id: string, number: string) =>
+        anonClient().rpc("update_registration", updateArgs(id, number), { get: true }),
+    },
+  ])("$how，猜錯 10 次之後猜對也拿不到資料", async ({ guess }) => {
+    const registration = await registeredWithNumber();
+    const number = registration.registrationNumber!;
+    for (let attempt = 0; attempt < 10; attempt++) await guess(registration.id, wrongNumber(number, attempt));
+
+    // 這樣呼叫要嘛一律被拒（猜對猜錯看起來一樣），要嘛猜錯照樣計數、已經暫停；兩種都不能拿來猜。
+    const correct = await guess(registration.id, number);
+
+    expect(JSON.stringify(correct.data ?? null)).not.toContain(registration.id);
+  });
+});
+

@@ -247,37 +247,39 @@ begin
 end;
 $$;
 
+-- 唯讀的呼叫（例如用 GET 呼叫）寫不進猜錯紀錄，所以會比對身分的函式一開始就拒絕。
+create function public.reject_read_only()
+returns void
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if current_setting('transaction_read_only') = 'on' then
+    raise exception 'read_only_call';
+  end if;
+end;
+$$;
+
+revoke all on function public.reject_read_only from public, anon, authenticated;
 revoke all on function public.lookup_attempt_start from public, anon, authenticated;
 revoke all on function public.lookup_attempt_failed from public, anon, authenticated;
 
--- 查詢改用共用的猜錯次數，規則與之前相同（見 20261016000000_lookup_registration.sql）。
-create or replace function public.lookup_registration(
+/*
+ * 查詢改用共用的猜錯次數，比對規則與之前相同（見 20261016000000_lookup_registration.sql）。
+ *
+ * 任何人都能拿匿名金鑰直接呼叫，不經過網站，所以要防範讓猜錯的紀錄跟著撤銷的呼叫方式：
+ * - 回傳一個 JSON 陣列（查不到是空陣列），不是一列一列的結果：呼叫的人不能要求「只回一筆」或加篩選，
+ *   讓查不到時回應出錯、整個交易撤銷。陣列裡每一筆的欄位和之前一樣，舊網站照樣看得懂。
+ * - 唯讀的呼叫（GET）寫不進猜錯紀錄，查不到時會出錯、查到時照常回傳；所以唯讀時一律先拒絕，什麼都不比對。
+ */
+drop function public.lookup_registration(text, text, text);
+
+create function public.lookup_registration(
   p_name text,
   p_phone text,
   p_registration_number text
 )
-returns table (
-  id uuid,
-  name text,
-  phone text,
-  registration_number text,
-  email text,
-  line_id text,
-  stake_id uuid,
-  ward_id uuid,
-  venue_id uuid,
-  course_ids uuid[],
-  lunch_option_id uuid,
-  afternoon_activity_id uuid,
-  choir_part text,
-  services text[],
-  printed_handbook boolean,
-  status text,
-  stake_name_zh text,
-  stake_name_en text,
-  ward_name_zh text,
-  ward_name_en text
-)
+returns jsonb
 language plpgsql
 security definer
 set search_path = ''
@@ -285,42 +287,57 @@ as $$
 declare
   v_key text := public.lookup_name_key(p_name);
   v_hash text;
+  v_found jsonb;
 begin
+  perform public.reject_read_only();
   if coalesce(v_key, '') = '' or (p_phone is null and p_registration_number is null) then
-    return;
+    return '[]';
   end if;
 
   v_hash := public.lookup_attempt_start(p_name);
 
-  return query
+  select coalesce(jsonb_agg(to_jsonb(matched) - 'created_at' order by matched.created_at desc, matched.id), '[]')
+  into v_found
+  from (
     select
       r.id, r.name, r.phone, r.registration_number, r.email, r.line_id,
       r.stake_id, r.ward_id, r.venue_id,
       array(
         select rc.course_id from public.registration_courses rc where rc.registration_id = r.id
-      ),
+      ) as course_ids,
       r.lunch_option_id, r.afternoon_activity_id, r.choir_part, r.services, r.printed_handbook,
       r.status,
-      s.name_zh, s.name_en, w.name_zh, w.name_en
+      s.name_zh as stake_name_zh, s.name_en as stake_name_en,
+      w.name_zh as ward_name_zh, w.name_en as ward_name_en,
+      r.created_at
     from public.registrations r
     join public.conferences c on c.id = r.conference_id and c.is_current
     join public.stakes s on s.id = r.stake_id
     join public.wards w on w.id = r.ward_id
     where (r.phone = p_phone or r.registration_number = p_registration_number)
       and public.lookup_name_key(r.name) = v_key
-    order by r.created_at desc, r.id;
+  ) as matched;
 
-  if not found then
+  if v_found = '[]' then
     perform public.lookup_attempt_failed(v_hash);
   end if;
+  return v_found;
 end;
 $$;
+
+revoke all on function public.lookup_registration from public;
+grant execute on function public.lookup_registration to anon, authenticated;
 
 /*
  * 報名服務的修改：前台唯一能修改報名的地方。
  * 和查詢一樣，姓名與電話（或沒有電話者的報名編號）都要符合這一筆（ADR 0002），只能改目前年度、未取消的報名。
- * 和查詢共用猜錯次數：姓名與電話不符（或報名已取消）算猜錯一次，這時不丟出例外、回傳空值（null），
- * 猜錯的紀錄才會留下；報名服務把空值當成找不到。曾經拿到報名 id 的人（例如代報人），也不能用修改一直猜。
+ * 和查詢共用猜錯次數：姓名與電話不符（或報名已取消）算猜錯一次，這時不丟出例外、回傳 JSON 的 null，
+ * 猜錯的紀錄才會留下；報名服務把 null 當成找不到。曾經拿到報名 id 的人（例如代報人），也不能用修改一直猜。
+ * 和查詢一樣回傳 JSON、唯讀時一律拒絕，不能用篩選、「只回一筆」或 GET 讓猜錯的紀錄撤銷。
+ *
+ * 電話可以是原本的（p_lookup_phone），也可以是這次改成的（p_phone），一次比對、最多算一次猜錯：
+ * 改電話的修改已經存下、只是回應在路上斷掉時，她再按一次送出，原本的電話已經對不上，用新的電話仍對得上。
+ * 兩支都要是她現在的電話才算數，所以不會多給猜的人機會。
  *
  * 可以改聯絡資料（電話、Email、LINE ID）與場地、課程、午餐、午后動態、服務意願、紙本手冊。
  * 姓名、支聯會、支會不能改；有沒有電話在報名時就決定了（報名編號是她查詢用的），想改丟出 phone_invalid。
@@ -345,7 +362,7 @@ create function public.update_registration(
   p_services text[] default '{}',
   p_printed_handbook boolean default null
 )
-returns public.registrations
+returns jsonb
 language plpgsql
 security definer
 set search_path = ''
@@ -357,6 +374,8 @@ declare
   v_hash text;
   v_registration public.registrations;
 begin
+  perform public.reject_read_only();
+
   select * into v_conference from public.conferences where is_current;
   if v_conference.id is null
     -- 時間點沒填時比較結果是 null，也當成不在報名期間。
@@ -377,11 +396,14 @@ begin
     and r.conference_id = v_conference.id
     and r.status = 'registered'
     and public.lookup_name_key(r.name) = public.lookup_name_key(p_lookup_name)
-    and (r.phone = p_lookup_phone or r.registration_number = p_lookup_registration_number)
+    and (
+      r.phone = p_lookup_phone or r.phone = p_phone
+      or r.registration_number = p_lookup_registration_number
+    )
   for update;
   if v_registration.id is null then
     perform public.lookup_attempt_failed(v_hash);
-    return null;
+    return 'null';
   end if;
 
   if (v_registration.phone is null) <> (p_phone is null) then
@@ -426,7 +448,7 @@ begin
   from public.courses c
   where c.id = any(v_course_ids) and c.id <> all(v_held_course_ids);
 
-  return v_registration;
+  return to_jsonb(v_registration);
 end;
 $$;
 
