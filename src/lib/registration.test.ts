@@ -1917,7 +1917,11 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
     expect(correct.status).toBeGreaterThanOrEqual(400);
   });
 
-  // 一次呼叫帶了幾組不同的電話或報名編號，就算猜了幾次。
+  async function failureCount() {
+    return must(await admin.from("lookup_failures").select("name_hash")).length;
+  }
+
+  // 一次呼叫帶了幾組不同的電話或報名編號，就算猜了幾次：剛好兩次，不多也不少。
   it("修改時原本的電話與改成的電話是兩支不同的猜測，比對不到就算兩次", async () => {
     const saved = await submit(validInput());
     if (!saved.ok) throw new Error("報名失敗");
@@ -1927,6 +1931,7 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
         lookup: { name: "王小美", phoneOrNumber: `09000000${attempt}0` },
         changes: { ...changesOf(validInput()), phone: `09000000${attempt}1` },
       });
+      expect(await failureCount()).toBe(2 * (attempt + 1));
     }
 
     expect(await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: "0912345678" }, "zh")).toEqual({
@@ -1944,6 +1949,12 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
         p_phone: `09000000${attempt}0`,
         p_registration_number: wrongNumber(number, attempt),
       });
+      expect(await failureCount()).toBe(2 * (attempt + 1));
+      // 還沒到 10 次之前，資料正確照樣查得到。
+      if (attempt === 3) {
+        const found = await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: number }, "zh");
+        expect(found.ok).toBe(true);
+      }
     }
 
     expect(await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: number }, "zh")).toEqual({
