@@ -1,4 +1,4 @@
--- 修改報名，以及送出與修改共用的選項檢查。
+-- 修改報名，以及送出與修改共用的選項檢查、查詢與修改共用的猜錯次數。
 
 /*
  * 送出與修改報名共用的選項檢查（ADR 0006：報名、修改、取消必須走同一套名額檢查）：
@@ -210,9 +210,117 @@ end;
 $$;
 
 /*
+ * 查詢與修改共用的猜錯次數（ADR 0002）：同一個姓名一小時內猜錯 10 次，就從那一刻起暫停一小時。
+ * lookup_attempt_start 讓同一個姓名的查詢、修改排隊（鎖到交易結束），清掉過期的紀錄，
+ * 暫停中就丟出 too_many_attempts；回傳姓名的雜湊，猜錯時交給 lookup_attempt_failed 記下。
+ * 記下猜錯的交易不能丟出例外，否則紀錄會跟著撤銷。
+ */
+create function public.lookup_attempt_start(p_name text)
+returns text
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_hash text := md5(coalesce(public.lookup_name_key(p_name), ''));
+begin
+  perform pg_advisory_xact_lock(hashtextextended('lookup_registration:' || v_hash, 0));
+
+  delete from public.lookup_failures f where f.attempted_at < now() - interval '1 hour';
+  delete from public.lookup_locks l where l.locked_until <= now();
+  if exists (select 1 from public.lookup_locks l where l.name_hash = v_hash) then
+    raise exception 'too_many_attempts';
+  end if;
+  return v_hash;
+end;
+$$;
+
+create function public.lookup_attempt_failed(p_hash text)
+returns void
+language plpgsql
+set search_path = ''
+as $$
+begin
+  insert into public.lookup_failures (name_hash) values (p_hash);
+  if (select count(*) from public.lookup_failures f where f.name_hash = p_hash) >= 10 then
+    insert into public.lookup_locks (name_hash, locked_until) values (p_hash, now() + interval '1 hour');
+  end if;
+end;
+$$;
+
+revoke all on function public.lookup_attempt_start from public, anon, authenticated;
+revoke all on function public.lookup_attempt_failed from public, anon, authenticated;
+
+-- 查詢改用共用的猜錯次數，規則與之前相同（見 20261016000000_lookup_registration.sql）。
+create or replace function public.lookup_registration(
+  p_name text,
+  p_phone text,
+  p_registration_number text
+)
+returns table (
+  id uuid,
+  name text,
+  phone text,
+  registration_number text,
+  email text,
+  line_id text,
+  stake_id uuid,
+  ward_id uuid,
+  venue_id uuid,
+  course_ids uuid[],
+  lunch_option_id uuid,
+  afternoon_activity_id uuid,
+  choir_part text,
+  services text[],
+  printed_handbook boolean,
+  status text,
+  stake_name_zh text,
+  stake_name_en text,
+  ward_name_zh text,
+  ward_name_en text
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_key text := public.lookup_name_key(p_name);
+  v_hash text;
+begin
+  if coalesce(v_key, '') = '' or (p_phone is null and p_registration_number is null) then
+    return;
+  end if;
+
+  v_hash := public.lookup_attempt_start(p_name);
+
+  return query
+    select
+      r.id, r.name, r.phone, r.registration_number, r.email, r.line_id,
+      r.stake_id, r.ward_id, r.venue_id,
+      array(
+        select rc.course_id from public.registration_courses rc where rc.registration_id = r.id
+      ),
+      r.lunch_option_id, r.afternoon_activity_id, r.choir_part, r.services, r.printed_handbook,
+      r.status,
+      s.name_zh, s.name_en, w.name_zh, w.name_en
+    from public.registrations r
+    join public.conferences c on c.id = r.conference_id and c.is_current
+    join public.stakes s on s.id = r.stake_id
+    join public.wards w on w.id = r.ward_id
+    where (r.phone = p_phone or r.registration_number = p_registration_number)
+      and public.lookup_name_key(r.name) = v_key
+    order by r.created_at desc, r.id;
+
+  if not found then
+    perform public.lookup_attempt_failed(v_hash);
+  end if;
+end;
+$$;
+
+/*
  * 報名服務的修改：前台唯一能修改報名的地方。
  * 和查詢一樣，姓名與電話（或沒有電話者的報名編號）都要符合這一筆（ADR 0002），只能改目前年度、未取消的報名。
- * 前台先查詢才拿得到報名的 id，所以這裡不必再數猜錯的次數：不知道 id 的人沒辦法拿它來猜電話或報名編號。
+ * 和查詢共用猜錯次數：姓名與電話不符（或報名已取消）算猜錯一次，這時不丟出例外、回傳空值（null），
+ * 猜錯的紀錄才會留下；報名服務把空值當成找不到。曾經拿到報名 id 的人（例如代報人），也不能用修改一直猜。
  *
  * 可以改聯絡資料（電話、Email、LINE ID）與場地、課程、午餐、午后動態、服務意願、紙本手冊。
  * 姓名、支聯會、支會不能改；有沒有電話在報名時就決定了（報名編號是她查詢用的），想改丟出 phone_invalid。
@@ -246,6 +354,7 @@ declare
   v_conference public.conferences;
   v_course_ids uuid[] := coalesce(p_course_ids, '{}');
   v_held_course_ids uuid[];
+  v_hash text;
   v_registration public.registrations;
 begin
   select * into v_conference from public.conferences where is_current;
@@ -259,6 +368,8 @@ begin
     raise exception 'registration_not_open';
   end if;
 
+  v_hash := public.lookup_attempt_start(p_lookup_name);
+
   -- 鎖住這一筆：同一筆同時送出兩次修改時依序處理，後到的看到的是前一次改好的內容。
   select r.* into v_registration
   from public.registrations r
@@ -269,7 +380,8 @@ begin
     and (r.phone = p_lookup_phone or r.registration_number = p_lookup_registration_number)
   for update;
   if v_registration.id is null then
-    raise exception 'registration_not_found';
+    perform public.lookup_attempt_failed(v_hash);
+    return null;
   end if;
 
   if (v_registration.phone is null) <> (p_phone is null) then

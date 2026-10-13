@@ -143,6 +143,7 @@ const zh = {
       portraitConsentRequired: "需要同意肖像權才能報名。如有疑問，請先聯絡大會管理員。",
       notOpen: "目前不在報名期間，報名沒有送出。",
       notFound: "找不到這筆報名，可能已經取消了。請重新查詢，或聯絡大會管理員。",
+      tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試，或聯絡大會管理員。",
       unknown: "系統暫時出了問題，報名沒有送出。請稍後再試一次，或聯絡大會管理員。",
     },
     done: {
@@ -189,7 +190,9 @@ const zh = {
     backToLookupButton: "回到查詢結果",
     errors: {
       notOpen: "目前不在報名期間，修改沒有送出。",
-      unknown: "系統暫時出了問題，修改沒有送出。請稍後再試一次，或聯絡大會管理員。",
+      // 連線中斷時修改可能已經存下，所以不說「沒有送出」。
+      unknown:
+        "系統暫時出了問題，不確定修改有沒有存下來。請再按一次「確認送出修改」；還是不行的話，請稍後重新查詢，看看目前的資料，或聯絡大會管理員。",
     },
   },
 };
@@ -361,6 +364,8 @@ const en = {
       notOpen: "Registration is not open right now. Your registration was not submitted.",
       notFound:
         "We couldn't find this registration. It may have been cancelled. Please look it up again, or contact the conference administrator.",
+      tooManyAttempts:
+        "There have been too many unsuccessful lookups for this name. Please try again in an hour, or contact the conference administrator.",
       unknown:
         "Something went wrong and your registration was not submitted. Please try again later, or contact the conference administrator.",
     },
@@ -416,7 +421,7 @@ const en = {
     errors: {
       notOpen: "Registration is not open right now. Your changes were not saved.",
       unknown:
-        "Something went wrong and your changes were not saved. Please try again later, or contact the conference administrator.",
+        "Something went wrong, and we're not sure whether your changes were saved. Please press \"Save my changes\" again. If that doesn't work, look up your registration again later to check your details, or contact the conference administrator.",
     },
   },
 } satisfies Messages;

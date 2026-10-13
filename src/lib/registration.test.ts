@@ -1709,6 +1709,7 @@ describe("修改報名", () => {
     expect(await stored(id)).toEqual(saved);
   });
 
+  // 修改內容裡的電話也會拿來比對（見「改了電話卻沒收到結果」），所以猜的人改的電話也是猜的那支。
   it.each([
     { wrong: "姓名", lookup: { name: "王小華", phoneOrNumber: "0912345678" } },
     { wrong: "電話", lookup: { name: "王小美", phoneOrNumber: "0912345679" } },
@@ -1716,7 +1717,7 @@ describe("修改報名", () => {
     const before = await registered();
     const saved = await stored(before.id);
 
-    const result = await update(before.id, { email: "mei@example.com" }, lookup);
+    const result = await update(before.id, { phone: lookup.phoneOrNumber, email: "mei@example.com" }, lookup);
 
     expect(result).toEqual({ ok: false, errors: { form: "notFound" } });
     expect(await stored(before.id)).toEqual(saved);
@@ -1773,6 +1774,36 @@ describe("修改報名", () => {
     const result = await update(before.id, changes, lookup);
 
     expect(result).toEqual({ ok: false, errors: { phone: "phoneInvalid" } });
+  });
+
+  // 和查詢共用猜錯次數：知道報名 id 的人，也不能用修改一直猜電話或報名編號。
+  it("修改時姓名電話不符也算猜錯，同一個姓名猜錯 10 次後暫停，資料正確也一樣", async () => {
+    const before = await registered();
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const guess = `09000000${attempt}0`;
+      expect(await update(before.id, { phone: guess }, { name: "王小美", phoneOrNumber: guess })).toEqual({
+        ok: false,
+        errors: { form: "notFound" },
+      });
+    }
+
+    expect(await update(before.id, { email: "mei@example.com" })).toEqual({
+      ok: false,
+      errors: { form: "tooManyAttempts" },
+    });
+    expect(
+      await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: "0912345678" }, "zh"),
+    ).toEqual({ ok: false, errors: { form: "tooManyAttempts" } });
+  });
+
+  // 改電話的修改已經存下，但回應在路上斷掉：她再按一次送出時，用原本的電話已經對不上了。
+  it("改了電話卻沒收到結果，同樣的修改再送一次仍然成功", async () => {
+    const before = await registered();
+    expect((await update(before.id, { phone: "0987654321" })).ok).toBe(true);
+
+    const again = await update(before.id, { phone: "0987654321" });
+
+    expect(again.ok && again.registration.phone).toBe("0987654321");
   });
 
   it("格式不對的欄位各自標出錯誤，不去資料庫", async () => {

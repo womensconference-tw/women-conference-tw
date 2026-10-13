@@ -104,6 +104,8 @@ export type RegistrationError =
   | "notOpen"
   /** 修改時找不到這筆報名：姓名、電話不符，或剛被取消。 */
   | "notFound"
+  /** 修改時同一個姓名猜錯太多次，和查詢一起暫停一陣子。 */
+  | "tooManyAttempts"
   | "unknown";
 
 export type RegistrationErrors = Partial<Record<RegistrationField, RegistrationError>>;
@@ -394,8 +396,9 @@ const databaseErrors: Record<string, RegistrationErrors> = {
   // 午餐、午后動態不在所選場地（例如她填表時剛被刪除）：請她重新選。
   lunch_invalid: { lunch: "lunchUnavailable" },
   afternoon_activity_invalid: { afternoonActivity: "afternoonActivityUnavailable" },
-  // 以下只有修改時會出現：找不到她的報名（姓名、電話不符或已取消），或想改掉有沒有電話。
-  registration_not_found: { form: "notFound" },
+  // 以下只有修改時會出現：同一個姓名猜錯太多次，或想改掉有沒有電話。
+  // 找不到她的報名（姓名、電話不符或已取消）時，修改函式回傳空值，不丟出代碼（見 saved）。
+  too_many_attempts: { form: "tooManyAttempts" },
   phone_invalid: { phone: "phoneInvalid" },
 };
 
@@ -466,35 +469,46 @@ export async function updateRegistration(
     return { ok: false, errors: { form: "notFound" } };
   }
 
-  return saved(
-    "update_registration",
-    () =>
-      supabase
-        .rpc("update_registration", {
-          p_registration_id: registrationId,
-          p_lookup_name: trimBlank(lookup.name),
-          p_lookup_phone: isNumber ? null : identifier,
-          p_lookup_registration_number: isNumber ? identifier : null,
-          p_phone: changes.noPhone ? null : normalizePhone(changes.phone),
-          p_email: trimBlank(changes.email) || null,
-          p_line_id: trimBlank(changes.lineId) || null,
-          p_venue_id: changes.venueId,
-          p_course_ids: changes.courseIds,
-          p_lunch_option_id: changes.lunchOptionId,
-          p_afternoon_activity_id: changes.afternoonActivityId,
-          p_choir_part: changes.choirPart,
-          p_services: changes.services,
-          p_printed_handbook: changes.printedHandbook,
-        })
-        .single<RegistrationRow>(),
-    changes,
-  );
+  const phone = changes.noPhone ? null : normalizePhone(changes.phone);
+  const result = await saveChanges(isNumber ? { number: identifier } : { phone: identifier });
+  // 改電話的修改其實已經存下、只是回應在路上斷掉時，她再按一次送出，原本的電話已經對不上。
+  // 這時用改好的電話再比對一次：同樣的修改再存一次，結果不變。
+  if (!result.ok && result.errors.form === "notFound" && phone !== null && !isNumber && phone !== identifier) {
+    return saveChanges({ phone });
+  }
+  return result;
+
+  function saveChanges(credential: { phone: string } | { number: string }) {
+    return saved(
+      "update_registration",
+      () =>
+        supabase
+          .rpc("update_registration", {
+            p_registration_id: registrationId,
+            p_lookup_name: trimBlank(lookup.name),
+            p_lookup_phone: "phone" in credential ? credential.phone : null,
+            p_lookup_registration_number: "number" in credential ? credential.number : null,
+            p_phone: phone,
+            p_email: trimBlank(changes.email) || null,
+            p_line_id: trimBlank(changes.lineId) || null,
+            p_venue_id: changes.venueId,
+            p_course_ids: changes.courseIds,
+            p_lunch_option_id: changes.lunchOptionId,
+            p_afternoon_activity_id: changes.afternoonActivityId,
+            p_choir_part: changes.choirPart,
+            p_services: changes.services,
+            p_printed_handbook: changes.printedHandbook,
+          })
+          .single<RegistrationRow | null>(),
+      changes,
+    );
+  }
 }
 
 /** 呼叫寫入報名的資料庫函式，把結果或丟出的代碼轉成 SubmitResult。 */
 async function saved(
   name: string,
-  call: () => PromiseLike<PostgrestSingleResponse<RegistrationRow>>,
+  call: () => PromiseLike<PostgrestSingleResponse<RegistrationRow | null>>,
   input: RegistrationChanges,
 ): Promise<SubmitResult> {
   let response = await call();
@@ -515,6 +529,8 @@ async function saved(
     console.error(`${name} failed`, error);
     return { ok: false, errors: { form: "unknown" } };
   }
+  // 修改時找不到她的報名，函式回傳空值（不丟出代碼，猜錯的紀錄才會留下）。
+  if (!data?.id) return { ok: false, errors: { form: "notFound" } };
 
   return {
     ok: true,
