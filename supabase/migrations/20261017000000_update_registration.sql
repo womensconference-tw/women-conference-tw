@@ -213,6 +213,7 @@ $$;
  * 查詢與修改共用的猜錯次數（ADR 0002）：同一個姓名一小時內猜錯 10 次，就從那一刻起暫停一小時。
  * lookup_attempt_start 讓同一個姓名的查詢、修改排隊（鎖到交易結束），清掉過期的紀錄，
  * 暫停中就丟出 too_many_attempts；回傳姓名的雜湊，猜錯時交給 lookup_attempt_failed 記下。
+ * 一次呼叫帶了幾組不同的電話或報名編號，就算猜了幾次（p_guesses），不能一次多猜幾組卻只算一次。
  * 記下猜錯的交易不能丟出例外，否則紀錄會跟著撤銷。
  */
 create function public.lookup_attempt_start(p_name text)
@@ -234,13 +235,14 @@ begin
 end;
 $$;
 
-create function public.lookup_attempt_failed(p_hash text)
+create function public.lookup_attempt_failed(p_hash text, p_guesses integer)
 returns void
 language plpgsql
 set search_path = ''
 as $$
 begin
-  insert into public.lookup_failures (name_hash) values (p_hash);
+  insert into public.lookup_failures (name_hash)
+  select p_hash from generate_series(1, greatest(p_guesses, 1));
   if (select count(*) from public.lookup_failures f where f.name_hash = p_hash) >= 10 then
     insert into public.lookup_locks (name_hash, locked_until) values (p_hash, now() + interval '1 hour');
   end if;
@@ -319,7 +321,9 @@ begin
   ) as matched;
 
   if v_found = '[]' then
-    perform public.lookup_attempt_failed(v_hash);
+    perform public.lookup_attempt_failed(
+      v_hash, (p_phone is not null)::integer + (p_registration_number is not null)::integer
+    );
   end if;
   return v_found;
 end;
@@ -335,9 +339,10 @@ grant execute on function public.lookup_registration to anon, authenticated;
  * 猜錯的紀錄才會留下；報名服務把 null 當成找不到。曾經拿到報名 id 的人（例如代報人），也不能用修改一直猜。
  * 和查詢一樣回傳 JSON、唯讀時一律拒絕，不能用篩選、「只回一筆」或 GET 讓猜錯的紀錄撤銷。
  *
- * 電話可以是原本的（p_lookup_phone），也可以是這次改成的（p_phone），一次比對、最多算一次猜錯：
- * 改電話的修改已經存下、只是回應在路上斷掉時，她再按一次送出，原本的電話已經對不上，用新的電話仍對得上。
- * 兩支都要是她現在的電話才算數，所以不會多給猜的人機會。
+ * 電話可以是原本的（p_lookup_phone），也可以是這次改成的（p_phone）：
+ * 改電話的修改已經存下、只是回應在路上斷掉時，她再按一次送出，原本的電話已經對不上，用新的電話仍對得上，
+ * 而且比對成功，不記猜錯，快到暫停門檻時重送也不會把自己暫停。
+ * 比對不到時，帶了幾組不同的電話或報名編號就算猜了幾次，猜的人不能一次多試一支電話卻只算一次。
  *
  * 可以改聯絡資料（電話、Email、LINE ID）與場地、課程、午餐、午后動態、服務意願、紙本手冊。
  * 姓名、支聯會、支會不能改；有沒有電話在報名時就決定了（報名編號是她查詢用的），想改丟出 phone_invalid。
@@ -402,7 +407,11 @@ begin
     )
   for update;
   if v_registration.id is null then
-    perform public.lookup_attempt_failed(v_hash);
+    perform public.lookup_attempt_failed(
+      v_hash,
+      (select count(distinct guess)::integer
+        from unnest(array[p_lookup_phone, p_phone, p_lookup_registration_number]) as guess)
+    );
     return 'null';
   end if;
 

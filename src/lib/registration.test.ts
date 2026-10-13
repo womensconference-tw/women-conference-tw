@@ -1856,17 +1856,37 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
     };
   }
 
-  it.each([
+  type Guess = (id: string, number: string) => PromiseLike<{ status: number; data: unknown; error: unknown }>;
+
+  // 照常執行的呼叫：猜錯照樣計數，10 次後暫停。
+  it.each<{ how: string; guess: Guess }>([
     {
       how: "查詢要求只回一筆",
-      guess: (_id: string, number: string) =>
+      guess: (_id, number) =>
         anonClient()
           .rpc("lookup_registration", { p_name: "王小美", p_phone: null, p_registration_number: number })
           .single(),
     },
     {
+      how: "修改要求只回一筆",
+      guess: (id, number) => anonClient().rpc("update_registration", updateArgs(id, number)).single(),
+    },
+  ])("$how，猜錯照樣計數，10 次後暫停", async ({ guess }) => {
+    const registration = await registeredWithNumber();
+    const number = registration.registrationNumber!;
+    for (let attempt = 0; attempt < 10; attempt++) await guess(registration.id, wrongNumber(number, attempt));
+
+    expect(await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: number }, "zh")).toEqual({
+      ok: false,
+      errors: { form: "tooManyAttempts" },
+    });
+  });
+
+  // 一律拒絕的呼叫：猜對和猜錯得到一模一樣的回應，看不出有沒有猜對。
+  it.each<{ how: string; guess: Guess }>([
+    {
       how: "查詢用 GET",
-      guess: (_id: string, number: string) =>
+      guess: (_id, number) =>
         anonClient().rpc(
           "lookup_registration",
           { p_name: "王小美", p_phone: null, p_registration_number: number },
@@ -1875,23 +1895,61 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
     },
     {
       how: "修改加上篩選、要求只回一筆",
-      guess: (id: string, number: string) =>
+      guess: (id, number) =>
         anonClient().rpc("update_registration", updateArgs(id, number)).not("id", "is", null).single(),
     },
     {
       how: "修改用 GET",
-      guess: (id: string, number: string) =>
-        anonClient().rpc("update_registration", updateArgs(id, number), { get: true }),
+      guess: (id, number) => anonClient().rpc("update_registration", updateArgs(id, number), { get: true }),
     },
-  ])("$how，猜錯 10 次之後猜對也拿不到資料", async ({ guess }) => {
+  ])("$how，猜對和猜錯的回應一模一樣", async ({ guess }) => {
     const registration = await registeredWithNumber();
     const number = registration.registrationNumber!;
-    for (let attempt = 0; attempt < 10; attempt++) await guess(registration.id, wrongNumber(number, attempt));
+    const response = async (candidate: string) => {
+      const { status, data, error } = await guess(registration.id, candidate);
+      return { status, data, error };
+    };
 
-    // 這樣呼叫要嘛一律被拒（猜對猜錯看起來一樣），要嘛猜錯照樣計數、已經暫停；兩種都不能拿來猜。
-    const correct = await guess(registration.id, number);
+    const wrong = await response(wrongNumber(number, 0));
+    const correct = await response(number);
 
-    expect(JSON.stringify(correct.data ?? null)).not.toContain(registration.id);
+    expect(correct).toEqual(wrong);
+    expect(correct.status).toBeGreaterThanOrEqual(400);
+  });
+
+  // 一次呼叫帶了幾組不同的電話或報名編號，就算猜了幾次。
+  it("修改時原本的電話與改成的電話是兩支不同的猜測，比對不到就算兩次", async () => {
+    const saved = await submit(validInput());
+    if (!saved.ok) throw new Error("報名失敗");
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await updateRegistration(anonClient(), {
+        registrationId: saved.registration.id,
+        lookup: { name: "王小美", phoneOrNumber: `09000000${attempt}0` },
+        changes: { ...changesOf(validInput()), phone: `09000000${attempt}1` },
+      });
+    }
+
+    expect(await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: "0912345678" }, "zh")).toEqual({
+      ok: false,
+      errors: { form: "tooManyAttempts" },
+    });
+  });
+
+  it("查詢時同時帶電話和報名編號，比對不到就算兩次", async () => {
+    const registration = await registeredWithNumber();
+    const number = registration.registrationNumber!;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await anonClient().rpc("lookup_registration", {
+        p_name: "王小美",
+        p_phone: `09000000${attempt}0`,
+        p_registration_number: wrongNumber(number, attempt),
+      });
+    }
+
+    expect(await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: number }, "zh")).toEqual({
+      ok: false,
+      errors: { form: "tooManyAttempts" },
+    });
   });
 });
 
