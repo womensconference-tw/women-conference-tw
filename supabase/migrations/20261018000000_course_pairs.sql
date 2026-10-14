@@ -51,14 +51,21 @@ revoke all on function public.paired_course from public, anon, authenticated;
  * 排隊後，後到的等先到的提交，再重新讀一次（每個查詢都看得到已提交的資料），就會看到對方的修改。
  * 所有年度共用同一個鎖：每個年度各一個鎖的話，一次改兩個年度、順序相反的兩個交易會互相等待。
  * 成對課程只有管理員在開放報名前設定，很少同時發生，共用一個鎖不會讓誰等太久；報名不會碰這個鎖。
+ *
+ * 這些修改都只能在報名開放前做，所以也在這裡擋下已開放的年度（p_conference_ids，programme_locked）。
+ * 一定要在拿到鎖之後才看時間：開放前開始排隊、等到開放後才輪到的修改，也要擋下。
  */
-create function public.course_pairs_valid(p_course_ids uuid[])
+create function public.course_pairs_valid(p_conference_ids uuid[], p_course_ids uuid[])
 returns void
 language plpgsql
 set search_path = ''
 as $$
 begin
   perform pg_advisory_xact_lock(hashtextextended('course_pairs_valid', 0));
+
+  if exists (select 1 from unnest(p_conference_ids) as conference(id) where public.registration_opened(conference.id)) then
+    raise exception 'programme_locked';
+  end if;
 
   if exists (
     select 1
@@ -94,15 +101,18 @@ begin
   then
     return new;
   end if;
-  if (tg_op <> 'DELETE' and public.registration_opened(new.conference_id))
-    or (tg_op <> 'INSERT' and public.registration_opened(old.conference_id))
-  then
-    raise exception 'programme_locked';
+  if tg_op = 'INSERT' then
+    perform public.course_pairs_valid(array[new.conference_id], array[new.first_course_id, new.second_course_id]);
+    return new;
+  elsif tg_op = 'UPDATE' then
+    perform public.course_pairs_valid(
+      array[new.conference_id, old.conference_id], array[new.first_course_id, new.second_course_id]
+    );
+    return new;
   end if;
-  if tg_op <> 'DELETE' then
-    perform public.course_pairs_valid(array[new.first_course_id, new.second_course_id]);
-  end if;
-  return case when tg_op = 'DELETE' then old else new end;
+  -- 刪除：剩下的成對不受影響，只要確認還沒開放。
+  perform public.course_pairs_valid(array[old.conference_id], '{}');
+  return old;
 end;
 $$;
 
@@ -111,37 +121,46 @@ create constraint trigger course_pairs_checked
   deferrable initially deferred
   for each row execute function public.course_pairs_checked();
 
--- 課程換場次時，它所屬的那組仍要在同一場地的不同場次。
+-- 課程換場次時，它所屬的那組仍要在同一場地的不同場次。只是重新存一次、沒有換場次時不必檢查。
 create function public.course_pairs_valid_after_course_move()
 returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
-  perform public.course_pairs_valid(array[new.id]);
+  if new.session_id = old.session_id and new.conference_id = old.conference_id then
+    return new;
+  end if;
+  perform public.course_pairs_valid(array[new.conference_id, old.conference_id], array[new.id]);
   return new;
 end;
 $$;
 
 create constraint trigger course_pairs_valid_after_course_move
-  after update of session_id on public.courses
+  after update of session_id, conference_id on public.courses
   deferrable initially deferred
   for each row execute function public.course_pairs_valid_after_course_move();
 
--- 場次換場地時，這個場次裡的成對課程仍要和另一堂在同一場地。
+-- 場次換場地時，這個場次裡的成對課程仍要和另一堂在同一場地。只是重新存一次、沒有換場地時不必檢查。
 create function public.course_pairs_valid_after_session_move()
 returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
-  perform public.course_pairs_valid(array(select id from public.courses where session_id = new.id));
+  if new.venue_id = old.venue_id and new.conference_id = old.conference_id then
+    return new;
+  end if;
+  perform public.course_pairs_valid(
+    array[new.conference_id, old.conference_id],
+    array(select id from public.courses where session_id = new.id)
+  );
   return new;
 end;
 $$;
 
 create constraint trigger course_pairs_valid_after_session_move
-  after update of venue_id on public.sessions
+  after update of venue_id, conference_id on public.sessions
   deferrable initially deferred
   for each row execute function public.course_pairs_valid_after_session_move();
 

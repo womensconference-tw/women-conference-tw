@@ -821,6 +821,67 @@ describe("成對課程", () => {
       }
     });
 
+    // 排隊等鎖時跨過了開放時間：拿到鎖之後要再看一次時間，不能用排隊前的判斷。
+    it("開放前送出、排隊等到開放後才檢查的新增成對被拒絕", async () => {
+      const a = await addCourse(await addSession(1), null);
+      const b = await addCourse(await addSession(2), null);
+      const [holder, sql, watcher] = [databaseClient(), databaseClient(), databaseClient()];
+      let release!: () => void;
+      const mayRelease = new Promise<void>((resolve) => (release = resolve));
+      let locked!: () => void;
+      const holding = new Promise<void>((resolve) => (locked = resolve));
+      const held = holder.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock(hashtextextended('course_pairs_valid', 0))`;
+        locked();
+        await mayRelease;
+      });
+      try {
+        await holding;
+        const opensAt = Date.now() + 1500;
+        must(
+          await admin
+            .from("conferences")
+            .update({ registration_opens_at: new Date(opensAt).toISOString() })
+            .eq("id", conferenceId!),
+        );
+        const inserted = sql`insert into public.course_pairs (conference_id, first_course_id, second_course_id)
+          values (${conferenceId!}, ${a}, ${b})`.then(
+          () => undefined,
+          (error: Error) => error.message,
+        );
+        for (let waited = 0; ; waited += 50) {
+          const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
+            select exists (
+              select 1 from pg_stat_activity where query ~ 'insert into public.course_pairs' and wait_event = 'advisory'
+            ) as blocked`;
+          if (blocked) break;
+          if (waited > 3000) throw new Error("新增成對沒有在等鎖");
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        expect(Date.now()).toBeLessThan(opensAt);
+        await new Promise((resolve) => setTimeout(resolve, opensAt - Date.now() + 200));
+        release();
+
+        expect(await inserted).toBe("programme_locked");
+      } finally {
+        release();
+        await held.catch(() => {});
+        await Promise.all([holder.end(), sql.end(), watcher.end()]);
+      }
+    });
+
+    it("報名開放後重新存一次課程或場次（沒有換場次、場地）不受成對規則影響", async () => {
+      const session = await pairedCourses();
+      await openRegistration();
+
+      const results = [
+        await admin.from("courses").update({ session_id: session, title_zh: "改正的課名" }).eq("id", first),
+        await admin.from("sessions").update({ venue_id: venueId, name_zh: "第一場 10:00" }).eq("id", session),
+      ];
+
+      expect(results.map((result) => result.error)).toEqual([null, null]);
+    });
+
     it.each<[string, () => PromiseLike<{ error: { message: string } | null }>]>([
       ["新增成對", async () => {
         const [a, b] = [await addCourse(await addSession(3), null), await addCourse(await addSession(4), null)];
