@@ -1,18 +1,22 @@
 import { describe, expect, it } from "vitest";
-import type { RegistrationInput } from "./registration";
-import type { LimitedOption, RegistrationOptions } from "./registration-options";
+import type { PairedCourse, RegistrationInput } from "./registration";
+import type { CourseOption, LimitedOption, RegistrationOptions } from "./registration-options";
 import { staleSelections } from "./stale-selections";
 
 // 送出失敗或修改後重新讀取選項時，報名表要清掉哪些選擇。
 describe("重新讀取選項後的選擇", () => {
   const option = (id: string, isFull = false): LimitedOption => ({ id, name: id, description: "", isFull });
+  const course = (id: string, isFull = false, pairedWith: PairedCourse | null = null): CourseOption => ({
+    ...option(id, isFull),
+    pairedWith,
+  });
   const options: RegistrationOptions = {
     stakes: [],
     venues: [
       {
         id: "venue",
         name: "台北金華教堂",
-        sessions: [{ id: "s1", name: "第一場", courses: [option("full-course", true), option("open-course")] }],
+        sessions: [{ id: "s1", name: "第一場", courses: [course("full-course", true), course("open-course")] }],
         lunchOptions: [option("full-lunch", true), option("open-lunch")],
         afternoonActivities: [option("full-activity", true)],
       },
@@ -47,6 +51,34 @@ describe("重新讀取選項後的選擇", () => {
     expect(stale.choices).toEqual({ s1: "full-course" });
     expect(stale.extras).toEqual({ afternoonActivity: "full-activity", printedHandbook: true });
     expect(stale.errors).toEqual({ lunch: "lunchFull" });
+  });
+
+  it("成對課程其中一堂取消選取時，另一堂也取消，兩個場次都要重選", () => {
+    const paired: RegistrationOptions = {
+      stakes: [],
+      venues: [
+        {
+          ...options.venues[0],
+          sessions: [
+            { id: "s1", name: "第一場", courses: [course("upper", false, { sessionId: "s2", courseId: "lower" })] },
+            { id: "s2", name: "第二場", courses: [course("lower", true, { sessionId: "s1", courseId: "upper" })] },
+            { id: "s3", name: "第三場", courses: [course("other")] },
+          ],
+        },
+      ],
+    };
+
+    const stale = staleSelections(
+      { ...input, stakeId: "", wardId: "" },
+      { s1: "upper", s2: "lower", s3: "other" },
+      {},
+      paired,
+      [],
+      false,
+    );
+
+    expect(stale.choices).toEqual({ s3: "other" });
+    expect(stale.errors).toMatchObject({ courses: "courseFull" });
   });
 
   // 支聯會、支會在修改時不能改；報名後停用了，也照樣是她報名當下的那一個。

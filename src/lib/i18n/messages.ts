@@ -71,6 +71,7 @@ const zh = {
     noCourses: "這個場地不用選課，請按「下一步」。",
     full: "已額滿",
     noCourse: "不選課",
+    pairedWith: (session: string, course: string) => `兩堂連續的課：選這堂會一起選${session}的「${course}」。`,
     sessionAllFull: "這個場次的課程都額滿了。可以選「不選課」，或回上一步改選其他場地。",
     lunchLabel: "午餐",
     lunchHint: "請選一份午餐；不在大會用餐請選「不需要」。標示「已額滿」的不能選。",
@@ -131,6 +132,7 @@ const zh = {
       venueRequired: "請選擇場地。",
       venueUnavailable: "您選的場地已經不能選了，請重新選擇。",
       courseRequired: "每個場次都要選一門課或「不選課」，請選擇還沒選的場次。",
+      coursePairRequired: "兩堂連續的課要一起選，請兩堂都選，或兩個場次都改選其他課程。",
       courseFull: "您選的課程剛剛被選滿了，請改選其他課程。其他資料都還在，不用重填。",
       lunchRequired: "請選一份午餐，或選「不需要」。",
       lunchUnavailable: "您選的午餐已經不能選了，請重新選擇。",
@@ -279,6 +281,8 @@ const en = {
     noCourses: "There are no classes to choose at this venue. Please press \"Next\".",
     full: "Full",
     noCourse: "No class",
+    pairedWith: (session: string, course: string) =>
+      `Two-part class: choosing it also chooses "${course}" in ${session}.`,
     sessionAllFull:
       "All classes in this session are full. You can choose \"No class\", or go back and choose another venue.",
     lunchLabel: "Lunch",
@@ -346,6 +350,8 @@ const en = {
       venueRequired: "Please choose a venue.",
       venueUnavailable: "The venue you chose is no longer available. Please choose again.",
       courseRequired: "Please choose a class or \"No class\" for each session.",
+      coursePairRequired:
+        "Two-part classes must be taken together. Please choose both parts, or other classes for both sessions.",
       courseFull:
         "A class you chose has just filled up. Please choose another class. Everything else you entered is still here.",
       lunchRequired: "Please choose a lunch, or \"No lunch\".",

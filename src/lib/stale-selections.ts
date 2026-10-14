@@ -1,10 +1,11 @@
-import type {
-  CourseChoices,
-  ExtraChoices,
-  RegistrationError,
-  RegistrationErrors,
-  RegistrationField,
-  RegistrationInput,
+import {
+  partnerOf,
+  type CourseChoices,
+  type ExtraChoices,
+  type RegistrationError,
+  type RegistrationErrors,
+  type RegistrationField,
+  type RegistrationInput,
 } from "./registration";
 import type { LimitedOption, RegistrationOptions } from "./registration-options";
 
@@ -13,7 +14,7 @@ import type { LimitedOption, RegistrationOptions } from "./registration-options"
  * 以及已經不用回答、錯誤要收起的題目（場地的午餐或午后動態全被刪掉時）。
  * 剛額滿的選擇也取消選取並標出來，不必等再次送出才被拒絕。
  * 選的課已經不在原本那個場次（被刪除，或被管理員移到別的場次）時，清掉那個場次的選擇請她重選，
- * 不會不知不覺換到別的時段。
+ * 不會不知不覺換到別的時段。成對課程其中一堂被取消選取時，另一堂也一起取消。
  * 修改報名時（editing）支聯會、支會不能改，不檢查；她原本已佔的選項（heldIds）就算額滿也照樣保留。
  */
 export function staleSelections(
@@ -94,6 +95,13 @@ export function staleSelections(
       kept[sessionId] = courseId;
     } else if (courseId !== null) {
       errors.courses = course ? "courseFull" : "courseRequired";
+    }
+  }
+  // 成對課程兩堂一起選：另一堂被取消選取時，這堂也取消，兩個場次都請她重選。
+  for (const [sessionId, courseId] of Object.entries(kept)) {
+    const partner = courseId === null ? undefined : partnerOf(sessions, courseId);
+    if (partner && choices[partner.sessionId] === partner.courseId && kept[partner.sessionId] !== partner.courseId) {
+      delete kept[sessionId];
     }
   }
   return { changes, choices: kept, extras: keptExtras, errors, dropped };

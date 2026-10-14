@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Locale } from "./i18n/locale";
 import { localized } from "./i18n/localized";
+import type { PairedCourse } from "./registration";
 
 /** 課程、午餐、午后動態這類可能限量的選項。 */
 export type LimitedOption = {
@@ -11,7 +12,10 @@ export type LimitedOption = {
   isFull: boolean;
 };
 
-export type CourseOption = LimitedOption;
+export type CourseOption = LimitedOption & {
+  /** 成對課程的另一堂；選了這堂就要一起選。不是成對課程時是 null。 */
+  pairedWith: PairedCourse | null;
+};
 
 export type SessionOption = { id: string; name: string; courses: CourseOption[] };
 
@@ -49,7 +53,7 @@ export async function getRegistrationOptions(
   supabase: SupabaseClient,
   locale: Locale,
 ): Promise<RegistrationOptions> {
-  const [venues, stakes, fullCourses, fullLunches, fullActivities] = await Promise.all([
+  const [venues, stakes, pairs, fullCourses, fullLunches, fullActivities] = await Promise.all([
     supabase
       .from("venues")
       .select(
@@ -73,13 +77,15 @@ export async function getRegistrationOptions(
       .order("id")
       .order("position", { referencedTable: "wards" })
       .order("id", { referencedTable: "wards" }),
+    // 成對課程其中一堂額滿時，full_courses 兩堂都會列出。
+    supabase.from("course_pairs").select("first_course_id, second_course_id"),
     supabase.rpc("full_courses"),
     supabase.rpc("full_lunch_options"),
     supabase.rpc("full_afternoon_activities"),
   ]);
   if (venues.error) throw venues.error;
   if (stakes.error) throw stakes.error;
-  for (const result of [fullCourses, fullLunches, fullActivities]) {
+  for (const result of [pairs, fullCourses, fullLunches, fullActivities]) {
     if (result.error) throw result.error;
   }
   const full = new Set<string>([...fullCourses.data, ...fullLunches.data, ...fullActivities.data]);
@@ -93,6 +99,14 @@ export async function getRegistrationOptions(
     isFull: full.has(row.id),
   });
 
+  // 每門成對課程對應的另一堂（兩個方向都記）。
+  const partners = new Map<string, string>(
+    pairs.data!.flatMap((pair) => [
+      [pair.first_course_id, pair.second_course_id],
+      [pair.second_course_id, pair.first_course_id],
+    ]),
+  );
+
   return {
     venues: venues.data.map((venue) => ({
       id: venue.id,
@@ -103,7 +117,10 @@ export async function getRegistrationOptions(
         .map((session) => ({
         id: session.id,
         name: localized(session, "name", locale),
-        courses: session.courses.map((course) => option(course, "title")),
+        courses: session.courses.map((course) => ({
+          ...option(course, "title"),
+          pairedWith: pairedCourse(venue.sessions, partners.get(course.id)),
+        })),
       })),
       lunchOptions: venue.lunch_options.map((lunch) => option(lunch, "name")),
       afternoonActivities: venue.afternoon_activities.map((activity) => option(activity, "title")),
@@ -121,6 +138,15 @@ export async function getRegistrationOptions(
         })),
       })),
   };
+}
+
+/** 成對課程的另一堂在這個場地的哪個場次；找不到（不該發生）時當成不是成對課程。 */
+function pairedCourse(
+  sessions: { id: string; courses: { id: string }[] }[],
+  courseId: string | undefined,
+): PairedCourse | null {
+  const session = sessions.find((candidate) => candidate.courses.some((course) => course.id === courseId));
+  return session && courseId ? { sessionId: session.id, courseId } : null;
 }
 
 export type WardMatch = { stakeId: string; stakeName: string; wardId: string; wardName: string };
