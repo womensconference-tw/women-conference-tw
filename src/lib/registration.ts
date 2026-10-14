@@ -8,6 +8,7 @@ import { localized } from "./i18n/localized";
  * 要看資料庫當下狀態的規則（是否報名中、支會是否屬於該支聯會、課程與午餐等名額）由資料庫函式 submit_registration 檢查。
  * 查詢（lookupRegistration）是前台唯一能讀取報名的地方，由資料庫函式 lookup_registration 比對。
  * 修改（updateRegistration）由資料庫函式 update_registration 再比對一次姓名與電話（或報名編號），和送出走同一套名額檢查。
+ * 取消（cancelRegistration）由資料庫函式 cancel_registration 同樣再比對一次，標記為已取消、不刪除。
  */
 
 /** 即席唱詩班的聲部。與資料庫 registrations_choir_part_valid 用同一組代碼。 */
@@ -509,20 +510,14 @@ export async function updateRegistration(
 ): Promise<SubmitResult> {
   const errors = validateChanges(changes);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  const identifier = normalizePhone(lookup.phoneOrNumber);
-  const isNumber = isRegistrationNumber(identifier);
-  if (!UUID_PATTERN.test(registrationId) || !trimBlank(lookup.name) || !identifier) {
-    return { ok: false, errors: { form: "notFound" } };
-  }
+  const identity = identityParams(registrationId, lookup);
+  if (!identity) return { ok: false, errors: { form: "notFound" } };
 
   return saved(
     "update_registration",
     () =>
       supabase.rpc("update_registration", {
-        p_registration_id: registrationId,
-        p_lookup_name: trimBlank(lookup.name),
-        p_lookup_phone: isNumber ? null : identifier,
-        p_lookup_registration_number: isNumber ? identifier : null,
+        ...identity,
         // 改電話的修改已經存下、回應卻斷掉時，她再送一次：資料庫也拿這支新的電話比對（見 update_registration）。
         p_phone: changes.noPhone ? null : normalizePhone(changes.phone),
         p_email: trimBlank(changes.email) || null,
@@ -537,6 +532,58 @@ export async function updateRegistration(
       }),
     changes,
   );
+}
+
+/**
+ * 修改、取消時比對身分的參數：哪一筆，以及查詢時用的姓名與電話（或報名編號，6 碼的是報名編號）。
+ * 報名 id、姓名或電話沒填時是 null，不必去資料庫比對。
+ */
+function identityParams(registrationId: string, lookup: LookupInput) {
+  const identifier = normalizePhone(lookup.phoneOrNumber);
+  const isNumber = isRegistrationNumber(identifier);
+  if (!UUID_PATTERN.test(registrationId) || !trimBlank(lookup.name) || !identifier) return null;
+  return {
+    p_registration_id: registrationId,
+    p_lookup_name: trimBlank(lookup.name),
+    p_lookup_phone: isNumber ? null : identifier,
+    p_lookup_registration_number: isNumber ? identifier : null,
+  };
+}
+
+/** 取消報名的輸入：哪一筆，以及查詢時用的姓名與電話（或報名編號）。 */
+export type CancelInput = { registrationId: string; lookup: LookupInput };
+
+export type CancelError =
+  | "notOpen"
+  /** 找不到這筆報名：姓名、電話不符。 */
+  | "notFound"
+  /** 同一個姓名猜錯太多次，和查詢、修改一起暫停一陣子。 */
+  | "tooManyAttempts"
+  | "unknown";
+
+export type CancelResult = { ok: true } | { ok: false; error: CancelError };
+
+/**
+ * 取消報名：在報名中、姓名與電話（或報名編號）仍符合這一筆時，標記為已取消並記下取消時間，不刪除。
+ * 名額立即釋出。已經取消的再取消一次照樣成功（回應斷掉後重按）。
+ */
+export async function cancelRegistration(
+  supabase: SupabaseClient,
+  { registrationId, lookup }: CancelInput,
+): Promise<CancelResult> {
+  const identity = identityParams(registrationId, lookup);
+  if (!identity) return { ok: false, error: "notFound" };
+
+  const { data, error } = await supabase.rpc("cancel_registration", identity);
+  if (error) {
+    if (error.message === "registration_not_open") return { ok: false, error: "notOpen" };
+    if (error.message === "too_many_attempts") return { ok: false, error: "tooManyAttempts" };
+    console.error("cancel_registration failed", error);
+    return { ok: false, error: "unknown" };
+  }
+  // 找不到她的報名時，函式回傳 null（不丟出代碼，猜錯的紀錄才會留下）。
+  if (!(data as { id?: string } | null)?.id) return { ok: false, error: "notFound" };
+  return { ok: true };
 }
 
 /** 呼叫寫入報名的資料庫函式，把結果或丟出的代碼轉成 SubmitResult。 */

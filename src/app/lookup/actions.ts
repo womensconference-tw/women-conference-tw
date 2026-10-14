@@ -3,11 +3,13 @@
 import { refresh } from "next/cache";
 import { getLocale } from "@/lib/i18n/server";
 import {
+  cancelRegistration,
   changesOf,
   lookupRegistration,
   optionsMayHaveChanged,
   registrationInputFrom,
   updateRegistration,
+  type CancelResult,
   type LookupResult,
   type SubmitResult,
 } from "@/lib/registration";
@@ -33,6 +35,22 @@ export async function updateMine(input: unknown): Promise<SubmitResult> {
     changes: changesOf(registrationInputFrom(raw.changes)),
   });
   if (optionsMayHaveChanged(result)) refresh();
+  return result;
+}
+
+/**
+ * 取消報名送出：哪一筆，以及查詢時用的姓名與電話（或報名編號）。
+ * 用匿名訪客的身分呼叫報名服務；是否報名中、姓名與電話是否符合由資料庫判斷。
+ */
+export async function cancelMine(input: unknown): Promise<CancelResult> {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const supabase = await createClient();
+  const result = await cancelRegistration(supabase, {
+    registrationId: typeof raw.registrationId === "string" ? raw.registrationId : "",
+    lookup: lookupInputFrom(raw.lookup),
+  });
+  // 名額釋出了，報名表上「已額滿」的標示要重新讀取。
+  if (result.ok) refresh();
   return result;
 }
 

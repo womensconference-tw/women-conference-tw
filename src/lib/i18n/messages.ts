@@ -197,6 +197,26 @@ const zh = {
         "系統暫時出了問題，不確定修改有沒有存下來。請再按一次「確認送出修改」；還是不行的話，請稍後重新查詢，看看目前的資料，或聯絡大會管理員。",
     },
   },
+  // 取消報名：在查詢結果裡確認，不用彈出視窗。
+  cancel: {
+    button: "取消這筆報名",
+    confirmHeading: "確定要取消這筆報名嗎？",
+    confirmDescription:
+      "取消後，您的課程、午餐等名額會讓給其他姐妹，不能恢復。之後想參加，要重新報名，原本的名額不一定還有。",
+    confirmButton: "確定取消報名",
+    confirmingButton: "取消中，請稍候…",
+    keepButton: "不取消，保留報名",
+    done: "已經取消這筆報名。",
+    errors: {
+      notOpen: "目前不在報名期間，報名沒有取消。要取消的話，請聯絡大會管理員。",
+      notFound:
+        "找不到這筆報名，可能資料剛剛改過。請重新查詢後再試一次，或聯絡大會管理員。",
+      tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試，或聯絡大會管理員。",
+      // 連線中斷時取消可能已經存下，所以不說「沒有取消」；再按一次也不會出錯。
+      unknown:
+        "系統暫時出了問題，不確定報名有沒有取消。請再按一次「確定取消報名」；還是不行的話，請稍後重新查詢，或聯絡大會管理員。",
+    },
+  },
 };
 
 export type Messages = typeof zh;
@@ -428,6 +448,26 @@ const en = {
       notOpen: "Registration is not open right now. Your changes were not saved.",
       unknown:
         "Something went wrong, and we're not sure whether your changes were saved. Please press \"Save my changes\" again. If that doesn't work, look up your registration again later to check your details, or contact the conference administrator.",
+    },
+  },
+  cancel: {
+    button: "Cancel this registration",
+    confirmHeading: "Are you sure you want to cancel this registration?",
+    confirmDescription:
+      "Once cancelled, your places in classes, lunch and other activities go to other sisters, and this can't be undone. To attend later, you'll need to register again, and your places may no longer be available.",
+    confirmButton: "Yes, cancel my registration",
+    confirmingButton: "Cancelling, please wait…",
+    keepButton: "No, keep my registration",
+    done: "This registration has been cancelled.",
+    errors: {
+      notOpen:
+        "Registration is not open right now, so your registration was not cancelled. To cancel, please contact the conference administrator.",
+      notFound:
+        "We couldn't find this registration. Its details may have just changed. Please look it up again and try again, or contact the conference administrator.",
+      tooManyAttempts:
+        "There have been too many unsuccessful lookups for this name. Please try again in an hour, or contact the conference administrator.",
+      unknown:
+        "Something went wrong, and we're not sure whether your registration was cancelled. Please press \"Yes, cancel my registration\" again. If that doesn't work, look up your registration again later, or contact the conference administrator.",
     },
   },
 } satisfies Messages;
