@@ -53,6 +53,37 @@ npm run db:reset
 
 `db:reset` 會清空本機資料庫，重新套用 migration 與 seed。
 
+### 後台登入（`/staff`）
+
+後台在 <http://localhost:3000/staff/login>，用 Email 收登入連結，不設密碼（[ADR 0004](docs/adr/0004-staff-roles-scoped-by-venue-and-stake.md)）。本機不會真的寄信，信件在 Mailpit：<http://127.0.0.1:55324>。
+
+本機也要先照下面「建立第一位總管理員」做一次（在 Studio <http://127.0.0.1:55323> 操作）。`db:reset` 和跑測試會清掉帳號，之後要再建一次。
+
+## 建立第一位總管理員
+
+自行註冊是關閉的，工作人員帳號只能由總管理員在後台「工作人員帳號」新增。第一位總管理員要直接在 Supabase 後台建立：
+
+1. Supabase 後台 → **Authentication** → **Users** → **Add user** → **Create new user**：填她的 Email，勾選 **Auto Confirm User**，密碼留空。
+2. **SQL Editor** 執行（把 Email 換成剛剛那個）：
+
+   ```sql
+   insert into public.staff_members (user_id, role)
+   select id, 'admin' from auth.users where email = 'her-email@example.com';
+   ```
+
+3. 她到 `/staff/login` 填 Email，收信點連結就能登入。之後的工作人員（包括其他總管理員）都在後台新增。
+
+系統至少會留一位總管理員，最後一位不能被移除或改成其他角色。
+
+### 正式 Supabase 的登入設定
+
+本機的設定在 `supabase/config.toml`，正式環境要在 Supabase 後台 **Authentication** 設一樣的：
+
+- **Sign In / Providers**：關閉 **Allow new users to sign up**（Email provider 本身保持開啟，否則連登入都不行）。
+- **URL Configuration**：**Site URL** 填正式網站網址（例如 `https://women-conference-tw.vercel.app`），登入信的連結用這個網址。
+- **Emails** → **SMTP Settings**：開啟 **Enable custom SMTP**，用官方 Gmail 寄信（Host `smtp.gmail.com`、Port `587`、Sender email 與 Username 都是官方 Gmail、Sender name「台灣姐妹大會」，Password 是官方 Gmail 的「應用程式密碼」，記在 Google Sheet）。一定要設：Supabase 內建的寄信只寄給 Supabase 組織成員，其他工作人員收不到登入信，也不能改信件內容。
+- **Emails** → **Templates** → **Magic link or OTP**：主旨填「台灣姐妹大會後台登入連結」，內容（Source）貼上 [`supabase/templates/magic_link.html`](supabase/templates/magic_link.html)。連結帶 `token_hash` 到 `/staff/auth/confirm`，在電腦上要求、手機上點連結也能登入。
+
 ### 新增 migration
 
 ```bash

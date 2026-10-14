@@ -7,6 +7,7 @@ declare module "vitest" {
     supabasePublishableKey: string;
     supabaseSecretKey: string;
     supabaseDbUrl: string;
+    mailpitUrl: string;
   }
 }
 
@@ -32,6 +33,7 @@ export default async function setup(project: TestProject) {
   project.provide("supabasePublishableKey", status.PUBLISHABLE_KEY);
   project.provide("supabaseSecretKey", status.SECRET_KEY);
   project.provide("supabaseDbUrl", status.DB_URL);
+  project.provide("mailpitUrl", status.MAILPIT_URL);
 }
 
 function supabase(...args: string[]): string {

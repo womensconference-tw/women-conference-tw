@@ -13,6 +13,7 @@
 | GitHub `womensconferencetw` | 組織 `womensconference-tw` 的永久 Owner | 以官方 Gmail 註冊 | Google Sheet |
 | Vercel | 部署網站 | 以官方 GitHub 帳號登入 | 不需要（環境變數在 Vercel 後台；`SUPABASE_SECRET_KEY` 可以從 Supabase 後台再查） |
 | Supabase | 正式資料庫 | 以官方 GitHub 帳號登入 | 資料庫密碼在 Google Sheet |
+| 官方 Gmail 應用程式密碼 | Supabase 用官方 Gmail 寄後台登入信（Authentication → Emails → SMTP Settings） | 在官方 Gmail 的 [應用程式密碼](https://myaccount.google.com/apppasswords) 頁面產生 | Google Sheet |
 | GitHub Actions secrets | 防暫停 workflow 用的 `SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY` | repo Settings → Secrets | 不需要（兩個值都可以從 Supabase 後台再查） |
 
 <!-- TODO: 之後加上 Resend、網域註冊商 -->
@@ -24,6 +25,7 @@
 - [ ] 前任把 Google Sheet 的位置告訴下一任
 - [ ] 下一任用備用碼登入官方 Gmail
 - [ ] 重設驗證器、救援電話、救援 Email，改成下一任自己的
+- [ ] 如果改了官方 Gmail 的密碼：應用程式密碼會一起失效，後台登入信就寄不出去。到 [應用程式密碼](https://myaccount.google.com/apppasswords) 刪掉舊的、產生新的，貼到 Supabase → Authentication → Emails → SMTP Settings 的 Password，並更新 Google Sheet
 - [ ] 產生新的備用碼，更新到 Google Sheet
 
 ### 2. 移交 GitHub 組織
@@ -49,7 +51,19 @@
 bash scripts/setup-production.sh
 ```
 
+## 換網站網域時
+
+例如從 `women-conference-tw.vercel.app` 換成正式網域：
+
+- [ ] 在 Vercel 專案的 Settings → Domains 加上新網域
+- [ ] Supabase 後台 → Authentication → URL Configuration，把 **Site URL** 改成新網域（例如 `https://womensconference.tw`），按 Save changes。後台登入信的連結用這個網址，沒改的話工作人員點信裡的連結會回到舊網址
+- [ ] 用新網域到 `/staff/login` 寄一次登入信，確認信裡的連結是新網域、點了能登入
+
+登入信範本裡寫的是 `{{ .SiteURL }}`，不用改；程式也不用改。
+
 ## 出問題時
+
+- **工作人員收不到後台登入信**：先看垃圾郵件匣。再到 Supabase → Authentication → Emails → SMTP Settings 確認還開著自訂 SMTP；官方 Gmail 改過密碼的話，應用程式密碼已經失效，要重新產生一組貼上（見上面「移交官方 Gmail」）。Supabase 後台 Logs → Auth 可以看到寄信失敗的原因。
 
 - **查詢報名一直顯示「系統暫時出了問題」**：看 Vercel 的環境變數 `SUPABASE_SECRET_KEY` 還在不在、是不是 Supabase 後台現在的 Secret key（換過 key 要一起更新，再重新部署）。
 - **首頁打不開或顯示錯誤**：先看 Supabase 專案是不是被暫停了（後台會有 Restore 按鈕），再看 Vercel 最近一次部署有沒有失敗。
