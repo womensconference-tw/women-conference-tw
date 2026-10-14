@@ -733,6 +733,94 @@ describe("成對課程", () => {
       expect(moved).toEqual([{ id: first }]);
     });
 
+    // 一次設定兩個年度的成對課程（順序相反）時，排隊的鎖不能讓兩邊互相等待而被資料庫中止。
+    it("兩人同時以相反順序設定兩個年度的成對課程，兩邊都成功", async () => {
+      const x = conferenceId!;
+      const y = must(
+        await admin
+          .from("conferences")
+          .insert({ year: 2098, conference_date: "2098-05-15", registration_opens_at: new Date(Date.now() + DAY).toISOString() })
+          .select("id")
+          .single(),
+      ).id;
+      const coursesIn = async (conference: string) => {
+        const venue = must(
+          await admin.from("venues").insert({ conference_id: conference, name_zh: "測試教堂" }).select("id").single(),
+        ).id;
+        const ids = [];
+        for (const position of [1, 2, 3, 4]) {
+          const session = must(
+            await admin
+              .from("sessions")
+              .insert({ conference_id: conference, venue_id: venue, position, name_zh: `第${position}場` })
+              .select("id")
+              .single(),
+          ).id;
+          ids.push(
+            must(
+              await admin
+                .from("courses")
+                .insert({ conference_id: conference, session_id: session, title_zh: "測試課程" })
+                .select("id")
+                .single(),
+            ).id,
+          );
+        }
+        return ids;
+      };
+      const pair = (tx: TransactionSql, conference: string, a: string, b: string) =>
+        tx`insert into public.course_pairs (conference_id, first_course_id, second_course_id)
+          values (${conference}, ${a}, ${b})`;
+      const [a, b, watcher] = [databaseClient(), databaseClient(), databaseClient()];
+      try {
+        const [x1, x2, x3, x4] = await coursesIn(x);
+        const [y1, y2, y3, y4] = await coursesIn(y);
+        let releaseFirst!: () => void;
+        const firstMayGo = new Promise<void>((resolve) => (releaseFirst = resolve));
+        let firstChecked!: (pid: number) => void;
+        const firstPid = new Promise<number>((resolve) => (firstChecked = resolve));
+        // 甲先設定 X 並做完檢查（拿到鎖），等乙也開始後，才設定 Y 並提交。
+        const first = a.begin(async (tx) => {
+          await pair(tx, x, x1, x2);
+          await tx`set constraints all immediate`;
+          const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+          firstChecked(pid);
+          await firstMayGo;
+          await pair(tx, y, y1, y2);
+        });
+        const pid = await firstPid;
+        let secondChecked = false;
+        let releaseSecond!: () => void;
+        const secondMayGo = new Promise<void>((resolve) => (releaseSecond = resolve));
+        // 乙先設定 Y 並做檢查，再設定 X 並提交。
+        const second = b.begin(async (tx) => {
+          await pair(tx, y, y3, y4);
+          await tx`set constraints all immediate`;
+          secondChecked = true;
+          await secondMayGo;
+          await pair(tx, x, x3, x4);
+        });
+        for (let waited = 0; !secondChecked; waited += 50) {
+          const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
+            select exists (select 1 from pg_stat_activity where ${pid}::int = any(pg_blocking_pids(pid))) as blocked`;
+          if (blocked) break;
+          if (waited > 3000) throw new Error("乙沒有在等，也沒有做完檢查");
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        releaseFirst();
+        releaseSecond();
+        const results = await Promise.allSettled([first, second]);
+
+        expect(results.map((result) => (result.status === "rejected" ? String(result.reason) : "ok"))).toEqual([
+          "ok",
+          "ok",
+        ]);
+      } finally {
+        await Promise.all([a.end(), b.end(), watcher.end()]);
+        must(await admin.from("conferences").delete().eq("id", y));
+      }
+    });
+
     it.each<[string, () => PromiseLike<{ error: { message: string } | null }>]>([
       ["新增成對", async () => {
         const [a, b] = [await addCourse(await addSession(3), null), await addCourse(await addSession(4), null)];
