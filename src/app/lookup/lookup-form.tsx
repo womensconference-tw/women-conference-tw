@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { RegistrationDetails } from "@/components/registration-details";
 import { buttonVariants } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n/locale";
 import { messages, type Messages } from "@/lib/i18n/messages";
 import type {
+  CancelError,
   FoundRegistration,
   LookupErrors,
   LookupField,
@@ -16,7 +17,7 @@ import type {
 import type { RegistrationOptions } from "@/lib/registration-options";
 import { cn } from "@/lib/utils";
 import { RegistrationForm } from "../register/registration-form";
-import { lookUp } from "./actions";
+import { cancelMine, lookUp } from "./actions";
 
 // 與報名表同一套大按鈕、大輸入框。經過 cn() 的字級要寫成 text-(length:…)，見首頁的說明。
 const actionClass =
@@ -29,6 +30,7 @@ const textInputClass =
  * 查到後在表單下方顯示報名資料；查不到時只說找不到，不說是哪一項不對。
  * 報名中（canEdit）時，未取消的報名可以按「修改這筆報名」，在同一頁換成報名表的修改模式；
  * 修改時用這筆報名存下的姓名與電話（或報名編號）再比對一次。改好或不改了，回到查詢結果。
+ * 也可以按「取消這筆報名」：在同一張卡片裡先確認（不用彈出視窗），確定後標成已取消。
  */
 export function LookupForm({
   locale,
@@ -52,6 +54,11 @@ export function LookupForm({
   const edits = useRef(0);
   // 正在修改的那一筆。
   const [editing, setEditing] = useState<FoundRegistration | null>(null);
+  // 正在確認取消的那一筆，以及取消的結果。
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<CancelError | null>(null);
+  const [cancelledId, setCancelledId] = useState<string | null>(null);
+  const [cancelPending, startCancel] = useTransition();
 
   // 改了哪一格就收起那一格的錯誤；「找不到」也一起收起，免得她改好了還看到舊訊息。
   // 查到的資料也收起：家人輪流用同一支手機查時，下一位不會看到上一位的個資。
@@ -59,6 +66,8 @@ export function LookupForm({
     edits.current += 1;
     setInput((prev) => ({ ...prev, [field]: value }));
     setFound([]);
+    setCancelling(null);
+    setCancelledId(null);
     setErrors((prev) => {
       const next = { ...prev };
       delete next[field];
@@ -84,6 +93,8 @@ export function LookupForm({
       if (edits.current !== editsAtSubmit) return;
       if (result.ok) {
         setErrors({});
+        setCancelling(null);
+        setCancelledId(null);
         setFound(result.registrations);
         // 查到後把報名資料捲到畫面上，手機上不必自己往下找。
         requestAnimationFrame(() => resultRef.current?.scrollIntoView({ block: "start" }));
@@ -105,6 +116,44 @@ export function LookupForm({
       );
     }
     requestAnimationFrame(() => resultRef.current?.scrollIntoView({ block: "start" }));
+  }
+
+  function openCancel(id: string) {
+    setCancelling(id);
+    setCancelError(null);
+  }
+
+  // 和修改一樣，用這筆報名存下的姓名與電話（或報名編號）再比對一次。
+  function confirmCancel(registration: FoundRegistration) {
+    if (cancelPending) return;
+    const editsAtSubmit = edits.current;
+    startCancel(async () => {
+      let result;
+      try {
+        result = await cancelMine({
+          registrationId: registration.id,
+          lookup: {
+            name: registration.name,
+            phoneOrNumber: registration.phone ?? registration.registrationNumber ?? "",
+          },
+        });
+      } catch {
+        result = { ok: false, error: "unknown" } as const;
+      }
+      // 送出期間她改了查詢的姓名或電話，查詢結果已經收起，不再顯示。
+      if (edits.current !== editsAtSubmit) return;
+      if (result.ok) {
+        setFound((prev) =>
+          prev.map((item) => (item.id === registration.id ? { ...item, status: "cancelled" } : item)),
+        );
+        setCancelling(null);
+        setCancelledId(registration.id);
+        // 確認區塊消失了，把焦點移到「已經取消」那句，用鍵盤或螢幕閱讀器的人才知道結果。
+        requestAnimationFrame(() => document.getElementById(`cancelled-${registration.id}`)?.focus());
+      } else {
+        setCancelError(result.error);
+      }
+    });
   }
 
   if (editing) {
@@ -176,7 +225,13 @@ export function LookupForm({
             >
               <h2 className="text-heading leading-tight font-bold">{t.lookup.resultHeading}</h2>
               {registration.status === "cancelled" && (
-                <p className="font-semibold text-destructive">{t.lookup.cancelled}</p>
+                <p
+                  id={`cancelled-${registration.id}`}
+                  tabIndex={-1}
+                  className="font-semibold text-destructive outline-none"
+                >
+                  {cancelledId === registration.id ? t.cancel.done : t.lookup.cancelled}
+                </p>
               )}
               <RegistrationDetails
                 registration={registration}
@@ -184,18 +239,39 @@ export function LookupForm({
                 options={options}
                 t={t}
               />
-              {canEdit && registration.status === "registered" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditing(registration);
-                    window.scrollTo({ top: 0 });
-                  }}
-                  className={cn(buttonVariants(), actionClass, "font-bold")}
-                >
-                  {t.lookup.editButton}
-                </button>
-              )}
+              {canEdit && registration.status === "registered" &&
+                (cancelling === registration.id ? (
+                  <CancelConfirm
+                    pending={cancelPending}
+                    error={cancelError}
+                    onConfirm={() => confirmCancel(registration)}
+                    onKeep={() => setCancelling(null)}
+                    t={t}
+                  />
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditing(registration);
+                        window.scrollTo({ top: 0 });
+                      }}
+                      // 別筆正在取消時先不能修改，取消的結果才看得到。
+                      disabled={cancelPending}
+                      className={cn(buttonVariants(), actionClass, "font-bold")}
+                    >
+                      {t.lookup.editButton}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openCancel(registration.id)}
+                      disabled={cancelPending}
+                      className={cn(buttonVariants({ variant: "outline" }), actionClass)}
+                    >
+                      {t.cancel.button}
+                    </button>
+                  </>
+                ))}
             </div>
           ))}
         </section>
@@ -205,6 +281,62 @@ export function LookupForm({
         {t.register.homeButton}
       </Link>
     </>
+  );
+}
+
+/** 取消前的確認：說明取消後名額會讓出、不能恢復，再按一次才送出。 */
+function CancelConfirm({
+  pending,
+  error,
+  onConfirm,
+  onKeep,
+  t,
+}: {
+  pending: boolean;
+  error: CancelError | null;
+  onConfirm: () => void;
+  onKeep: () => void;
+  t: Messages;
+}) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // 打開確認時把焦點移到標題，用螢幕閱讀器的人才知道畫面換了。
+  useEffect(() => headingRef.current?.focus(), []);
+  return (
+    <section
+      aria-labelledby="cancel-confirm-heading"
+      className="flex flex-col gap-3 rounded-lg border-2 border-destructive p-4"
+    >
+      <h3
+        id="cancel-confirm-heading"
+        ref={headingRef}
+        tabIndex={-1}
+        className="text-lead font-bold outline-none"
+      >
+        {t.cancel.confirmHeading}
+      </h3>
+      <p>{t.cancel.confirmDescription}</p>
+      {error && (
+        <p role="alert" className="font-semibold text-destructive">
+          {t.cancel.errors[error]}
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={onConfirm}
+        disabled={pending}
+        className={cn(buttonVariants(), actionClass, "bg-destructive font-bold text-white hover:bg-destructive/80")}
+      >
+        {pending ? t.cancel.confirmingButton : t.cancel.confirmButton}
+      </button>
+      <button
+        type="button"
+        onClick={onKeep}
+        disabled={pending}
+        className={cn(buttonVariants({ variant: "outline" }), actionClass)}
+      >
+        {t.cancel.keepButton}
+      </button>
+    </section>
   );
 }
 

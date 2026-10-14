@@ -23,12 +23,15 @@ npm run db:start
 
 這個指令會啟動本機 Supabase，套用 `supabase/migrations/` 裡的所有 migration，並載入 `supabase/seed.sql` 的假資料（一個 2027 年的目前年度）。第一次執行要下載 Docker 映像檔，會比較久。
 
-啟動後執行 `npx supabase status`，把 `API_URL` 與 `PUBLISHABLE_KEY` 填進 `.env.local`：
+啟動後執行 `npx supabase status`，把 `API_URL`、`PUBLISHABLE_KEY` 與 `SECRET_KEY` 填進 `.env.local`：
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:55321
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<PUBLISHABLE_KEY>
+SUPABASE_SECRET_KEY=<SECRET_KEY>
 ```
+
+`SUPABASE_SECRET_KEY` 只在網站伺服器上用來查詢、修改、取消報名（[ADR 0009](docs/adr/0009-lookup-change-cancel-through-server-only.md)），名稱不能加 `NEXT_PUBLIC_`。
 
 接著啟動網站：
 

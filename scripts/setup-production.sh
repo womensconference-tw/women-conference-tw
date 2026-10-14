@@ -331,6 +331,9 @@ step "點「Import」。Framework Preset 應該自動是 Next.js，其他維持�
 step "展開「Environment Variables」，把下面兩行整段貼進第一個 Key 欄位（會自動拆成兩個）："
 printf '\n    NEXT_PUBLIC_SUPABASE_URL=%s\n    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=%s\n\n' \
   "${PROD_SUPABASE_URL}" "${PROD_SUPABASE_PUBLISHABLE_KEY}"
+step "再按「Add More」新增一個：Key 填 SUPABASE_SECRET_KEY，Value 到 Supabase 的"
+note "    Project Settings → API Keys 複製 Secret key（開頭是 sb_secret_），直接貼進 Vercel，"
+note "    不要貼到這個腳本或其他地方。查詢、修改、取消報名要用它（ADR 0009）。"
 step "點「Deploy」，等它跑完。"
 step "完成後點進專案，複製正式網址（Domains 那一欄，像 https://women-conference-tw.vercel.app）。"
 while true; do

@@ -9,6 +9,11 @@ export function anonClient() {
   return createClient(inject("supabaseUrl"), inject("supabasePublishableKey"), { auth });
 }
 
+/** The website server, as in createServiceClient: the only caller allowed to look up, change or cancel registrations. */
+export function serverClient() {
+  return createClient(inject("supabaseUrl"), inject("supabaseSecretKey"), { auth });
+}
+
 /** Bypasses RLS. Only for arranging test fixtures. */
 export function adminClient() {
   return createClient(inject("supabaseUrl"), inject("supabaseSecretKey"), { auth });
