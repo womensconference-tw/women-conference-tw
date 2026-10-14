@@ -81,7 +81,8 @@ npm run db:reset
 
 - **Sign In / Providers**：關閉 **Allow new users to sign up**（Email provider 本身保持開啟，否則連登入都不行）。
 - **URL Configuration**：**Site URL** 填正式網站網址（例如 `https://women-conference-tw.vercel.app`），登入信的連結用這個網址。
-- **Emails** → **Magic Link**：主旨填「台灣姐妹大會後台登入連結」，內容貼上 [`supabase/templates/magic_link.html`](supabase/templates/magic_link.html)。連結帶 `token_hash` 到 `/staff/auth/confirm`，在電腦上要求、手機上點連結也能登入。
+- **Emails** → **SMTP Settings**：開啟 **Enable custom SMTP**，用官方 Gmail 寄信（Host `smtp.gmail.com`、Port `587`、Sender email 與 Username 都是官方 Gmail、Sender name「台灣姐妹大會」，Password 是官方 Gmail 的「應用程式密碼」，記在 Google Sheet）。一定要設：Supabase 內建的寄信只寄給 Supabase 組織成員，其他工作人員收不到登入信，也不能改信件內容。
+- **Emails** → **Templates** → **Magic link or OTP**：主旨填「台灣姐妹大會後台登入連結」，內容（Source）貼上 [`supabase/templates/magic_link.html`](supabase/templates/magic_link.html)。連結帶 `token_hash` 到 `/staff/auth/confirm`，在電腦上要求、手機上點連結也能登入。
 
 ### 新增 migration
 
