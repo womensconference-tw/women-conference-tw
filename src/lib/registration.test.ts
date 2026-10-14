@@ -1,6 +1,6 @@
 import type { TransactionSql } from "postgres";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { adminClient, anonClient, databaseClient, must } from "../../test/supabase";
+import { adminClient, anonClient, databaseClient, must, serverClient } from "../../test/supabase";
 import {
   cancelRegistration,
   changesOf,
@@ -570,7 +570,7 @@ describe("成對課程", () => {
     const saved = await submit(validInput({ courseIds: [first, second] }));
     if (!saved.ok) throw new Error("報名失敗");
 
-    const result = await updateRegistration(anonClient(), {
+    const result = await updateRegistration(serverClient(), {
       registrationId: saved.registration.id,
       lookup: { name: "王小美", phoneOrNumber: "0912345678" },
       changes: { ...changesOf(validInput()), courseIds: [other, second] },
@@ -588,7 +588,7 @@ describe("成對課程", () => {
     const saved = await submit(validInput({ courseIds: [first, second] }));
     if (!saved.ok) throw new Error("報名失敗");
 
-    const result = await updateRegistration(anonClient(), {
+    const result = await updateRegistration(serverClient(), {
       registrationId: saved.registration.id,
       lookup: { name: "王小美", phoneOrNumber: "0912345678" },
       changes: { ...changesOf(validInput()), courseIds: [first, second], email: "mei@example.com" },
@@ -1659,7 +1659,7 @@ describe("報名資料表", () => {
 describe("查詢報名", () => {
   /** 以前台訪客的身分查詢。 */
   function lookUp(name: string, phoneOrNumber: string) {
-    return lookupRegistration(anonClient(), { name, phoneOrNumber }, "zh");
+    return lookupRegistration(serverClient(), { name, phoneOrNumber }, "zh");
   }
 
   it("用姓名和電話查得到，顯示完整的報名資料", async () => {
@@ -1756,7 +1756,7 @@ describe("查詢報名", () => {
     });
   });
 
-  // 任何人都能直接呼叫資料庫函式，所以少了任何一項都不能回傳報名。
+  // 資料庫函式自己也要擋：少了任何一項都不能回傳報名。
   it.each([
     { missing: "電話與報名編號", args: { p_name: "王小美", p_phone: null, p_registration_number: null } },
     { missing: "姓名", args: { p_name: "", p_phone: "0912345678", p_registration_number: null } },
@@ -1764,7 +1764,7 @@ describe("查詢報名", () => {
   ])("直接呼叫資料庫函式時，少了$missing就查不到任何報名", async ({ args }) => {
     expect((await submit(validInput())).ok).toBe(true);
 
-    const { data, error } = await anonClient().rpc("lookup_registration", args);
+    const { data, error } = await serverClient().rpc("lookup_registration", args);
 
     expect(error).toBeNull();
     expect(data).toEqual([]);
@@ -1822,7 +1822,7 @@ describe("查詢報名", () => {
     expect((await submit(validInput())).ok).toBe(true);
 
     const result = await lookupRegistration(
-      anonClient(),
+      serverClient(),
       { name: "王小美", phoneOrNumber: "0912345678" },
       "en",
     );
@@ -1931,7 +1931,7 @@ describe("修改報名", () => {
   }
 
   function update(registrationId: string, overrides: Partial<RegistrationChanges> = {}, lookup = credentials) {
-    return updateRegistration(anonClient(), { registrationId, lookup, changes: changed(overrides) });
+    return updateRegistration(serverClient(), { registrationId, lookup, changes: changed(overrides) });
   }
 
   /** 資料庫裡存的報名（含課程），用來確認被拒時原報名完全沒變。 */
@@ -1977,7 +1977,7 @@ describe("修改報名", () => {
       },
     });
     // 改了電話之後，用新的電話查得到。
-    const found = await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: "0223456789" }, "zh");
+    const found = await lookupRegistration(serverClient(), { name: "王小美", phoneOrNumber: "0223456789" }, "zh");
     expect(found.ok && found.registrations.map((registration) => registration.id)).toEqual([before.id]);
   });
 
@@ -2172,7 +2172,7 @@ describe("修改報名", () => {
     );
     const saved = await stored(id);
 
-    const result = await updateRegistration(anonClient(), {
+    const result = await updateRegistration(serverClient(), {
       registrationId: id,
       lookup: credentials,
       changes: changed({ email: "mei@example.com" }),
@@ -2223,11 +2223,11 @@ describe("修改報名", () => {
   // 她在一個分頁取消了，另一個分頁還開著修改表單：姓名電話都對，不算猜錯，不會因此被暫停查詢。
   it("同一個姓名已經猜錯 9 次時，修改已取消的報名不多記猜錯，之後照樣查得到", async () => {
     const before = await registered();
-    expect(await cancelRegistration(anonClient(), { registrationId: before.id, lookup: credentials })).toEqual({
+    expect(await cancelRegistration(serverClient(), { registrationId: before.id, lookup: credentials })).toEqual({
       ok: true,
     });
     for (let attempt = 0; attempt < 9; attempt++) {
-      await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: `09000000${attempt}0` }, "zh");
+      await lookupRegistration(serverClient(), { name: "王小美", phoneOrNumber: `09000000${attempt}0` }, "zh");
     }
 
     expect(await update(before.id, { email: "mei@example.com" })).toEqual({
@@ -2236,7 +2236,7 @@ describe("修改報名", () => {
     });
 
     expect(must(await admin.from("lookup_failures").select("name_hash"))).toHaveLength(9);
-    expect((await lookupRegistration(anonClient(), credentials, "zh")).ok).toBe(true);
+    expect((await lookupRegistration(serverClient(), credentials, "zh")).ok).toBe(true);
   });
 
   it("沒有電話的人用姓名和報名編號修改，報名編號不變", async () => {
@@ -2284,7 +2284,7 @@ describe("修改報名", () => {
       errors: { form: "tooManyAttempts" },
     });
     expect(
-      await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: "0912345678" }, "zh"),
+      await lookupRegistration(serverClient(), { name: "王小美", phoneOrNumber: "0912345678" }, "zh"),
     ).toEqual({ ok: false, errors: { form: "tooManyAttempts" } });
   });
 
@@ -2303,7 +2303,7 @@ describe("修改報名", () => {
     const before = await registered();
     expect((await update(before.id, { phone: "0987654321" })).ok).toBe(true);
     for (let attempt = 0; attempt < 9; attempt++) {
-      await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: `09000000${attempt}0` }, "zh");
+      await lookupRegistration(serverClient(), { name: "王小美", phoneOrNumber: `09000000${attempt}0` }, "zh");
     }
 
     const again = await update(before.id, { phone: "0987654321" });
@@ -2334,7 +2334,7 @@ describe("取消報名", () => {
   }
 
   function cancel(registrationId: string, lookup = credentials) {
-    return cancelRegistration(anonClient(), { registrationId, lookup });
+    return cancelRegistration(serverClient(), { registrationId, lookup });
   }
 
   it("取消後狀態為已取消、有取消時間、紀錄仍在，名額釋出", async () => {
@@ -2346,7 +2346,7 @@ describe("取消報名", () => {
     const result = await cancel(before.id);
 
     expect(result).toEqual({ ok: true });
-    const found = await lookupRegistration(anonClient(), credentials, "zh");
+    const found = await lookupRegistration(serverClient(), credentials, "zh");
     expect(found.ok && found.registrations).toEqual([
       expect.objectContaining({
         id: before.id,
@@ -2386,7 +2386,7 @@ describe("取消報名", () => {
 
     expect(await cancel(before.id)).toEqual({ ok: false, error: "notOpen" });
 
-    const found = await lookupRegistration(anonClient(), credentials, "zh");
+    const found = await lookupRegistration(serverClient(), credentials, "zh");
     expect(found.ok && found.registrations.map((registration) => registration.status)).toEqual(["registered"]);
   });
 
@@ -2420,7 +2420,7 @@ describe("取消報名", () => {
 
     expect(await cancel(before.id, lookup)).toEqual({ ok: false, error: "notFound" });
 
-    const found = await lookupRegistration(anonClient(), credentials, "zh");
+    const found = await lookupRegistration(serverClient(), credentials, "zh");
     expect(found.ok && found.registrations.map((registration) => registration.status)).toEqual(["registered"]);
   });
 
@@ -2441,7 +2441,7 @@ describe("取消報名", () => {
 
     expect(await cancel(before.id, lookup)).toEqual({ ok: true });
 
-    const found = await lookupRegistration(anonClient(), lookup, "zh");
+    const found = await lookupRegistration(serverClient(), lookup, "zh");
     expect(found.ok && found.registrations.map((registration) => registration.status)).toEqual(["cancelled"]);
   });
 
@@ -2462,7 +2462,7 @@ describe("取消報名", () => {
     const before = await registered();
     await cancel(before.id);
 
-    const result = await updateRegistration(anonClient(), {
+    const result = await updateRegistration(serverClient(), {
       registrationId: before.id,
       lookup: credentials,
       changes: changesOf(validInput({ email: "mei@example.com" })),
@@ -2482,53 +2482,16 @@ describe("取消報名", () => {
     }
 
     expect(await cancel(before.id)).toEqual({ ok: false, error: "tooManyAttempts" });
-    expect(await lookupRegistration(anonClient(), credentials, "zh")).toEqual({
+    expect(await lookupRegistration(serverClient(), credentials, "zh")).toEqual({
       ok: false,
       errors: { form: "tooManyAttempts" },
     });
   });
-
-  // 直接呼叫資料庫函式時，唯讀（GET）或加上篩選讓回應出錯，猜錯的紀錄就會撤銷；所以猜對猜錯要一模一樣。
-  it.each([
-    {
-      how: "用 GET",
-      call: (args: Record<string, unknown>) => anonClient().rpc("cancel_registration", args, { get: true }),
-    },
-    {
-      how: "加上篩選、要求只回一筆",
-      call: (args: Record<string, unknown>) =>
-        anonClient().rpc("cancel_registration", args).not("id", "is", null).single(),
-    },
-    {
-      how: "要求把回傳值轉成布林",
-      call: (args: Record<string, unknown>) =>
-        anonClient().rpc("cancel_registration", args).select("pgrst_scalar::boolean"),
-    },
-  ])("直接呼叫取消函式$how，猜對和猜錯的回應一模一樣，也不會取消", async ({ call }) => {
-    const before = await registered();
-    const response = async (phone: string) => {
-      const { status, data, error } = await call({
-        p_registration_id: before.id,
-        p_lookup_name: "王小美",
-        p_lookup_phone: phone,
-        p_lookup_registration_number: null,
-      });
-      return { status, data, error };
-    };
-
-    const wrong = await response("0912345679");
-    const correct = await response("0912345678");
-
-    expect(correct).toEqual(wrong);
-    expect(correct.status).toBeGreaterThanOrEqual(400);
-    const found = await lookupRegistration(anonClient(), credentials, "zh");
-    expect(found.ok && found.registrations.map((registration) => registration.status)).toEqual(["registered"]);
-  });
 });
 
-// 任何人都能拿匿名金鑰直接呼叫資料庫函式，不經過網站。要求「只回一筆」、加上篩選或用 GET（唯讀），
-// 可能讓猜錯時的回應出錯、整個交易撤銷，猜錯的紀錄也跟著不見；這些方法都不能用來無限次猜。
-describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
+// 訪客能直接呼叫查詢、修改、取消時，可以對回傳值同時加篩選與轉型（?pgrst_scalar=eq.[]&select=pgrst_scalar::boolean）：
+// 猜錯的呼叫出錯、猜錯紀錄跟著撤銷，猜對的卻正常回應，就能不計次數一直猜。所以這三個函式只開放給網站伺服器（ADR 0009）。
+describe("直接呼叫查詢、修改、取消函式", () => {
   const wrongNumber = (number: string, attempt: number) => String(((Number(number) - 100000 + attempt + 1) % 900000) + 100000);
 
   async function registeredWithNumber() {
@@ -2537,92 +2500,68 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
     return saved.registration;
   }
 
-  function updateArgs(id: string, number: string) {
-    return {
-      p_registration_id: id,
-      p_lookup_name: "王小美",
-      p_lookup_phone: null,
-      p_lookup_registration_number: number,
-      p_phone: null,
-      p_email: null,
-      p_line_id: null,
-      p_venue_id: venueId,
-    };
-  }
-
-  type Guess = (id: string, number: string) => PromiseLike<{ status: number; data: unknown; error: unknown }>;
-
-  // 照常執行的呼叫：猜錯照樣計數，10 次後暫停。
-  it.each<{ how: string; guess: Guess }>([
+  const calls: { fn: string; args: (id: string, number: string) => Record<string, unknown> }[] = [
     {
-      how: "查詢要求只回一筆",
-      guess: (_id, number) =>
+      fn: "lookup_registration",
+      args: (_id, number) => ({ p_name: "王小美", p_phone: null, p_registration_number: number }),
+    },
+    {
+      fn: "update_registration",
+      args: (id, number) => ({
+        p_registration_id: id,
+        p_lookup_name: "王小美",
+        p_lookup_phone: null,
+        p_lookup_registration_number: number,
+        p_phone: null,
+        p_email: "changed@example.com",
+        p_line_id: null,
+        p_venue_id: venueId,
+      }),
+    },
+    {
+      fn: "cancel_registration",
+      args: (id, number) => ({
+        p_registration_id: id,
+        p_lookup_name: "王小美",
+        p_lookup_phone: null,
+        p_lookup_registration_number: number,
+      }),
+    },
+  ];
+  const ways: { how: string; call: (fn: string, args: Record<string, unknown>) => PromiseLike<{ status: number; data: unknown; error: unknown }> }[] = [
+    { how: "照常呼叫", call: (fn, args) => anonClient().rpc(fn, args) },
+    { how: "用 GET", call: (fn, args) => anonClient().rpc(fn, args, { get: true }) },
+    {
+      how: "加篩選與轉型",
+      call: (fn, args) =>
         anonClient()
-          .rpc("lookup_registration", { p_name: "王小美", p_phone: null, p_registration_number: number })
-          .single(),
+          .rpc(fn, args)
+          .select("pgrst_scalar::boolean")
+          .eq("pgrst_scalar", fn === "lookup_registration" ? "[]" : "{}"),
     },
-    {
-      how: "修改要求只回一筆",
-      guess: (id, number) => anonClient().rpc("update_registration", updateArgs(id, number)).single(),
-    },
-  ])("$how，猜錯照樣計數，10 次後暫停", async ({ guess }) => {
-    const registration = await registeredWithNumber();
-    const number = registration.registrationNumber!;
-    for (let attempt = 0; attempt < 10; attempt++) await guess(registration.id, wrongNumber(number, attempt));
+  ];
 
-    expect(await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: number }, "zh")).toEqual({
-      ok: false,
-      errors: { form: "tooManyAttempts" },
-    });
-  });
+  it.each(calls.flatMap((target) => ways.map((way) => ({ ...target, ...way }))))(
+    "訪客$how $fn 一律被拒絕，猜對和猜錯的回應一模一樣，什麼都沒改",
+    async ({ fn, args, call }) => {
+      const registration = await registeredWithNumber();
+      const number = registration.registrationNumber!;
+      const response = async (candidate: string) => {
+        const { status, data, error } = await call(fn, args(registration.id, candidate));
+        return { status, data, error };
+      };
 
-  // 一律拒絕的呼叫：猜對和猜錯得到一模一樣的回應，看不出有沒有猜對。
-  it.each<{ how: string; guess: Guess }>([
-    {
-      how: "查詢用 GET",
-      guess: (_id, number) =>
-        anonClient().rpc(
-          "lookup_registration",
-          { p_name: "王小美", p_phone: null, p_registration_number: number },
-          { get: true },
-        ),
-    },
-    {
-      how: "修改加上篩選、要求只回一筆",
-      guess: (id, number) =>
-        anonClient().rpc("update_registration", updateArgs(id, number)).not("id", "is", null).single(),
-    },
-    {
-      how: "修改用 GET",
-      guess: (id, number) => anonClient().rpc("update_registration", updateArgs(id, number), { get: true }),
-    },
-    {
-      how: "修改要求把回傳值轉成布林",
-      guess: (id, number) =>
-        anonClient().rpc("update_registration", updateArgs(id, number)).select("pgrst_scalar::boolean"),
-    },
-    // 猜對時故意送不存在的課程，資料庫若在比對身分之後丟出錯誤，就和猜錯的轉型錯誤不同。
-    {
-      how: "修改要求轉成布林、故意送錯課程",
-      guess: (id, number) =>
-        anonClient()
-          .rpc("update_registration", { ...updateArgs(id, number), p_course_ids: [crypto.randomUUID()] })
-          .select("pgrst_scalar::boolean"),
-    },
-  ])("$how，猜對和猜錯的回應一模一樣", async ({ guess }) => {
-    const registration = await registeredWithNumber();
-    const number = registration.registrationNumber!;
-    const response = async (candidate: string) => {
-      const { status, data, error } = await guess(registration.id, candidate);
-      return { status, data, error };
-    };
+      const wrong = await response(wrongNumber(number, 0));
+      const correct = await response(number);
 
-    const wrong = await response(wrongNumber(number, 0));
-    const correct = await response(number);
-
-    expect(correct).toEqual(wrong);
-    expect(correct.status).toBeGreaterThanOrEqual(400);
-  });
+      expect(correct).toEqual(wrong);
+      expect(correct.error).toMatchObject({ code: "42501" });
+      const found = await lookupRegistration(serverClient(), { name: "王小美", phoneOrNumber: number }, "zh");
+      expect(found.ok && found.registrations).toEqual([
+        expect.objectContaining({ status: "registered", email: null }),
+      ]);
+    },
+  );
 
   async function failureCount() {
     return must(await admin.from("lookup_failures").select("name_hash")).length;
@@ -2633,7 +2572,7 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
     const saved = await submit(validInput());
     if (!saved.ok) throw new Error("報名失敗");
     for (let attempt = 0; attempt < 5; attempt++) {
-      await updateRegistration(anonClient(), {
+      await updateRegistration(serverClient(), {
         registrationId: saved.registration.id,
         lookup: { name: "王小美", phoneOrNumber: `09000000${attempt}0` },
         changes: { ...changesOf(validInput()), phone: `09000000${attempt}1` },
@@ -2641,7 +2580,7 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
       expect(await failureCount()).toBe(2 * (attempt + 1));
     }
 
-    expect(await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: "0912345678" }, "zh")).toEqual({
+    expect(await lookupRegistration(serverClient(), { name: "王小美", phoneOrNumber: "0912345678" }, "zh")).toEqual({
       ok: false,
       errors: { form: "tooManyAttempts" },
     });
@@ -2651,7 +2590,7 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
     const registration = await registeredWithNumber();
     const number = registration.registrationNumber!;
     for (let attempt = 0; attempt < 5; attempt++) {
-      await anonClient().rpc("lookup_registration", {
+      await serverClient().rpc("lookup_registration", {
         p_name: "王小美",
         p_phone: `09000000${attempt}0`,
         p_registration_number: wrongNumber(number, attempt),
@@ -2659,12 +2598,12 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
       expect(await failureCount()).toBe(2 * (attempt + 1));
       // 還沒到 10 次之前，資料正確照樣查得到。
       if (attempt === 3) {
-        const found = await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: number }, "zh");
+        const found = await lookupRegistration(serverClient(), { name: "王小美", phoneOrNumber: number }, "zh");
         expect(found.ok).toBe(true);
       }
     }
 
-    expect(await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: number }, "zh")).toEqual({
+    expect(await lookupRegistration(serverClient(), { name: "王小美", phoneOrNumber: number }, "zh")).toEqual({
       ok: false,
       errors: { form: "tooManyAttempts" },
     });

@@ -1,9 +1,12 @@
--- 取消報名，以及修改報名的幾個修正（猜錯次數不能被繞過、等鎖時跨過截止、已取消的不算猜錯）。
+-- 取消報名，以及查詢、修改報名的幾個修正：只開放給網站伺服器、等鎖時跨過截止、已取消的不算猜錯。
 
 /*
- * 任何人都能拿匿名金鑰直接呼叫修改、取消，還能要 PostgREST 把回傳值轉型（例如 select=pgrst_scalar::boolean）。
- * 轉型失敗時整個交易撤銷，猜錯的紀錄也跟著不見；如果猜對與猜錯得到不同的錯誤，就能不計次數一直猜。
- * 所以這兩個函式守住兩條規則：
+ * 查詢、修改、取消只開放給網站伺服器（service_role），訪客不能直接呼叫（ADR 0009，權限在檔案最後）。
+ * 訪客能直接呼叫時，可以要 PostgREST 對回傳值同時加篩選與轉型
+ * （例如 ?pgrst_scalar=eq.[]&select=pgrst_scalar::boolean）：猜錯的呼叫轉型失敗、整個交易撤銷，
+ * 猜錯的紀錄跟著不見；猜對的被篩掉、正常回應。這樣就能不計次數一直猜，只改回傳的形狀擋不住。
+ *
+ * 網站伺服器只用固定的方式呼叫，不加篩選或轉型。修改、取消另外守住兩條規則，萬一權限設錯也比較難被利用：
  * - 比對不到時回傳空物件 {}，不是 null：猜對時回傳的也是物件，不管怎麼轉型，兩邊的錯誤都一樣。
  * - 姓名與電話對上之後不再丟出例外：場地、名額、電話等問題放在回傳的 {"error": 代碼, "detail": ...}，
  *   猜對時故意送錯資料，也不會得到和猜錯不同的錯誤。
@@ -102,8 +105,6 @@ begin
 end;
 $$;
 
-revoke all on function public.cancel_registration from public;
-grant execute on function public.cancel_registration to anon, authenticated;
 
 /*
  * 報名服務的修改，規則與之前相同（見 20261017000000_update_registration.sql），只改了這些：
@@ -235,3 +236,11 @@ begin
   return to_jsonb(v_registration);
 end;
 $$;
+
+-- 只開放給網站伺服器（見檔案開頭）。送出報名不比對身分，仍開放給訪客。
+revoke all on function public.lookup_registration from public, anon, authenticated;
+revoke all on function public.update_registration from public, anon, authenticated;
+revoke all on function public.cancel_registration from public, anon, authenticated;
+grant execute on function public.lookup_registration to service_role;
+grant execute on function public.update_registration to service_role;
+grant execute on function public.cancel_registration to service_role;

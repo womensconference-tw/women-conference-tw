@@ -13,22 +13,25 @@ import {
   type LookupResult,
   type SubmitResult,
 } from "@/lib/registration";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
-/** 查詢表單送出。用匿名訪客的身分呼叫報名服務；比對由資料庫函式負責。 */
+/*
+ * 查詢、修改、取消都用網站伺服器的身分（createServiceClient）呼叫報名服務：
+ * 這些資料庫函式不開放訪客直接呼叫（ADR 0009）。比對、猜錯次數、名額仍由資料庫函式負責。
+ */
+
+/** 查詢表單送出。比對由資料庫函式負責。 */
 export async function lookUp(input: unknown): Promise<LookupResult> {
-  const supabase = await createClient();
-  return lookupRegistration(supabase, lookupInputFrom(input), await getLocale());
+  return lookupRegistration(createServiceClient(), lookupInputFrom(input), await getLocale());
 }
 
 /**
  * 修改報名送出：哪一筆、查詢時用的姓名與電話（或報名編號），以及修改後的報名表內容。
- * 用匿名訪客的身分呼叫報名服務；是否報名中、姓名與電話是否符合、名額等由資料庫判斷。
+ * 是否報名中、姓名與電話是否符合、名額等由資料庫判斷。
  */
 export async function updateMine(input: unknown): Promise<SubmitResult> {
   const raw = (input ?? {}) as Record<string, unknown>;
-  const supabase = await createClient();
-  const result = await updateRegistration(supabase, {
+  const result = await updateRegistration(createServiceClient(), {
     registrationId: typeof raw.registrationId === "string" ? raw.registrationId : "",
     lookup: lookupInputFrom(raw.lookup),
     // 姓名、支聯會、支會、肖像權同意不能改，送來了也不用。
@@ -40,12 +43,11 @@ export async function updateMine(input: unknown): Promise<SubmitResult> {
 
 /**
  * 取消報名送出：哪一筆，以及查詢時用的姓名與電話（或報名編號）。
- * 用匿名訪客的身分呼叫報名服務；是否報名中、姓名與電話是否符合由資料庫判斷。
+ * 是否報名中、姓名與電話是否符合由資料庫判斷。
  */
 export async function cancelMine(input: unknown): Promise<CancelResult> {
   const raw = (input ?? {}) as Record<string, unknown>;
-  const supabase = await createClient();
-  const result = await cancelRegistration(supabase, {
+  const result = await cancelRegistration(createServiceClient(), {
     registrationId: typeof raw.registrationId === "string" ? raw.registrationId : "",
     lookup: lookupInputFrom(raw.lookup),
   });
