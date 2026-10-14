@@ -45,13 +45,19 @@ revoke all on function public.paired_course from public, anon, authenticated;
  * 不然報名時永遠選不齊（同一場次只能選一門），或一堂課會連帶另外兩堂。
  * 新增、修改成對課程時檢查；課程換場次、場次換場地（只有開放報名前可以）時，也檢查牽涉到的那組。
  * 和定案規則一樣在交易提交時才檢查，同一個交易裡可以先調好課程再建成對。
+ *
+ * 同一個年度大會的檢查排隊做（鎖到交易結束）：兩人同時修改時，各自只看得到自己的修改，
+ * 例如同時把同一堂課設進兩組、同時把成對的兩堂移到同一個場次，兩邊都會通過。
+ * 排隊後，後到的等先到的提交，再重新讀一次（每個查詢都看得到已提交的資料），就會看到對方的修改。
  */
-create function public.course_pairs_valid(p_course_ids uuid[])
+create function public.course_pairs_valid(p_conference_id uuid, p_course_ids uuid[])
 returns void
 language plpgsql
 set search_path = ''
 as $$
 begin
+  perform pg_advisory_xact_lock(hashtextextended('course_pairs:' || p_conference_id::text, 0));
+
   if exists (
     select 1
     from public.course_pairs p
@@ -92,7 +98,7 @@ begin
     raise exception 'programme_locked';
   end if;
   if tg_op <> 'DELETE' then
-    perform public.course_pairs_valid(array[new.first_course_id, new.second_course_id]);
+    perform public.course_pairs_valid(new.conference_id, array[new.first_course_id, new.second_course_id]);
   end if;
   return case when tg_op = 'DELETE' then old else new end;
 end;
@@ -110,7 +116,7 @@ language plpgsql
 set search_path = ''
 as $$
 begin
-  perform public.course_pairs_valid(array[new.id]);
+  perform public.course_pairs_valid(new.conference_id, array[new.id]);
   return new;
 end;
 $$;
@@ -127,7 +133,9 @@ language plpgsql
 set search_path = ''
 as $$
 begin
-  perform public.course_pairs_valid(array(select id from public.courses where session_id = new.id));
+  perform public.course_pairs_valid(
+    new.conference_id, array(select id from public.courses where session_id = new.id)
+  );
   return new;
 end;
 $$;

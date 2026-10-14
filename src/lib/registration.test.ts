@@ -648,6 +648,91 @@ describe("成對課程", () => {
       expect(error?.message).toBe("course_pair_invalid");
     });
 
+    /**
+     * 兩個管理員同時修改：甲的檢查已經做完、還沒提交時，乙也做檢查。
+     * 平常檢查在提交時才做，這裡用 SET CONSTRAINTS 讓檢查提早，才能讓兩邊的檢查重疊。
+     * 有排隊時乙會等甲提交，看到甲的修改後被拒絕；沒排隊的話兩邊都會成功。回傳乙的錯誤訊息。
+     */
+    async function concurrently(
+      first: (tx: TransactionSql) => Promise<unknown>,
+      second: (tx: TransactionSql) => Promise<unknown>,
+    ): Promise<string | undefined> {
+      const [a, b, watcher] = [databaseClient(), databaseClient(), databaseClient()];
+      let release!: () => void;
+      const mayCommit = new Promise<void>((resolve) => (release = resolve));
+      let checked!: (pid: number) => void;
+      const firstChecked = new Promise<number>((resolve) => (checked = resolve));
+      const firstDone = a.begin(async (tx) => {
+        await first(tx);
+        await tx`set constraints all immediate`;
+        const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+        checked(pid);
+        await mayCommit;
+      });
+      try {
+        const firstPid = await firstChecked;
+        let secondChecked = false;
+        const secondDone = b
+          .begin(async (tx) => {
+            await second(tx);
+            await tx`set constraints all immediate`;
+            secondChecked = true;
+          })
+          .then(
+            () => undefined,
+            (error: Error) => error.message,
+          );
+        // 乙在等甲（有排隊），或乙的檢查已經做完（沒排隊），才讓甲提交。
+        for (let waited = 0; !secondChecked; waited += 50) {
+          const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
+            select exists (
+              select 1 from pg_stat_activity where ${firstPid}::int = any(pg_blocking_pids(pid))
+            ) as blocked`;
+          if (blocked) break;
+          if (waited > 3000) throw new Error("乙沒有在等，也沒有做完檢查");
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        release();
+        await firstDone;
+        return await secondDone;
+      } finally {
+        release();
+        await firstDone.catch(() => {});
+        await Promise.all([a.end(), b.end(), watcher.end()]);
+      }
+    }
+
+    it("兩人同時把同一堂課設進兩組，後提交的被拒絕", async () => {
+      const a = await addCourse(await addSession(1), null);
+      const b = await addCourse(await addSession(2), null);
+      const c = await addCourse(await addSession(3), null);
+
+      const error = await concurrently(
+        (tx) => tx`insert into public.course_pairs (conference_id, first_course_id, second_course_id)
+          values (${conferenceId!}, ${a}, ${b})`,
+        (tx) => tx`insert into public.course_pairs (conference_id, first_course_id, second_course_id)
+          values (${conferenceId!}, ${b}, ${c})`,
+      );
+
+      expect(error).toBe("course_pair_invalid");
+      const pairs = must(await admin.from("course_pairs").select("first_course_id").eq("conference_id", conferenceId!));
+      expect(pairs).toEqual([{ first_course_id: a }]);
+    });
+
+    it("兩人同時把成對的兩堂移到同一個場次，後提交的被拒絕", async () => {
+      await pairedCourses();
+      const third = await addSession(3);
+
+      const error = await concurrently(
+        (tx) => tx`update public.courses set session_id = ${third} where id = ${first}`,
+        (tx) => tx`update public.courses set session_id = ${third} where id = ${second}`,
+      );
+
+      expect(error).toBe("course_pair_invalid");
+      const moved = must(await admin.from("courses").select("id").eq("session_id", third));
+      expect(moved).toEqual([{ id: first }]);
+    });
+
     it.each<[string, () => PromiseLike<{ error: { message: string } | null }>]>([
       ["新增成對", async () => {
         const [a, b] = [await addCourse(await addSession(3), null), await addCourse(await addSession(4), null)];
