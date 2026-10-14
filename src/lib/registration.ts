@@ -109,6 +109,8 @@ export type RegistrationError =
   | "notFound"
   /** 修改時同一個姓名猜錯太多次，和查詢一起暫停一陣子。 */
   | "tooManyAttempts"
+  /** 修改時這筆報名已經取消（例如她在另一個分頁取消了）。 */
+  | "cancelled"
   | "unknown";
 
 export type RegistrationErrors = Partial<Record<RegistrationField, RegistrationError>>;
@@ -447,6 +449,7 @@ const databaseErrors: Record<string, RegistrationErrors> = {
   // 找不到她的報名（姓名、電話不符或已取消）時，修改函式回傳空值，不丟出代碼（見 saved）。
   too_many_attempts: { form: "tooManyAttempts" },
   phone_invalid: { phone: "phoneInvalid" },
+  registration_cancelled: { form: "cancelled" },
 };
 
 // 欄位檢查與資料表限制本來就一致；萬一資料表擋下了，也標在對應的欄位旁，不只顯示「系統出了問題」。
@@ -575,13 +578,15 @@ export async function cancelRegistration(
   if (!identity) return { ok: false, error: "notFound" };
 
   const { data, error } = await supabase.rpc("cancel_registration", identity);
-  if (error) {
-    if (error.message === "registration_not_open") return { ok: false, error: "notOpen" };
-    if (error.message === "too_many_attempts") return { ok: false, error: "tooManyAttempts" };
-    console.error("cancel_registration failed", error);
+  // 姓名與電話對上之後，資料庫不丟出例外，錯誤放在回傳的 error（見 cancel_registration）。
+  const code = error?.message ?? (data as { error?: string } | null)?.error;
+  if (code) {
+    if (code === "registration_not_open") return { ok: false, error: "notOpen" };
+    if (code === "too_many_attempts") return { ok: false, error: "tooManyAttempts" };
+    console.error("cancel_registration failed", error ?? code);
     return { ok: false, error: "unknown" };
   }
-  // 找不到她的報名時，函式回傳 null（不丟出代碼，猜錯的紀錄才會留下）。
+  // 找不到她的報名時，函式回傳 {}（不丟出代碼，猜錯的紀錄才會留下）。
   if (!(data as { id?: string } | null)?.id) return { ok: false, error: "notFound" };
   return { ok: true };
 }
@@ -598,7 +603,11 @@ async function saved(
   for (let retry = 0; response.error?.code === DEADLOCK_DETECTED && retry < 2; retry++) {
     response = await call();
   }
-  const { data, error } = response;
+  // 修改時姓名與電話對上之後，資料庫不丟出例外，錯誤放在回傳的 error、detail（見 update_registration）。
+  const { data } = response;
+  const error =
+    response.error ??
+    (data?.error ? { message: data.error, details: data.detail ?? "" } : null);
   if (error) {
     // 有課程額滿時是 course_full，只有午餐、午后動態額滿時是 choice_full，兩者都列出所有額滿的選項。
     if (error.message === "course_full" || error.message === "choice_full") {
@@ -610,7 +619,7 @@ async function saved(
     console.error(`${name} failed`, error);
     return { ok: false, errors: { form: "unknown" } };
   }
-  // 修改時找不到她的報名，函式回傳 null（不丟出代碼，猜錯的紀錄才會留下）。
+  // 修改時找不到她的報名，函式回傳 {}（不丟出代碼，猜錯的紀錄才會留下）。
   if (!data?.id) return { ok: false, errors: { form: "notFound" } };
 
   return {
@@ -648,6 +657,9 @@ function fullErrors(input: RegistrationChanges, fullIds: string[]): Registration
 }
 
 type RegistrationRow = {
+  /** 修改時姓名與電話對上、但沒有存下：資料庫的錯誤代碼與 detail。 */
+  error?: string;
+  detail?: string | null;
   id: string;
   name: string;
   phone: string | null;

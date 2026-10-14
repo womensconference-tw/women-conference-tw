@@ -1230,7 +1230,7 @@ describe("午餐與服務步驟的檢查", () => {
 });
 
 /**
- * 在一個還沒結束的資料庫交易裡做 hold，交易開著時呼叫 submit；
+ * 在一個還沒結束的資料庫交易裡做 hold，交易開著時呼叫 submit（送出、修改或取消）；
  * 確認 submit 的送出函式真的卡在等這個交易的鎖之後，再做 thenDo（有給的話），才結束交易，回傳 submit 的結果。
  * 送出函式一直沒有等這個交易（例如沒有上鎖），測試直接失敗，不靠時間碰運氣。
  */
@@ -1267,7 +1267,7 @@ async function submitWhileHolding<T>(
         select exists (
           select 1 from pg_stat_activity
           where ${holderPid}::int = any(pg_blocking_pids(pid))
-            and query ~ '(submit|update)_registration'
+            and query ~ '(submit|update|cancel)_registration'
         ) as blocked`;
       if (blocked) break;
       if (waited > 3000) throw new Error("送出函式沒有等那個交易的鎖：可能沒有上鎖");
@@ -2217,7 +2217,26 @@ describe("修改報名", () => {
 
     const result = await update(before.id, { email: "mei@example.com" });
 
-    expect(result).toEqual({ ok: false, errors: { form: "notFound" } });
+    expect(result).toEqual({ ok: false, errors: { form: "cancelled" } });
+  });
+
+  // 她在一個分頁取消了，另一個分頁還開著修改表單：姓名電話都對，不算猜錯，不會因此被暫停查詢。
+  it("同一個姓名已經猜錯 9 次時，修改已取消的報名不多記猜錯，之後照樣查得到", async () => {
+    const before = await registered();
+    expect(await cancelRegistration(anonClient(), { registrationId: before.id, lookup: credentials })).toEqual({
+      ok: true,
+    });
+    for (let attempt = 0; attempt < 9; attempt++) {
+      await lookupRegistration(anonClient(), { name: "王小美", phoneOrNumber: `09000000${attempt}0` }, "zh");
+    }
+
+    expect(await update(before.id, { email: "mei@example.com" })).toEqual({
+      ok: false,
+      errors: { form: "cancelled" },
+    });
+
+    expect(must(await admin.from("lookup_failures").select("name_hash"))).toHaveLength(9);
+    expect((await lookupRegistration(anonClient(), credentials, "zh")).ok).toBe(true);
   });
 
   it("沒有電話的人用姓名和報名編號修改，報名編號不變", async () => {
@@ -2371,6 +2390,28 @@ describe("取消報名", () => {
     expect(found.ok && found.registrations.map((registration) => registration.status)).toEqual(["registered"]);
   });
 
+  // 取消在截止前開始、排隊等修改放開這一筆的鎖，等到時已經截止：要用拿到鎖當下的時間判斷。
+  it("等鎖期間跨過截止的取消被拒絕，報名照舊", async () => {
+    const before = await registered();
+    const closesAt = Date.now() + 1500;
+    must(
+      await admin
+        .from("conferences")
+        .update({ registration_closes_at: new Date(closesAt).toISOString() })
+        .eq("id", conferenceId!),
+    );
+
+    const result = await submitWhileHolding(
+      (tx) => tx`select id from public.registrations where id = ${before.id} for update`,
+      () => cancel(before.id),
+      () => new Promise((resolve) => setTimeout(resolve, closesAt - Date.now() + 200)),
+    );
+
+    expect(result).toEqual({ ok: false, error: "notOpen" });
+    const { status } = must(await admin.from("registrations").select("status").eq("id", before.id).single());
+    expect(status).toBe("registered");
+  });
+
   it.each([
     { wrong: "姓名", lookup: { name: "王小華", phoneOrNumber: "0912345678" } },
     { wrong: "電話", lookup: { name: "王小美", phoneOrNumber: "0912345679" } },
@@ -2427,7 +2468,7 @@ describe("取消報名", () => {
       changes: changesOf(validInput({ email: "mei@example.com" })),
     });
 
-    expect(result).toEqual({ ok: false, errors: { form: "notFound" } });
+    expect(result).toEqual({ ok: false, errors: { form: "cancelled" } });
   });
 
   // 和查詢、修改共用猜錯次數：知道報名 id 的人，也不能用取消一直猜電話。
@@ -2457,6 +2498,11 @@ describe("取消報名", () => {
       how: "加上篩選、要求只回一筆",
       call: (args: Record<string, unknown>) =>
         anonClient().rpc("cancel_registration", args).not("id", "is", null).single(),
+    },
+    {
+      how: "要求把回傳值轉成布林",
+      call: (args: Record<string, unknown>) =>
+        anonClient().rpc("cancel_registration", args).select("pgrst_scalar::boolean"),
     },
   ])("直接呼叫取消函式$how，猜對和猜錯的回應一模一樣，也不會取消", async ({ call }) => {
     const before = await registered();
@@ -2549,6 +2595,19 @@ describe("直接呼叫查詢、修改函式時的猜錯次數", () => {
     {
       how: "修改用 GET",
       guess: (id, number) => anonClient().rpc("update_registration", updateArgs(id, number), { get: true }),
+    },
+    {
+      how: "修改要求把回傳值轉成布林",
+      guess: (id, number) =>
+        anonClient().rpc("update_registration", updateArgs(id, number)).select("pgrst_scalar::boolean"),
+    },
+    // 猜對時故意送不存在的課程，資料庫若在比對身分之後丟出錯誤，就和猜錯的轉型錯誤不同。
+    {
+      how: "修改要求轉成布林、故意送錯課程",
+      guess: (id, number) =>
+        anonClient()
+          .rpc("update_registration", { ...updateArgs(id, number), p_course_ids: [crypto.randomUUID()] })
+          .select("pgrst_scalar::boolean"),
     },
   ])("$how，猜對和猜錯的回應一模一樣", async ({ guess }) => {
     const registration = await registeredWithNumber();

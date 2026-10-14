@@ -145,6 +145,7 @@ const zh = {
       portraitConsentRequired: "需要同意肖像權才能報名。如有疑問，請先聯絡大會管理員。",
       notOpen: "目前不在報名期間，報名沒有送出。",
       notFound: "找不到這筆報名，可能已經取消了。請重新查詢，或聯絡大會管理員。",
+      cancelled: "這筆報名已經取消，不能修改。要參加的話，請重新報名。",
       tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試，或聯絡大會管理員。",
       unknown: "系統暫時出了問題，報名沒有送出。請稍後再試一次，或聯絡大會管理員。",
     },
@@ -208,7 +209,8 @@ const zh = {
     keepButton: "不取消，保留報名",
     done: "已經取消這筆報名。",
     errors: {
-      notOpen: "目前不在報名期間，報名沒有取消。要取消的話，請聯絡大會管理員。",
+      // 回應斷掉後跨過截止才重按時，其實可能已經取消了，所以不說「沒有取消」。
+      notOpen: "目前不在報名期間，網站上無法取消。請重新查詢，看看這筆報名現在的狀態；要取消的話，請聯絡大會管理員。",
       notFound:
         "找不到這筆報名，可能資料剛剛改過。請重新查詢後再試一次，或聯絡大會管理員。",
       tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試，或聯絡大會管理員。",
@@ -390,6 +392,8 @@ const en = {
       notOpen: "Registration is not open right now. Your registration was not submitted.",
       notFound:
         "We couldn't find this registration. It may have been cancelled. Please look it up again, or contact the conference administrator.",
+      cancelled:
+        "This registration has been cancelled, so it can't be changed. To attend, please register again.",
       tooManyAttempts:
         "There have been too many unsuccessful lookups for this name. Please try again in an hour, or contact the conference administrator.",
       unknown:
@@ -461,7 +465,7 @@ const en = {
     done: "This registration has been cancelled.",
     errors: {
       notOpen:
-        "Registration is not open right now, so your registration was not cancelled. To cancel, please contact the conference administrator.",
+        "Registration is not open right now, so you can't cancel on the website. Please look up your registration again to check its current status. To cancel, please contact the conference administrator.",
       notFound:
         "We couldn't find this registration. Its details may have just changed. Please look it up again and try again, or contact the conference administrator.",
       tooManyAttempts:
