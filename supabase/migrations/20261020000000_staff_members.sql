@@ -102,15 +102,29 @@ $$;
 
 revoke all on function public.check_staff_scope from public, anon, authenticated;
 
--- 至少要留一位總管理員，否則沒有人能再新增帳號。
--- 先鎖住所有總管理員，兩位總管理員同時移除對方時，後面那一個會看到只剩一位而被擋下。
+/*
+ * 新增、修改、移除工作人員一律先排隊，排到了才檢查是不是總管理員。
+ * 否則正在被移除的總管理員可以趁移除還沒提交時把自己加回去（她的檢查讀到的還是移除前的名單），
+ * 兩位總管理員同時移除對方時也會都通過「還有別的總管理員」而一個不剩。
+ * 排在後面的函式要等前面的提交後才往下做，下一個查詢就看得到前面的結果。
+ */
+create function public.lock_staff_members()
+returns void
+language sql
+set search_path = ''
+as $$
+  select pg_advisory_xact_lock(hashtext('public.staff_members'))
+$$;
+
+revoke all on function public.lock_staff_members from public, anon, authenticated;
+
+-- 至少要留一位總管理員，否則沒有人能再新增帳號。呼叫前要先 lock_staff_members。
 create function public.ensure_another_admin(p_user_id uuid)
 returns void
 language plpgsql
 set search_path = ''
 as $$
 begin
-  perform 1 from public.staff_members where role = 'admin' for update;
   if not exists (
     select 1 from public.staff_members where role = 'admin' and user_id <> p_user_id
   ) then
@@ -166,6 +180,7 @@ as $$
 declare
   v_user_id uuid;
 begin
+  perform public.lock_staff_members();
   if not public.is_staff_admin() then
     raise exception 'not_admin';
   end if;
@@ -199,6 +214,7 @@ security definer
 set search_path = ''
 as $$
 begin
+  perform public.lock_staff_members();
   if not public.is_staff_admin() then
     raise exception 'not_admin';
   end if;
@@ -229,6 +245,7 @@ security definer
 set search_path = ''
 as $$
 begin
+  perform public.lock_staff_members();
   if not public.is_staff_admin() then
     raise exception 'not_admin';
   end if;
@@ -244,3 +261,30 @@ $$;
 
 revoke all on function public.remove_staff_member from public, anon;
 grant execute on function public.remove_staff_member to authenticated;
+
+/*
+ * 工作人員的登入帳號不能停用。刪除帳號已經被上面的外鍵擋下，但 Supabase 的軟刪除
+ * （auth.admin.deleteUser(id, true)）只改寫 Email、設定 deleted_at，資料列還在，外鍵擋不到；
+ * 最後一位總管理員的帳號被軟刪除後，名單上還有她，卻沒有人登入得了。要先從名單移除。
+ */
+create function public.prevent_staff_account_soft_delete()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if exists (select 1 from public.staff_members where user_id = new.id) then
+    raise exception 'staff_account_in_use';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.prevent_staff_account_soft_delete from public, anon, authenticated;
+
+create trigger prevent_staff_account_soft_delete
+  before update of deleted_at on auth.users
+  for each row
+  when (old.deleted_at is null and new.deleted_at is not null)
+  execute function public.prevent_staff_account_soft_delete();

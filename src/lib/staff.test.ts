@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { adminClient, anonClient, latestEmailTo, must, signedInClient } from "../../test/supabase";
+import { adminClient, anonClient, databaseClient, latestEmailTo, must, signedInClient } from "../../test/supabase";
 import {
   addStaffMember,
   getStaffMember,
@@ -203,6 +203,61 @@ describe("工作人員帳號", () => {
       expect(scope.error?.code).toBe("42501");
       const another = await client.rpc("ensure_another_admin", { p_user_id: stakeId });
       expect(another.error?.code).toBe("42501");
+    }
+  });
+
+  it("總管理員的登入帳號不能用軟刪除停用，免得留下登入不了的總管理員", async () => {
+    const userId = (await getStaffMember(headAdmin))!.userId;
+
+    expect((await admin.auth.admin.deleteUser(userId, true)).error).not.toBeNull();
+    expect(await getStaffMember(await signedInClient("head@example.com"))).toMatchObject({ role: "admin" });
+  });
+
+  it("正在被移除的總管理員，不能趁移除還沒完成時把自己加回去", async () => {
+    await add(headAdmin, { email: "second@example.com", role: "admin", venueId: null, stakeId: null });
+    const second = await signedInClient("second@example.com");
+    const headId = (await getStaffMember(headAdmin))!.userId;
+    const secondId = (await getStaffMember(second))!.userId;
+
+    // 甲（head）移除乙（second），交易還沒提交時，乙把自己的 Email 重新加成總管理員。
+    const [a, watcher] = [databaseClient(), databaseClient()];
+    let release!: () => void;
+    const mayCommit = new Promise<void>((resolve) => (release = resolve));
+    let removed!: (pid: number) => void;
+    const firstRemoved = new Promise<number>((resolve) => (removed = resolve));
+    const removing = a.begin(async (tx) => {
+      await tx`set local role authenticated`;
+      await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: headId, role: "authenticated" })}, true)`;
+      await tx`select public.remove_staff_member(${secondId})`;
+      const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+      removed(pid);
+      await mayCommit;
+    });
+    try {
+      const firstPid = await firstRemoved;
+      // supabase-js 的請求要 then 才會送出，這裡立刻送。
+      const readding = second
+        .rpc("add_staff_member", { p_email: "second@example.com", p_role: "admin", p_venue_id: null, p_stake_id: null })
+        .then((result) => result);
+      // 等乙卡在甲後面（或已經做完）再讓甲提交。
+      for (let waited = 0; ; waited += 50) {
+        const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
+          select exists (
+            select 1 from pg_stat_activity where ${firstPid}::int = any(pg_blocking_pids(pid))
+          ) as blocked`;
+        if (blocked) break;
+        if (waited > 3000) throw new Error("乙沒有卡在甲後面");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      release();
+      await removing;
+
+      expect((await readding).error?.message).toBe("not_admin");
+      expect(await getStaffMember(second)).toBeNull();
+    } finally {
+      release();
+      await removing.catch(() => {});
+      await Promise.all([a.end(), watcher.end()]);
     }
   });
 });

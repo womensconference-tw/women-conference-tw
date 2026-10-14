@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import {
   listStaffMembers,
@@ -37,7 +37,9 @@ type Option = { id: string; label: string };
 /** 工作人員帳號（只有總管理員）：新增、修改角色與負責範圍、移除。 */
 export default async function StaffMembersPage({ searchParams }: PageProps<"/staff/members">) {
   const supabase = await createClient();
-  const me = (await getCurrentStaff())!;
+  const me = await getCurrentStaff();
+  // 版面和頁面同時執行，版面的導向擋不住這裡，自己也要檢查。
+  if (!me) redirect("/staff/login");
   if (me.role !== "admin") notFound();
 
   const [members, venues, stakes] = await Promise.all([

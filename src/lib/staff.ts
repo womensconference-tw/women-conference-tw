@@ -18,6 +18,7 @@ export type SignInLinkResult = { ok: true } | { ok: false; error: "email_invalid
  * 寄後台登入連結。只寄給已經有帳號的 Email，不會建立新帳號。
  * 沒有帳號時也回傳成功，畫面上看不出哪些 Email 是工作人員。
  * 信裡的連結指向 /staff/auth/confirm（見 supabase/templates/magic_link.html）。
+ * 登入頁在回應送出後才呼叫（src/app/staff/actions.ts），回應快慢也看不出差別。
  */
 export async function requestSignInLink(supabase: SupabaseClient, rawEmail: string): Promise<SignInLinkResult> {
   const email = normalizeEmail(rawEmail);

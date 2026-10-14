@@ -11,7 +11,6 @@ export const metadata: Metadata = { title: "登入" };
 
 const ERRORS: Record<string, string> = {
   email_invalid: "Email 格式不對，請再檢查一次。",
-  unavailable: "系統暫時出了問題，請稍後再試。",
   link_invalid: "登入連結已失效或已經用過，請重新寄一次。",
   not_staff: "這個 Email 不是後台工作人員，請聯絡總管理員。",
 };
@@ -39,7 +38,7 @@ export default async function StaffLoginPage({ searchParams }: PageProps<"/staff
         </>
       ) : sent ? (
         <p className={noticeClass} role="status">
-          如果這個 Email 是後台工作人員，登入連結已經寄出，請到信箱收信。連結 1 小時內有效。
+          如果這個 Email 是後台工作人員，登入連結已經寄出，請到信箱收信。連結 1 小時內有效；幾分鐘後還沒收到，請再寄一次。
         </p>
       ) : (
         <form action={sendSignInLink} className="flex flex-col gap-4">
