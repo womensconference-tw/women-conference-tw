@@ -187,7 +187,12 @@ begin
 
   perform public.check_staff_scope(p_role, p_venue_id, p_stake_id);
 
-  select id into v_user_id from auth.users where lower(email) = lower(public.trim_blank(p_email));
+  -- 鎖住這個帳號：正在被軟刪除時，等刪除提交後重新比對，已刪除（deleted_at、Email 已改寫）就找不到；
+  -- 反過來，先加進名單的話，軟刪除要等這裡提交，再被下面的觸發器擋下。
+  select id into v_user_id
+  from auth.users
+  where lower(email) = lower(public.trim_blank(p_email)) and deleted_at is null
+  for share;
   if v_user_id is null then
     raise exception 'account_missing';
   end if;

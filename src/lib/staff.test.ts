@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { TransactionSql } from "postgres";
 import { adminClient, anonClient, databaseClient, latestEmailTo, must, signedInClient } from "../../test/supabase";
 import {
   addStaffMember,
@@ -213,33 +214,29 @@ describe("工作人員帳號", () => {
     expect(await getStaffMember(await signedInClient("head@example.com"))).toMatchObject({ role: "admin" });
   });
 
-  it("正在被移除的總管理員，不能趁移除還沒完成時把自己加回去", async () => {
-    await add(headAdmin, { email: "second@example.com", role: "admin", venueId: null, stakeId: null });
-    const second = await signedInClient("second@example.com");
-    const headId = (await getStaffMember(headAdmin))!.userId;
-    const secondId = (await getStaffMember(second))!.userId;
-
-    // 甲（head）移除乙（second），交易還沒提交時，乙把自己的 Email 重新加成總管理員。
+  /**
+   * 甲在直接連線的交易裡做 first，還沒提交時送出乙（second），等乙卡在甲後面再讓甲提交，回傳乙的結果。
+   * 沒有排隊的話乙不會卡住，測試直接失敗。
+   */
+  async function whileUncommitted<T>(
+    first: (tx: TransactionSql) => Promise<unknown>,
+    second: () => PromiseLike<T>,
+  ): Promise<T> {
     const [a, watcher] = [databaseClient(), databaseClient()];
     let release!: () => void;
     const mayCommit = new Promise<void>((resolve) => (release = resolve));
-    let removed!: (pid: number) => void;
-    const firstRemoved = new Promise<number>((resolve) => (removed = resolve));
-    const removing = a.begin(async (tx) => {
-      await tx`set local role authenticated`;
-      await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: headId, role: "authenticated" })}, true)`;
-      await tx`select public.remove_staff_member(${secondId})`;
+    let started!: (pid: number) => void;
+    const firstStarted = new Promise<number>((resolve) => (started = resolve));
+    const firstDone = a.begin(async (tx) => {
+      await first(tx);
       const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
-      removed(pid);
+      started(pid);
       await mayCommit;
     });
     try {
-      const firstPid = await firstRemoved;
+      const firstPid = await firstStarted;
       // supabase-js 的請求要 then 才會送出，這裡立刻送。
-      const readding = second
-        .rpc("add_staff_member", { p_email: "second@example.com", p_role: "admin", p_venue_id: null, p_stake_id: null })
-        .then((result) => result);
-      // 等乙卡在甲後面（或已經做完）再讓甲提交。
+      const secondDone = Promise.resolve(second());
       for (let waited = 0; ; waited += 50) {
         const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
           select exists (
@@ -250,14 +247,75 @@ describe("工作人員帳號", () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
       release();
-      await removing;
-
-      expect((await readding).error?.message).toBe("not_admin");
-      expect(await getStaffMember(second)).toBeNull();
+      await firstDone;
+      return await secondDone;
     } finally {
       release();
-      await removing.catch(() => {});
+      await firstDone.catch(() => {});
       await Promise.all([a.end(), watcher.end()]);
     }
+  }
+
+  it("正在被移除的總管理員，不能趁移除還沒完成時把自己加回去", async () => {
+    await add(headAdmin, { email: "second@example.com", role: "admin", venueId: null, stakeId: null });
+    const second = await signedInClient("second@example.com");
+    const headId = (await getStaffMember(headAdmin))!.userId;
+    const secondId = (await getStaffMember(second))!.userId;
+
+    // 甲（head）移除乙（second），交易還沒提交時，乙把自己的 Email 重新加成總管理員。
+    const readding = await whileUncommitted(
+      async (tx) => {
+        await tx`set local role authenticated`;
+        await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: headId, role: "authenticated" })}, true)`;
+        await tx`select public.remove_staff_member(${secondId})`;
+      },
+      () =>
+        second.rpc("add_staff_member", {
+          p_email: "second@example.com",
+          p_role: "admin",
+          p_venue_id: null,
+          p_stake_id: null,
+        }),
+    );
+
+    expect(readding.error?.message).toBe("not_admin");
+    expect(await getStaffMember(second)).toBeNull();
+  });
+
+  it("登入帳號正在被軟刪除時，不能同時把她加成工作人員", async () => {
+    const pending = must(await admin.auth.admin.createUser({ email: "pending@example.com", email_confirm: true })).user;
+
+    // 和 Supabase 的軟刪除一樣：設定 deleted_at、改寫 Email。還沒提交時，總管理員新增她。
+    const adding = await whileUncommitted(
+      (tx) => tx`update auth.users set deleted_at = now(), email = ${`${pending.id}@deleted.invalid`}
+        where id = ${pending.id}`,
+      () =>
+        headAdmin.rpc("add_staff_member", {
+          p_email: "pending@example.com",
+          p_role: "admin",
+          p_venue_id: null,
+          p_stake_id: null,
+        }),
+    );
+
+    expect(adding.error?.message).toBe("account_missing");
+    expect((await listStaffMembers(headAdmin)).map((member) => member.email)).toEqual(["head@example.com"]);
+  });
+
+  it("新增工作人員還沒完成時，她的登入帳號不能同時被軟刪除", async () => {
+    const pending = must(await admin.auth.admin.createUser({ email: "pending@example.com", email_confirm: true })).user;
+    const headId = (await getStaffMember(headAdmin))!.userId;
+
+    const deleting = await whileUncommitted(
+      async (tx) => {
+        await tx`set local role authenticated`;
+        await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: headId, role: "authenticated" })}, true)`;
+        await tx`select public.add_staff_member('pending@example.com', 'admin', null, null)`;
+      },
+      () => admin.auth.admin.deleteUser(pending.id, true),
+    );
+
+    expect(deleting.error).not.toBeNull();
+    expect(await getStaffMember(await signedInClient("pending@example.com"))).toMatchObject({ role: "admin" });
   });
 });
