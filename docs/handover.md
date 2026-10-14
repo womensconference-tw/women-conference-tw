@@ -49,6 +49,16 @@
 bash scripts/setup-production.sh
 ```
 
+## 換網站網域時
+
+例如從 `women-conference-tw.vercel.app` 換成正式網域：
+
+- [ ] 在 Vercel 專案的 Settings → Domains 加上新網域
+- [ ] Supabase 後台 → Authentication → URL Configuration，把 **Site URL** 改成新網域（例如 `https://womensconference.tw`），按 Save changes。後台登入信的連結用這個網址，沒改的話工作人員點信裡的連結會回到舊網址
+- [ ] 用新網域到 `/staff/login` 寄一次登入信，確認信裡的連結是新網域、點了能登入
+
+登入信範本裡寫的是 `{{ .SiteURL }}`，不用改；程式也不用改。
+
 ## 出問題時
 
 - **查詢報名一直顯示「系統暫時出了問題」**：看 Vercel 的環境變數 `SUPABASE_SECRET_KEY` 還在不在、是不是 Supabase 後台現在的 Secret key（換過 key 要一起更新，再重新部署）。
