@@ -38,6 +38,7 @@
 
 - [ ] 用官方 GitHub 帳號登入 Vercel，確認專案與環境變數都在
 - [ ] 用官方 GitHub 帳號登入 Supabase，確認正式專案沒有暫停
+- [ ] 用官方 Gmail 到 `/staff/login` 收信登入後台，確認還是總管理員（她是最後一道保險：其他總管理員都聯絡不上時，靠她重新新增帳號）
 - [ ] 到 repo 的 Actions 分頁，確認「Keep Supabase awake」最近幾次都成功、而且沒有被停用
 - [ ] 下一任在 repo 頁面右上角點「Watch」→「All Activity」（或至少勾選 Issues），才收得到防暫停失敗時自動開的 issue
 

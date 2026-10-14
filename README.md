@@ -61,9 +61,10 @@ npm run db:reset
 
 ## 建立第一位總管理員
 
-自行註冊是關閉的，工作人員帳號只能由總管理員在後台「工作人員帳號」新增。第一位總管理員要直接在 Supabase 後台建立：
+自行註冊是關閉的，工作人員帳號只能由總管理員在後台「工作人員帳號」新增。第一位總管理員要直接在 Supabase 後台建立。正式環境的第一位總管理員是官方 Gmail `womensconferencetw@gmail.com`（2026-10-15 建立），換屆時跟著官方 Gmail 交接；萬一其他總管理員都聯絡不上，用官方 Gmail 登入後台就能重新新增帳號。
 
-1. Supabase 後台 → **Authentication** → **Users** → **Add user** → **Create new user**：填她的 Email，勾選 **Auto Confirm User**，密碼留空。
+1. Supabase 後台 → **Authentication** → **Users** → **Add user** → **Create new user**：填她的 Email，勾選 **Auto confirm user?**。
+   **User Password** 一定要填：亂打一串至少 30 個字的密碼，填完就丟掉，不用記也不用存。後台一律用 Email 收登入連結，用不到這個密碼；沒人知道它，就沒人能用它登入。
 2. **SQL Editor** 執行（把 Email 換成剛剛那個）：
 
    ```sql
