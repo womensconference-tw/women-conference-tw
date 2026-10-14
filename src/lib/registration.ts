@@ -156,7 +156,7 @@ const PHONE_PATTERN = /^\+?\d{8,15}$/;
 // 必須與資料庫 public.trim_blank 和 registrations 的限制用同一組，兩邊判斷才會一致。
 const BLANK = "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff";
 const EDGE_BLANKS = new RegExp(`^[${BLANK}]+|[${BLANK}]+$`, "g");
-const EMAIL_PATTERN = new RegExp(`^[^@${BLANK}]+@[^@${BLANK}]+\\.[^@${BLANK}]+$`);
+export const EMAIL_PATTERN = new RegExp(`^[^@${BLANK}]+@[^@${BLANK}]+\\.[^@${BLANK}]+$`);
 
 /** 去掉前後的空白字元（規則見 BLANK）。 */
 export function trimBlank(value: string): string {
