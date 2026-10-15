@@ -49,7 +49,9 @@ export async function listRegistrations(
   const phone = normalizePhone(text);
   if (/^\+?\d+$/.test(phone)) {
     // 只有數字和 +，放進 or 條件不會被當成語法。
-    request = request.or(`phone.like.*${phoneCore(phone)}*,registration_number.like.*${phone}*`);
+    request = request.or(
+      [`phone.like.*${phone}*`, ...taiwanPrefixSwap(phone), `registration_number.like.*${phone}*`].join(","),
+    );
   } else if (text) {
     request = request.ilike("name", `%${escapeLike(text)}%`);
   }
@@ -86,11 +88,13 @@ type RegistrationRow = {
 };
 
 /**
- * 台灣號碼存的可能是 09… 或 +8869…，搜尋時去掉開頭的 +886 或 0，兩種寫法都找得到。
- * 去掉後沒剩下數字（例如只輸入 0）就照原樣找。
+ * 台灣號碼存的可能是 09… 或 +8869…。輸入以 0 或 +886 開頭時，另外找以另一種寫法開頭的號碼。
+ * 只比對號碼開頭，不會找到其他國家（例如 +81 9…）或不含這段數字的號碼。
  */
-function phoneCore(phone: string): string {
-  return phone.replace(/^(\+886|0)/, "") || phone;
+function taiwanPrefixSwap(phone: string): string[] {
+  if (phone.startsWith("+886") && phone.length > 4) return [`phone.like.0${phone.slice(4)}*`];
+  if (phone.startsWith("0") && phone.length > 1) return [`phone.like.+886${phone.slice(1)}*`];
+  return [];
 }
 
 // 搜尋字裡的 %、_ 是一般文字，不是萬用字元。* 沒辦法跳脫（PostgREST 一律當成 %），

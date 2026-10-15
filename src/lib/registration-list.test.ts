@@ -297,6 +297,17 @@ describe("後台報名名單的內容與搜尋", () => {
 
     expect(await names(head, "+886 912 345 678")).toEqual(["王小美"]);
     expect(await names(head, "0922-333-444")).toEqual(["陳大明"]);
+    expect(await names(head, "0922")).toEqual(["陳大明"]);
+  });
+
+  it("09 與 +886 只在號碼開頭互換，不會找到其他國家或不含這段數字的號碼", async () => {
+    await seed({ name: "王小美", venue: "jinhua", stake: "taipei", phone: "0912345678" });
+    await seed({ name: "日本姐妹", venue: "jinhua", stake: "taipei", phone: "+81912345678" });
+    const head = await signedInClient("head@example.com");
+
+    expect(await names(head, "0912345678")).toEqual(["王小美"]);
+    expect(await names(head, "+886912345678")).toEqual(["王小美"]);
+    expect(await names(head, "01234567")).toEqual([]);
   });
 
   it("搜尋也只在自己的範圍裡找", async () => {
