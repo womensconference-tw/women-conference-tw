@@ -6,7 +6,7 @@ import { getCurrentStaff } from "../current-staff";
 
 export const metadata: Metadata = { title: "後台首頁" };
 
-/** 後台首頁：顯示目前登入的角色與負責範圍。報名名單、統計等功能之後加在這裡。 */
+/** 後台首頁：顯示目前登入的角色與負責範圍。統計等功能之後加在這裡。 */
 export default async function StaffHomePage() {
   const supabase = await createClient();
   const staff = await getCurrentStaff();

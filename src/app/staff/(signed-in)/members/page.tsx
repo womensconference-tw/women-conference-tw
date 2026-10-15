@@ -11,7 +11,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { getCurrentStaff } from "../../current-staff";
-import { alertClass, buttonClass, inputClass, noticeClass } from "../../ui";
+import { alertClass, buttonClass, formatTime, inputClass, noticeClass } from "../../ui";
 import { addMember, removeMember, updateMember } from "./actions";
 
 export const metadata: Metadata = { title: "工作人員帳號" };
@@ -189,12 +189,4 @@ function ScopeFields({ member, venues, stakes }: { member?: StaffListItem; venue
       </label>
     </div>
   );
-}
-
-function formatTime(iso: string) {
-  return new Intl.DateTimeFormat("zh-TW", {
-    timeZone: "Asia/Taipei",
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(iso));
 }

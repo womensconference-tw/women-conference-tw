@@ -45,7 +45,7 @@ export type RegistrationOptions = { venues: VenueOption[]; stakes: StakeOption[]
 
 /**
  * 讀取報名表的選項：目前年度的場地與各場地的場次、課程、午餐、午后動態（標出已額滿），
- * 以及啟用中的支聯會、支會（停用的由資料庫權限規則擋掉）。
+ * 以及啟用中的支聯會、支會。訪客讀不到停用的，但工作人員讀得到（後台名單要顯示），所以這裡自己篩。
  * 沒有任何啟用中支會的支聯會不列出，免得選了之後沒有支會可選。
  * 都依排序列出，排序相同時依 id，讓順序每次都一樣。
  */
@@ -73,6 +73,8 @@ export async function getRegistrationOptions(
     supabase
       .from("stakes")
       .select("id, name_zh, name_en, wards(id, name_zh, name_en)")
+      .eq("is_active", true)
+      .eq("wards.is_active", true)
       .order("position")
       .order("id")
       .order("position", { referencedTable: "wards" })
