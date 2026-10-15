@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { adminClient, anonClient, must } from "../../test/supabase";
+import { adminClient, anonClient, must, signedInClient } from "../../test/supabase";
 import { getRegistrationOptions, searchWards, type StakeOption } from "./registration-options";
 
 const admin = adminClient();
@@ -312,6 +312,33 @@ describe("報名表的選項", () => {
     expect(fixtureStakes(options.stakes)).toEqual([
       { name: "測試台北支聯會", wards: ["測試新店支會"] },
     ]);
+  });
+
+  // 工作人員讀得到停用的單位（後台名單要顯示舊報名的支聯會與支會），但登入著打開報名表時也不能列出來。
+  it("工作人員登入著打開報名表，也不會出現停用的支聯會、支會", async () => {
+    const active = await addStake({ position: 1, name_zh: "測試台北支聯會" });
+    const retired = await addStake({ position: 2, name_zh: "測試舊支聯會", is_active: false });
+    await addWard({ stake_id: active, position: 1, name_zh: "測試新店支會" });
+    await addWard({ stake_id: active, position: 2, name_zh: "測試舊支會", is_active: false });
+    await addWard({ stake_id: retired, position: 1, name_zh: "測試舊支聯會的支會" });
+    const userIds: string[] = [];
+    try {
+      for (const [email, scope] of [
+        ["head@example.com", { role: "admin" }],
+        ["taipei@example.com", { role: "stake_staff", stake_id: active }],
+      ] as const) {
+        const user = must(await admin.auth.admin.createUser({ email, email_confirm: true })).user;
+        userIds.push(user.id);
+        must(await admin.from("staff_members").insert({ user_id: user.id, ...scope }));
+
+        const options = await getRegistrationOptions(await signedInClient(email), "zh");
+
+        expect(fixtureStakes(options.stakes)).toEqual([{ name: "測試台北支聯會", wards: ["測試新店支會"] }]);
+      }
+    } finally {
+      must(await admin.from("staff_members").delete().in("user_id", userIds));
+      for (const id of userIds) must(await admin.auth.admin.deleteUser(id));
+    }
   });
 
   // 不經過支聯會，直接查支會資料表也一樣。
