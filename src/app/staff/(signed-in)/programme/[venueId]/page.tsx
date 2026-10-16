@@ -16,7 +16,8 @@ import { getCurrentStaff } from "../../../current-staff";
 import { ResultMessage } from "../../../result-message";
 import { buttonClass, inputClass } from "../../../ui";
 import { addProgrammeCoursePair, removeProgrammeCoursePair } from "../actions";
-import { capacityLabel, DeleteItem, DONE, ERRORS, ItemForm, NumberFields, RegionField, TextPair } from "../forms";
+import { capacityLabel, DeleteItem, DONE, ERRORS, ItemForm, NumberFields, RegionField } from "../forms";
+import { TextPair } from "../../../text-pair";
 import { SubmitButton } from "../../../submit-button";
 
 export const metadata: Metadata = { title: "編輯場地" };
