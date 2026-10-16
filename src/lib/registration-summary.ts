@@ -1,6 +1,5 @@
 import type { Messages } from "./i18n/messages";
 import { CHOIR_PARTS, SERVICES, type RegistrationInput } from "./registration";
-import type { RegistrationOptions } from "./registration-options";
 
 export type Details = Pick<
   RegistrationInput,
@@ -26,6 +25,18 @@ export type Details = Pick<
 
 export type SummaryRow = { label: string; value: string };
 
+type Named = { id: string; name: string };
+
+/** 列出報名資料需要的名稱。報名表的選項（RegistrationOptions）就有這些；確認信由資料庫給。 */
+export type SummaryOptions = {
+  venues: (Named & {
+    sessions: { name: string; courses: Named[] }[];
+    lunchOptions: Named[];
+    afternoonActivities: Named[];
+  })[];
+  stakes: (Named & { wards: Named[] })[];
+};
+
 /**
  * 報名資料清單的內容，依報名表的步驟排列：聯絡資料與場地、每個場次的課程、午餐與服務。
  * 確認步驟、完成頁、查詢頁與確認信共用，列出的內容才會一致。
@@ -34,7 +45,7 @@ export type SummaryRow = { label: string; value: string };
  */
 export function summarizeRegistration(
   registration: Details,
-  options: RegistrationOptions,
+  options: SummaryOptions,
   t: Messages,
   { done, registrationNumber }: { done: boolean; registrationNumber?: string | null },
 ): { rows: SummaryRow[]; courses: { session: string; course: string }[]; extraRows: SummaryRow[] } {

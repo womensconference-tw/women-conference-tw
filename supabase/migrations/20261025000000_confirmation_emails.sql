@@ -35,19 +35,26 @@ create table public.email_logs (
 );
 
 create index email_logs_registration_id on public.email_logs (registration_id, created_at);
+-- 取消信只寄一次：已取消的報名再按一次取消照樣成功，不能拿來一直寄信到她的信箱。
+-- 用唯一索引擋，同時開始的兩個寄信工作也只有一個寫得進紀錄。
+create unique index email_logs_one_cancellation on public.email_logs (registration_id) where kind = 'cancelled';
 
 alter table public.email_logs enable row level security;
 -- 只有網站伺服器透過下面的函式寫入。後台檢視在 #18 開放。
 revoke all on public.email_logs from anon, authenticated;
 
 /*
- * 開始寄一封確認信：記下一筆寄送中的寄信紀錄，回傳寫信需要的報名資料。
+ * 開始寄一封確認信：記下一筆寄送中的寄信紀錄，回傳寫信需要的報名資料，
+ * 連同她報名的場地、場次、課程、午餐、午后動態、支聯會、支會的中英文名稱
+ * （照報名所屬的年度讀，不是目前年度；已停用的支聯會、支會也有名稱）。
  * 以下情況不寄，回傳 {}：
  * - Email 是空的，或該年度已清除個資。
  * - 報名、修改的信輪到寄出時，這筆報名已經取消（例如報名後馬上取消）：不寄跟取消信矛盾的內容。
- * - 取消信已經寄過：已取消的報名再按一次取消照樣成功，不能拿來一直寄信到她的信箱。
- * 鎖住報名（for share）：和清除個資搶同一筆，清除先完成就讀到空的 Email；
- * 這裡先完成，清除會等這筆寄信紀錄寫入後再一起清掉。
+ * - 取消信已經寄過（email_logs_one_cancellation）。
+ *
+ * 先用獨立的一句鎖住報名（for share），下一句才讀資料：
+ * - 修改報名還沒提交時，這裡等它提交，之後讀到的報名與選課都是修改後的，不會一半新一半舊。
+ * - 和清除個資搶同一筆：清除先完成就讀到清除時間與空的 Email；這裡先完成，清除會等這筆寄信紀錄寫入後再一起清掉。
  */
 create function public.begin_confirmation_email(p_registration_id uuid, p_kind text)
 returns jsonb
@@ -59,6 +66,8 @@ declare
   v_found jsonb;
   v_log_id uuid;
 begin
+  perform 1 from public.registrations where id = p_registration_id for share;
+
   select
     jsonb_build_object(
       'id', r.id, 'name', r.name, 'phone', r.phone, 'registration_number', r.registration_number,
@@ -72,22 +81,51 @@ begin
       'choir_part', r.choir_part, 'services', r.services, 'printed_handbook', r.printed_handbook,
       'locale', r.locale,
       'stake_name_zh', s.name_zh, 'stake_name_en', s.name_en,
-      'ward_name_zh', w.name_zh, 'ward_name_en', w.name_en
+      'ward_name_zh', w.name_zh, 'ward_name_en', w.name_en,
+      'venue', jsonb_build_object(
+        'name_zh', v.name_zh, 'name_en', v.name_en,
+        -- 和報名表一樣，只列有開課的場次，依排序。
+        'sessions', coalesce((
+          select jsonb_agg(
+            jsonb_build_object(
+              'id', se.id, 'name_zh', se.name_zh, 'name_en', se.name_en,
+              'courses', (
+                select jsonb_agg(
+                  jsonb_build_object('id', co.id, 'title_zh', co.title_zh, 'title_en', co.title_en)
+                  order by co.position, co.id
+                )
+                from public.courses co where co.session_id = se.id
+              )
+            )
+            order by se.position, se.id
+          )
+          from public.sessions se
+          where se.venue_id = v.id and exists (select 1 from public.courses co where co.session_id = se.id)
+        ), '[]'),
+        'lunch_options', coalesce((
+          select jsonb_agg(
+            jsonb_build_object('id', l.id, 'name_zh', l.name_zh, 'name_en', l.name_en)
+            order by l.position, l.id
+          )
+          from public.lunch_options l where l.venue_id = v.id
+        ), '[]'),
+        'afternoon_activities', coalesce((
+          select jsonb_agg(
+            jsonb_build_object('id', a.id, 'title_zh', a.title_zh, 'title_en', a.title_en)
+            order by a.position, a.id
+          )
+          from public.afternoon_activities a where a.venue_id = v.id
+        ), '[]')
+      )
     )
   into v_found
   from public.registrations r
   join public.conferences c on c.id = r.conference_id
+  join public.venues v on v.id = r.venue_id
   join public.stakes s on s.id = r.stake_id
   join public.wards w on w.id = r.ward_id
   where r.id = p_registration_id and r.email is not null and c.personal_data_cleared_at is null
-    and (r.status = 'cancelled') = (p_kind = 'cancelled')
-    and not (
-      p_kind = 'cancelled'
-      and exists (
-        select 1 from public.email_logs l where l.registration_id = r.id and l.kind = 'cancelled'
-      )
-    )
-  for share of r;
+    and (r.status = 'cancelled') = (p_kind = 'cancelled');
 
   if v_found is null then
     return '{}';
@@ -95,8 +133,12 @@ begin
 
   insert into public.email_logs (registration_id, kind, recipient)
   values (p_registration_id, p_kind, v_found ->> 'email')
+  on conflict (registration_id) where kind = 'cancelled' do nothing
   returning id into v_log_id;
 
+  if v_log_id is null then
+    return '{}';
+  end if;
   return jsonb_build_object('log_id', v_log_id, 'registration', v_found);
 end;
 $$;

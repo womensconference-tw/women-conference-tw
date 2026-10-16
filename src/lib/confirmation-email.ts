@@ -2,8 +2,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseLocale, type Locale } from "./i18n/locale";
 import { localized } from "./i18n/localized";
 import { messages, type Messages } from "./i18n/messages";
-import { getRegistrationOptions } from "./registration-options";
-import { summarizeRegistration, type Details, type SummaryRow } from "./registration-summary";
+import {
+  summarizeRegistration,
+  type Details,
+  type SummaryOptions,
+  type SummaryRow,
+} from "./registration-summary";
 
 /*
  * 確認信：報名、修改、取消成功後，各寄一封到該筆報名的 Email（一位一封；Email 是空的就不寄）。
@@ -22,10 +26,17 @@ export type SendResult = { ok: true; id: string | null } | { ok: false; error: s
 /** 實際寄信的方式。正式環境用 Resend（createResendSender），測試換成不寄信的假的。 */
 export type SendEmail = (message: EmailMessage) => Promise<SendResult>;
 
+// 資料庫卡住時不能一直等：寄信的工作被平台停掉，寄信紀錄就會停在寄送中。
+const DATABASE_TIMEOUT_MS = 10_000;
+// 寫回寄送結果失敗時（例如資料庫暫時沒回應）再試幾次、每次等多久。只重試寫回，不重寄信。
+const FINISH_RETRY_DELAYS_MS = [500, 2_000];
+
 /**
  * 寄一封確認信，並記在寄信紀錄。不丟出例外：寄信失敗或出錯時記下失敗，報名照樣成功。
- * 回傳 skipped 表示不寄（Email 是空的、或該年度已清除個資）。
+ * 回傳 skipped 表示不寄（見 begin_confirmation_email）。
  * siteUrl 有值時，信裡附上「查詢我的報名」的連結。
+ * 伺服器日誌只記寄信紀錄的編號，不記錯誤內容：錯誤可能含收件地址或姓名，清除個資時清不到日誌。
+ * 錯誤內容只寫進寄信紀錄，由 finish_email_log 依清除個資的狀態決定要不要留。
  */
 export async function sendConfirmationEmail(
   supabase: SupabaseClient,
@@ -37,10 +48,9 @@ export async function sendConfirmationEmail(
   let logId: string | undefined;
   let result: SendResult;
   try {
-    const begun = await supabase.rpc("begin_confirmation_email", {
-      p_registration_id: registrationId,
-      p_kind: kind,
-    });
+    const begun = await supabase
+      .rpc("begin_confirmation_email", { p_registration_id: registrationId, p_kind: kind })
+      .abortSignal(AbortSignal.timeout(DATABASE_TIMEOUT_MS));
     if (begun.error) throw begun.error;
     const { log_id, registration } = begun.data as { log_id?: string; registration?: EmailRow };
     if (!log_id || !registration) return "skipped";
@@ -50,7 +60,7 @@ export async function sendConfirmationEmail(
     const t = messages[locale];
     const details = detailsOf(registration, locale);
     const registrationNumber = registration.registration_number;
-    const summary = summarizeRegistration(details, await getRegistrationOptions(supabase, locale), t, {
+    const summary = summarizeRegistration(details, optionsOf(registration, locale), t, {
       done: true,
       registrationNumber,
     });
@@ -59,21 +69,36 @@ export async function sendConfirmationEmail(
     result = await send({ to: registration.email, ...content });
   } catch (error) {
     if (!logId) {
-      console.error("confirmation email failed before sending", error);
+      // 還沒開始寄信、也沒有寄信紀錄：這裡的錯誤來自資料庫，不含信件內容。
+      console.error("confirmation email not started", { registrationId, kind, error });
       return "failed";
     }
     result = { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 
-  const finished = await supabase.rpc("finish_email_log", {
-    p_log_id: logId,
-    p_sent: result.ok,
-    p_error: result.ok ? null : result.error,
-    p_provider_message_id: result.ok ? result.id : null,
-  });
-  if (finished.error) console.error("finish_email_log failed", finished.error);
-  if (!result.ok) console.error("confirmation email failed", { logId, error: result.error });
+  if (!(await finishEmailLog(supabase, logId, result))) {
+    // 寄信紀錄會停在寄送中；這時看 Resend 後台的紀錄才知道有沒有寄出。
+    console.error("finish_email_log failed", { logId, sent: result.ok });
+  }
+  if (!result.ok) console.error("confirmation email failed", { logId });
   return result.ok ? "sent" : "failed";
+}
+
+/** 寫回寄送結果，失敗時有限次重試。重複寫回不會蓋掉第一次的結果（見 finish_email_log）。 */
+async function finishEmailLog(supabase: SupabaseClient, logId: string, result: SendResult): Promise<boolean> {
+  for (let attempt = 0; ; attempt++) {
+    const { error } = await supabase
+      .rpc("finish_email_log", {
+        p_log_id: logId,
+        p_sent: result.ok,
+        p_error: result.ok ? null : result.error,
+        p_provider_message_id: result.ok ? result.id : null,
+      })
+      .abortSignal(AbortSignal.timeout(DATABASE_TIMEOUT_MS));
+    if (!error) return true;
+    if (attempt >= FINISH_RETRY_DELAYS_MS.length) return false;
+    await new Promise((resolve) => setTimeout(resolve, FINISH_RETRY_DELAYS_MS[attempt]));
+  }
 }
 
 /** 確認信的主旨與內容（HTML 與純文字兩個版本）。報名編號放在最前面，和完成頁一樣。 */
@@ -159,7 +184,42 @@ type EmailRow = {
   stake_name_en: string;
   ward_name_zh: string;
   ward_name_en: string;
+  venue: {
+    name_zh: string;
+    name_en: string;
+    sessions: {
+      id: string;
+      name_zh: string;
+      name_en: string;
+      courses: { id: string; title_zh: string; title_en: string }[];
+    }[];
+    lunch_options: { id: string; name_zh: string; name_en: string }[];
+    afternoon_activities: { id: string; title_zh: string; title_en: string }[];
+  };
 };
+
+/** 她報名的場地的名稱，依語言挑好。支聯會、支會的名稱放在 Details 裡（detailsOf），這裡不用。 */
+function optionsOf(row: EmailRow, locale: Locale): SummaryOptions {
+  const { venue } = row;
+  return {
+    venues: [
+      {
+        id: row.venue_id,
+        name: localized(venue, "name", locale),
+        sessions: venue.sessions.map((session) => ({
+          name: localized(session, "name", locale),
+          courses: session.courses.map((course) => ({ id: course.id, name: localized(course, "title", locale) })),
+        })),
+        lunchOptions: venue.lunch_options.map((lunch) => ({ id: lunch.id, name: localized(lunch, "name", locale) })),
+        afternoonActivities: venue.afternoon_activities.map((activity) => ({
+          id: activity.id,
+          name: localized(activity, "title", locale),
+        })),
+      },
+    ],
+    stakes: [],
+  };
+}
 
 function detailsOf(row: EmailRow, locale: Locale): Details {
   return {

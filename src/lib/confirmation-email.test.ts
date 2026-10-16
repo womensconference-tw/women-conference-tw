@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { adminClient, anonClient, must, serverClient } from "../../test/supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { TransactionSql } from "postgres";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { adminClient, anonClient, databaseClient, must, serverClient } from "../../test/supabase";
 import {
   createResendSender,
   sendConfirmationEmail,
@@ -17,9 +19,11 @@ let conferenceId: string | undefined;
 let stakeId: string | undefined;
 let venueId: string;
 let wardId: string;
+let sessionId: string;
 let courseId: string;
+let otherCourseId: string;
 
-// 每個測試都有一個報名中的 2099 年度大會：一個場地、一個場次一門課、一個支聯會一個支會。
+// 每個測試都有一個報名中的 2099 年度大會：一個場地、一個場次兩門課、一個支聯會一個支會。
 beforeEach(async () => {
   const current = must(await admin.from("conferences").select("id").eq("is_current", true));
   previousCurrentIds = current.map((row) => row.id);
@@ -47,7 +51,7 @@ beforeEach(async () => {
       .select("id")
       .single(),
   ).id;
-  const sessionId = must(
+  sessionId = must(
     await admin
       .from("sessions")
       .insert({ conference_id: conferenceId, venue_id: venueId, position: 1, name_zh: "第一場 10:00", name_en: "Session 1, 10:00" })
@@ -57,7 +61,14 @@ beforeEach(async () => {
   courseId = must(
     await admin
       .from("courses")
-      .insert({ conference_id: conferenceId, session_id: sessionId, title_zh: "家譜入門", title_en: "Family history basics" })
+      .insert({ conference_id: conferenceId, session_id: sessionId, position: 1, title_zh: "家譜入門", title_en: "Family history basics" })
+      .select("id")
+      .single(),
+  ).id;
+  otherCourseId = must(
+    await admin
+      .from("courses")
+      .insert({ conference_id: conferenceId, session_id: sessionId, position: 2, title_zh: "插花", title_en: "Flower arranging" })
       .select("id")
       .single(),
   ).id;
@@ -289,12 +300,54 @@ describe("寄確認信", () => {
       );
       return { ok: false, error: `invalid recipient ${message.to} (王小美)` };
     };
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await sendConfirmationEmail(serverClient(), registration.id, "registered", send);
+    try {
+      await sendConfirmationEmail(serverClient(), registration.id, "registered", send);
 
+      // 伺服器日誌清除個資時清不到，所以也不能有收件地址或姓名。
+      const logged = JSON.stringify(consoleError.mock.calls);
+      expect(logged).not.toContain("xiaomei@example.com");
+      expect(logged).not.toContain("王小美");
+    } finally {
+      consoleError.mockRestore();
+    }
     const [log] = await emailLogs(registration.id);
     expect(log).toMatchObject({ status: "failed", error: null, recipient: null });
     expect(log.finished_at).not.toBeNull();
+  });
+
+  it("寫回寄送結果暫時失敗時重試，不重寄信", async () => {
+    const registration = await registered();
+    const server = serverClient();
+    let finishCalls = 0;
+    // 第一次寫回時資料庫暫時沒回應，之後正常。
+    const flaky = {
+      rpc: (name: string, args: object) => {
+        if (name === "finish_email_log" && finishCalls++ === 0) {
+          return { abortSignal: async () => ({ data: null, error: { message: "503 Service Unavailable" } }) };
+        }
+        return server.rpc(name, args);
+      },
+    } as unknown as SupabaseClient;
+    const { sent, send } = fakeSender();
+
+    expect(await sendConfirmationEmail(flaky, registration.id, "registered", send)).toBe("sent");
+
+    expect(sent).toHaveLength(1);
+    expect(finishCalls).toBe(2);
+    expect(await emailLogs(registration.id)).toMatchObject([{ status: "sent" }]);
+  });
+
+  it("寄信時已經不是目前年度，信裡仍有她報名的場地與課程", async () => {
+    const registration = await registered();
+    must(await admin.from("conferences").update({ is_current: false }).eq("id", conferenceId!));
+    const { sent, send } = fakeSender();
+
+    await sendConfirmationEmail(serverClient(), registration.id, "registered", send);
+
+    expect(sent[0].html).toContain("台北金華教堂");
+    expect(sent[0].html).toContain("家譜入門");
   });
 
   it("已清除個資的年度不再寄信", async () => {
@@ -322,6 +375,152 @@ describe("寄確認信", () => {
 
     expect(sent[0].html).not.toContain('<a href="https://evil.example">');
     expect(sent[0].html).toContain("&lt;a href=&quot;https://evil.example&quot;&gt;");
+  });
+});
+
+/**
+ * 用另一條資料庫連線開一個交易，做完 hold 後先不提交；接著執行 run，
+ * 等到 run 呼叫的資料庫函式（functionName）確實被這個交易擋住，才提交交易，回傳 run 的結果。
+ */
+async function whileHolding<T>(
+  hold: (tx: TransactionSql) => Promise<unknown>,
+  run: () => Promise<T>,
+  functionName: string,
+): Promise<T> {
+  const sql = databaseClient();
+  const watcher = databaseClient();
+  let release!: () => void;
+  const mayCommit = new Promise<void>((resolve) => (release = resolve));
+  let held!: (pid: number) => void;
+  const holding = new Promise<number>((resolve) => (held = resolve));
+  const transaction = sql.begin(async (tx) => {
+    const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+    await hold(tx);
+    held(pid);
+    await mayCommit;
+  });
+  try {
+    const holderPid = await Promise.race([
+      holding,
+      transaction.then(() => {
+        throw new Error("交易結束了卻沒有進入等待狀態");
+      }),
+    ]);
+    const running = run();
+    for (let waited = 0; ; waited += 50) {
+      const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
+        select exists (
+          select 1 from pg_stat_activity
+          where ${holderPid}::int = any(pg_blocking_pids(pid)) and query like ${`%${functionName}%`}
+        ) as blocked`;
+      if (blocked) break;
+      if (waited > 3000) throw new Error(`${functionName} 沒有等那個交易的鎖：可能沒有上鎖`);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    release();
+    await transaction;
+    return await running;
+  } finally {
+    release();
+    await transaction.catch(() => {});
+    await Promise.all([sql.end(), watcher.end()]);
+  }
+}
+
+describe("同時進行的修改、取消與清除個資", () => {
+  it("修改還沒提交時開始寄信，信裡是修改後的資料與課程，不會一半新一半舊", async () => {
+    const registration = await registered();
+    const { sent, send } = fakeSender();
+
+    await whileHolding(
+      async (tx) => {
+        await tx`update public.registrations set line_id = 'new-line-id' where id = ${registration.id}`;
+        await tx`delete from public.registration_courses where registration_id = ${registration.id}`;
+        await tx`
+          insert into public.registration_courses (registration_id, venue_id, session_id, course_id)
+          values (${registration.id}, ${venueId}, ${sessionId}, ${otherCourseId})`;
+      },
+      () => sendConfirmationEmail(serverClient(), registration.id, "updated", send),
+      "begin_confirmation_email",
+    );
+
+    expect(sent[0].html).toContain("new-line-id");
+    expect(sent[0].html).toContain("插花");
+    expect(sent[0].html).not.toContain("家譜入門");
+  });
+
+  it("同一筆的取消信同時開始寄兩次，只寄一封", async () => {
+    const registration = await registered();
+    must(
+      await admin
+        .from("registrations")
+        .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+        .eq("id", registration.id),
+    );
+    const { sent, send } = fakeSender();
+
+    // 另一個寄取消信的工作已經寫下紀錄、還沒提交。
+    const result = await whileHolding(
+      (tx) => tx`
+        insert into public.email_logs (registration_id, kind, recipient)
+        values (${registration.id}, 'cancelled', 'xiaomei@example.com')`,
+      () => sendConfirmationEmail(serverClient(), registration.id, "cancelled", send),
+      "begin_confirmation_email",
+    );
+
+    expect(result).toBe("skipped");
+    expect(sent).toEqual([]);
+    expect(await emailLogs(registration.id)).toHaveLength(1);
+  });
+
+  // 清除個資（#26）在同一個交易裡清掉報名的 Email、寄信紀錄的收件地址，並記下清除時間。
+  function clearPersonalData(registrationId: string) {
+    return async (tx: TransactionSql) => {
+      await tx`update public.registrations set email = null where id = ${registrationId}`;
+      await tx`update public.email_logs set recipient = null, error = null where registration_id = ${registrationId}`;
+      await tx`update public.conferences set personal_data_cleared_at = now() where id = ${conferenceId!}`;
+    };
+  }
+
+  it("清除個資先拿到鎖時，開始寄信等它完成，之後就不寄", async () => {
+    const registration = await registered();
+    const { sent, send } = fakeSender();
+
+    const result = await whileHolding(
+      clearPersonalData(registration.id),
+      () => sendConfirmationEmail(serverClient(), registration.id, "registered", send),
+      "begin_confirmation_email",
+    );
+
+    expect(result).toBe("skipped");
+    expect(sent).toEqual([]);
+    expect(await emailLogs(registration.id)).toEqual([]);
+  });
+
+  it("寄信已開始、清除個資先拿到寄信紀錄的鎖時，寫回結果等它完成，只記下寄送結果", async () => {
+    const registration = await registered();
+    const begun = must(
+      await serverClient().rpc("begin_confirmation_email", {
+        p_registration_id: registration.id,
+        p_kind: "registered",
+      }),
+    ) as { log_id: string };
+
+    await whileHolding(
+      clearPersonalData(registration.id),
+      async () =>
+        must(
+          await serverClient().rpc("finish_email_log", {
+            p_log_id: begun.log_id,
+            p_sent: false,
+            p_error: "invalid recipient xiaomei@example.com",
+            p_provider_message_id: null,
+          }),
+        ),
+      "finish_email_log",
+    );
+
+    expect(await emailLogs(registration.id)).toMatchObject([{ status: "failed", error: null, recipient: null }]);
   });
 });
 
