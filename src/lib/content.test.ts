@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { TransactionSql } from "postgres";
 import { adminClient, anonClient, databaseClient, must, signedInClient } from "../../test/supabase";
 import { getCurrentConference } from "./conference";
 import {
@@ -113,6 +114,44 @@ async function savedItem(input: Omit<HomeItemInput, "conferenceId">) {
 
 async function blockTitles() {
   return (await getHomeContent(anonClient(), "zh"))!.customBlocks.map((block) => block.title);
+}
+
+type Database = ReturnType<typeof databaseClient>;
+
+/** 開一個交易做完 `work` 後先不提交，等 release() 才提交。失敗時 release() 也要呼叫，交易才會結束、放開鎖。 */
+function holdOpen(client: Database, work: (tx: TransactionSql) => Promise<unknown>) {
+  let release!: () => void;
+  const mayCommit = new Promise<void>((resolve) => (release = resolve));
+  let started!: (pid: number) => void;
+  let failed!: (error: unknown) => void;
+  const pid = new Promise<number>((resolve, reject) => ((started = resolve), (failed = reject)));
+  const done = client.begin(async (tx) => {
+    await work(tx);
+    const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+    started(pid);
+    await mayCommit;
+  });
+  // 交易還沒拿到 pid 就失敗時，等 pid 的人也要知道。
+  done.catch(failed);
+  return { pid, release, done };
+}
+
+/** 正在等 `pid` 放開鎖的連線。 */
+async function waitingFor(watcher: Database, pid: number): Promise<number[]> {
+  const rows = await watcher<{ pid: number }[]>`
+    select pid from pg_stat_activity where ${pid}::int = any(pg_blocking_pids(pid))`;
+  return rows.map((row) => row.pid);
+}
+
+async function blockedBy(watcher: Database, pid: number): Promise<number> {
+  return (await waitingFor(watcher, pid)).length;
+}
+
+async function waitUntil(message: string, condition: () => Promise<boolean>) {
+  for (let waited = 0; !(await condition()); waited += 50) {
+    if (waited > 10_000) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 describe("台灣時間", () => {
@@ -238,19 +277,10 @@ describe("總管理員編輯年度內容", () => {
   it("確認是目前年度之後、寫入之前年度被換掉，也不會改到舊年度", async () => {
     const block = await savedItem({ kind: "block", titleZh: "舊年度的" });
     const [switcher, watcher] = [databaseClient(), databaseClient()];
+    // 另一位總管理員正在換目前年度，還沒提交。
+    const switching = holdOpen(switcher, (tx) => tx`update public.conferences set is_current = false where id = ${conferenceId!}`);
     try {
-      // 另一位總管理員正在換目前年度，還沒提交。
-      let commit!: () => void;
-      const mayCommit = new Promise<void>((resolve) => (commit = resolve));
-      let started!: (pid: number) => void;
-      const switcherPid = new Promise<number>((resolve) => (started = resolve));
-      const switched = switcher.begin(async (tx) => {
-        await tx`update public.conferences set is_current = false where id = ${conferenceId!}`;
-        const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
-        started(pid);
-        await mayCommit;
-      });
-      const pid = await switcherPid;
+      const pid = await switching.pid;
 
       // 這時候讀到的還是目前年度；寫入要等換年度做完。
       const results = Promise.all([
@@ -259,22 +289,48 @@ describe("總管理員編輯年度內容", () => {
         moveHomeItem(headAdmin, "block", block, "up"),
         deleteHomeItem(headAdmin, "block", block),
       ]);
-      for (let waited = 0; ; waited += 50) {
-        const [{ blocked }] = await watcher<{ blocked: number }[]>`
-          select count(*)::int as blocked from pg_stat_activity where ${pid}::int = any(pg_blocking_pids(pid))`;
-        if (blocked === 4) break;
-        if (waited > 10_000) throw new Error("儲存沒有排在換年度後面");
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      commit();
-      await switched;
+      await waitUntil("儲存沒有排在換年度後面", async () => (await blockedBy(watcher, pid)) === 4);
+      switching.release();
+      await switching.done;
 
       expect(await results).toEqual(Array(4).fill({ ok: false, error: "not_found" }));
       expect(must(await admin.from("custom_blocks").select("title_zh").eq("conference_id", conferenceId!))).toEqual([
         { title_zh: "舊年度的" },
       ]);
     } finally {
+      switching.release();
+      await switching.done.catch(() => {});
       await Promise.all([switcher.end(), watcher.end()]);
+    }
+  });
+
+  it("已經確認是目前年度、正在寫入時，換年度要等寫完", async () => {
+    const block = await savedItem({ kind: "block", titleZh: "原本的" });
+    const [holder, switcher, watcher] = [databaseClient(), databaseClient(), databaseClient()];
+    // 先鎖住這個區塊，讓儲存拿到年度的鎖之後，卡在寫入這一步。
+    const holding = holdOpen(holder, (tx) => tx`select 1 from public.custom_blocks where id = ${block} for update`);
+    let switchDone: Promise<unknown> = Promise.resolve();
+    try {
+      const holderPid = await holding.pid;
+      const saving = saveItem({ kind: "block", id: block, titleZh: "改了" });
+      let savePid: number | undefined;
+      await waitUntil("儲存沒有卡在寫入", async () => {
+        [savePid] = await waitingFor(watcher, holderPid);
+        return savePid !== undefined;
+      });
+
+      // 這時候才開始換年度：儲存拿著年度的鎖，換年度要排在它後面。
+      switchDone = switcher.begin((tx) => tx`update public.conferences set is_current = false where id = ${conferenceId!}`);
+      await waitUntil("換年度沒有等儲存", async () => (await blockedBy(watcher, savePid!)) === 1);
+      holding.release();
+
+      expect(await saving).toEqual({ ok: true, id: block });
+      await switchDone;
+      expect(must(await admin.from("custom_blocks").select("title_zh").eq("id", block).single()).title_zh).toBe("改了");
+    } finally {
+      holding.release();
+      await Promise.all([holding.done.catch(() => {}), switchDone.catch(() => {})]);
+      await Promise.all([holder.end(), switcher.end(), watcher.end()]);
     }
   });
 

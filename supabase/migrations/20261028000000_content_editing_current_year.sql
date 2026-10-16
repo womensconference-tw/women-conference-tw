@@ -190,6 +190,21 @@ $$;
  * 原本的 [[:space:]] 依資料庫語系而定，和 JavaScript 不一致時，既有的區塊會因為沒改的網址存不了。
  */
 alter table public.custom_blocks drop constraint custom_blocks_button_url_safe;
+-- 既有網址裡有這些字元的（舊規則可能接受，例如 U+FEFF），先換成百分比編碼（U+FEFF → %EF%BB%BF），
+-- 連結指到的地方不變，新規則才加得上去。
+update public.custom_blocks
+set button_url = (
+  select string_agg(
+    case
+      when ch ~ '[\u0001- \u007f-   -     　﻿]'
+        then regexp_replace(upper(encode(convert_to(ch, 'UTF8'), 'hex')), '(..)', '%\1', 'g')
+      else ch
+    end,
+    '' order by n
+  )
+  from regexp_split_to_table(button_url, '') with ordinality as chars(ch, n)
+)
+where button_url ~ '[\u0001- \u007f-   -     　﻿]';
 alter table public.custom_blocks add constraint custom_blocks_button_url_safe check (
   button_url is null
   or (
