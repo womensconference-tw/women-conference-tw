@@ -1,7 +1,7 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { cn } from "@/lib/utils";
 
@@ -26,21 +26,28 @@ export function SubmitButton({
   const { pending: actionPending } = useFormStatus();
   const [navigating, setNavigating] = useState(false);
   const pending = actionPending || navigating;
+  const ref = useRef<HTMLButtonElement>(null);
 
+  // 等表單真的送出（submit 事件）才停用。在按下時就停用的話，React 會在瀏覽器送出前先更新畫面，
+  // 停用的按鈕就送不出表單了。欄位沒填好時瀏覽器不會觸發 submit，也就不會卡在處理中。
   useEffect(() => {
+    const form = ref.current?.form;
+    if (!navigates || !form) return;
+    const start = () => setNavigating(true);
     const reset = () => setNavigating(false);
+    form.addEventListener("submit", start);
     window.addEventListener("pageshow", reset);
-    return () => window.removeEventListener("pageshow", reset);
-  }, []);
+    return () => {
+      form.removeEventListener("submit", start);
+      window.removeEventListener("pageshow", reset);
+    };
+  }, [navigates]);
 
   return (
     <button
+      ref={ref}
       disabled={pending}
       aria-busy={pending}
-      onClick={(event) => {
-        // 欄位沒填好時瀏覽器不會送出，也不記。
-        if (navigates && event.currentTarget.form?.checkValidity()) setNavigating(true);
-      }}
       className={cn(className, "inline-flex items-center gap-2 disabled:cursor-wait")}
     >
       {pending && <LoaderCircle aria-hidden className="size-4 animate-spin" />}

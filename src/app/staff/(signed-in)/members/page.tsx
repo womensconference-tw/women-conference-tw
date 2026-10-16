@@ -127,7 +127,8 @@ function NameField({ name }: { name?: string | null }) {
       <span className="font-semibold">
         名字<span className="text-destructive">＊</span>
       </span>
-      <input name="name" defaultValue={name ?? ""} required maxLength={50} autoComplete="off" className={inputClass} />
+      {/* 不用 maxLength：瀏覽器會把「𠮷」這類字算成兩個，和資料庫的算法不同。超過 50 個字由伺服器擋下並說明。 */}
+      <input name="name" defaultValue={name ?? ""} required autoComplete="off" className={inputClass} />
     </label>
   );
 }

@@ -99,9 +99,16 @@ describe("工作人員帳號", () => {
     expect((await listStaffMembers(headAdmin)).find((member) => member.userId === userId)?.name).toBe("林春妙");
   });
 
+  it("名字的 50 個字按字算，「𠮷」這類字也只算一個", async () => {
+    const name = `${"林".repeat(49)}𠮷`;
+    expect(await add(headAdmin, { email: "long@example.com", name, role: "admin", region: null })).toEqual({ ok: true });
+    expect((await listStaffMembers(headAdmin)).find((member) => member.email === "long@example.com")?.name).toBe(name);
+  });
+
   it.each([
     ["空白", "  "],
     ["超過 50 個字", "林".repeat(51)],
+    ["超過 50 個字（含「𠮷」）", `${"林".repeat(50)}𠮷`],
   ])("名字%s時不能新增或修改", async (_, name) => {
     expect(await add(headAdmin, { email: "noname@example.com", name, role: "admin", region: null })).toEqual({
       ok: false,

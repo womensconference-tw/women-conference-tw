@@ -177,7 +177,8 @@ export async function addStaffMember(
 // 與資料庫 clean_staff_name 同一套規則：去掉前後空白後不能是空的，最多 50 個字。
 function nameValid(name: string): boolean {
   const trimmed = trimBlank(name);
-  return trimmed !== "" && trimmed.length <= NAME_MAX_LENGTH;
+  // 和資料庫的 char_length 一樣按字（碼點）算；.length 會把「𠮷」這類字算成兩個。
+  return trimmed !== "" && [...trimmed].length <= NAME_MAX_LENGTH;
 }
 
 // 與資料庫 check_staff_scope 同一套規則：總管理員不分區，課務組一定要有一區，報報組一區或全區。
