@@ -1,7 +1,8 @@
-import { alertClass, noticeClass } from "./ui";
+import { Suspense } from "react";
+import { ResultDialog } from "./result-dialog";
 
 /**
- * 上一個動作的結果，放在頁面最上面。動作做完導向 `?done=<代碼>` 或 `?error=<代碼>`，這裡換成訊息。
+ * 上一個動作的結果，用跳出的視窗顯示（ResultDialog）。動作做完導向 `?done=<代碼>` 或 `?error=<代碼>`，這裡換成訊息。
  * 只認得自己列出的代碼（用 Object.hasOwn，`?error=__proto__` 之類的不會被當成訊息）。
  */
 export async function ResultMessage({
@@ -18,18 +19,17 @@ export async function ResultMessage({
     typeof code === "string" && Object.hasOwn(messages, code) ? messages[code] : undefined;
   const doneMessage = message(done, params.done);
   const errorMessage = message(errors, params.error);
+  // 錯誤優先：同時有兩個代碼時（網址被改過），不要讓「完成」蓋過錯誤。
+  const result = errorMessage
+    ? ({ kind: "error", message: errorMessage } as const)
+    : doneMessage
+      ? ({ kind: "done", message: doneMessage } as const)
+      : null;
+  if (!result) return null;
+  // ResultDialog 讀網址參數（useSearchParams），要包在 Suspense 裡。
   return (
-    <>
-      {doneMessage && (
-        <p role="status" className={noticeClass}>
-          {doneMessage}
-        </p>
-      )}
-      {errorMessage && (
-        <p role="alert" className={alertClass}>
-          {errorMessage}
-        </p>
-      )}
-    </>
+    <Suspense>
+      <ResultDialog key={`${result.kind}:${result.message}`} {...result} />
+    </Suspense>
   );
 }
