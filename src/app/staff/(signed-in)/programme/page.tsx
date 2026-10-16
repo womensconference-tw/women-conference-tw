@@ -6,7 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStaff } from "../../current-staff";
 import { ResultMessage } from "../../result-message";
 import { REGION_LABELS } from "@/lib/staff";
-import { DONE, ERRORS, ItemForm, NumberFields, RegionField, TextPair } from "./forms";
+import { DONE, ERRORS, ItemForm, NumberFields, RegionField } from "./forms";
+import { TextPair } from "../../text-pair";
 
 export const metadata: Metadata = { title: "場地與課程" };
 

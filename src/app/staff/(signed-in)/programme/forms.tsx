@@ -64,39 +64,6 @@ export function ItemForm({
   );
 }
 
-/** 中英兩欄。英文沒填時前台顯示中文。 */
-export function TextPair({
-  name,
-  label,
-  zh = "",
-  en = "",
-  required = false,
-  multiline = false,
-}: {
-  name: string;
-  label: string;
-  zh?: string;
-  en?: string;
-  required?: boolean;
-  multiline?: boolean;
-}) {
-  const Input = multiline ? "textarea" : "input";
-  return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <label className="flex flex-col gap-1">
-        <span className="font-semibold">
-          {label}（中文）{required && <span className="text-destructive">＊</span>}
-        </span>
-        <Input name={`${name}Zh`} defaultValue={zh} required={required} className={inputClass} />
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="font-semibold">{label}（英文）</span>
-        <Input name={`${name}En`} defaultValue={en} className={inputClass} />
-      </label>
-    </div>
-  );
-}
-
 /** 場地所在的區。課務組、報報組依這個看得到報名這個場地的人。 */
 export function RegionField({ region }: { region?: Region }) {
   return (
