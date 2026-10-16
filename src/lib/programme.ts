@@ -226,6 +226,7 @@ function failure(error: PostgrestError): { ok: false; error: ProgrammeError } {
     // 還有教堂承辦負責這個場地，要先改她的負責範圍。
     case error.code === "23503" && /staff_members/.test(error.message):
       return { ok: false, error: "venue_has_staff" };
+    case error.message === "not_admin":
     case error.code === "42501":
       return { ok: false, error: "not_admin" };
   }

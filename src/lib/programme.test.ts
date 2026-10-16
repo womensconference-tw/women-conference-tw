@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { adminClient, anonClient, must, signedInClient } from "../../test/supabase";
+import { adminClient, anonClient, databaseClient, must, signedInClient } from "../../test/supabase";
 import {
   addCoursePair,
   deleteItem,
@@ -419,6 +419,18 @@ describe("成對課程", () => {
     });
   });
 
+  it("不能把別的場地的場次搬進成對的兩個場次中間", async () => {
+    const { venue, upper, lower } = await twoSessions();
+    expect(await addCoursePair(headAdmin, conferenceId!, upper, lower)).toEqual({ ok: true });
+    const other = await saved({ kind: "venue", nameZh: "台中大雅教堂" });
+    const between = await saved({ kind: "session", parentId: other, nameZh: "大雅的場次", position: "15" });
+    await saved({ kind: "course", parentId: between, nameZh: "插花" });
+
+    const { error } = await headAdmin.from("sessions").update({ venue_id: venue }).eq("id", between);
+
+    expect(error?.message).toBe("course_pair_invalid");
+  });
+
   it("報名開放後不能新增或拆開", async () => {
     const { upper, other, lower, spare } = await twoSessions();
     expect(await addCoursePair(headAdmin, conferenceId!, upper, lower)).toEqual({ ok: true });
@@ -433,6 +445,41 @@ describe("成對課程", () => {
 });
 
 describe("教室只有後台看得到", () => {
+  // 等課程的列鎖時被移出工作人員名單：權限規則讓教室刪不到也不出錯，不能只存了課程就回報成功。
+  it("存課程途中失去總管理員身分時，課程與教室都不存", async () => {
+    const { course } = await venueWithCourse();
+    await saved({ kind: "course", id: course, nameZh: "家譜入門", classroom: "禮拜堂" });
+    const { data } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    const headId = data.users.find((user) => user.email === "head@example.com")!.id;
+    const sql = databaseClient();
+    const watcher = databaseClient();
+    try {
+      let saving!: ReturnType<typeof save>;
+      await sql.begin(async (tx) => {
+        await tx`select 1 from public.courses where id = ${course} for update`;
+        saving = save({ kind: "course", id: course, nameZh: "改過的課名", classroom: "" });
+        for (let waited = 0; ; waited += 50) {
+          const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
+            select exists (
+              select 1 from pg_stat_activity where wait_event_type = 'Lock' and query ~ 'save_course'
+            ) as blocked`;
+          if (blocked) break;
+          if (waited > 3000) throw new Error("save_course 沒有等課程的列鎖");
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        await tx`delete from public.staff_members where user_id = ${headId}`;
+      });
+
+      expect(await saving).toEqual({ ok: false, error: "not_admin" });
+    } finally {
+      await Promise.all([sql.end(), watcher.end()]);
+    }
+    expect(must(await admin.from("courses").select("title_zh").eq("id", course).single()).title_zh).toBe("家譜入門");
+    expect(must(await admin.from("course_classrooms").select("classroom").eq("course_id", course))).toEqual([
+      { classroom: "禮拜堂" },
+    ]);
+  });
+
   it("課程與教室一起存：教室存不了時，新增的課程也不留下", async () => {
     const { session } = await venueWithCourse();
 

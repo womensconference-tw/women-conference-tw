@@ -195,8 +195,9 @@ end;
 $$;
 
 /*
- * 開放報名前新增場次、或改場次的排序時，可能讓這個場地的成對課程不再連續，所以重新檢查。
- * 報名開放後不能新增場次；改排序只影響顯示順序，不再檢查（檢查本身在開放後會丟出 programme_locked）。
+ * 開放報名前新增場次、把場次搬到別的場地、或改場次的排序時，可能讓場地裡原有的成對課程不再連續，
+ * 所以重新檢查新的場地裡所有課程。搬走的場次自己的成對課程由 course_pairs_valid_after_session_move 檢查。
+ * 報名開放後不能新增或搬動場次；改排序只影響顯示順序，不再檢查（檢查本身在開放後會丟出 programme_locked）。
  */
 create function public.course_pairs_valid_after_session_change()
 returns trigger
@@ -205,7 +206,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if tg_op = 'UPDATE' and new.position = old.position then
+  if tg_op = 'UPDATE' and new.position = old.position and new.venue_id = old.venue_id then
     return new;
   end if;
   if public.registration_opened(new.conference_id) then
@@ -222,7 +223,7 @@ end;
 $$;
 
 create constraint trigger course_pairs_valid_after_session_change
-  after insert or update of position on public.sessions
+  after insert or update of position, venue_id on public.sessions
   deferrable initially deferred
   for each row execute function public.course_pairs_valid_after_session_change();
 
@@ -281,6 +282,12 @@ begin
     insert into public.course_classrooms (course_id, classroom)
     values (v_id, p_classroom)
     on conflict (course_id) do update set classroom = excluded.classroom, updated_at = now();
+  end if;
+
+  -- 權限規則讓非總管理員的寫入找不到資料、不會出錯。等課程的列鎖時被移出工作人員名單的話，
+  -- 課程照舊更新、教室卻刪不到，所以最後再確認一次，不是總管理員就整筆不存。
+  if not public.is_staff_admin() then
+    raise exception 'not_admin';
   end if;
 
   return v_id;
