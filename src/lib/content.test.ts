@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { adminClient, anonClient, must, signedInClient } from "../../test/supabase";
+import { adminClient, anonClient, databaseClient, must, signedInClient } from "../../test/supabase";
 import { getCurrentConference } from "./conference";
 import {
   deleteHomeItem,
@@ -144,6 +144,22 @@ describe("英文缺漏警示", () => {
 });
 
 describe("按鈕網址", () => {
+  it.each(
+    ["\ufeff", "\u00a0", "\u0085", "\u2028", "\u3000", "\u200b", "\t", "\u007f", "é"].map((char) => [
+      char.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0"),
+      char,
+    ]),
+  )(
+    "網址中間有 U+%s 時，後台和資料庫的判斷一樣",
+    async (_, char) => {
+      const url = `/a${char}b`;
+      const { error } = await admin
+        .from("custom_blocks")
+        .insert({ conference_id: conferenceId, title_zh: "測試", button_label_zh: "按", button_url: url });
+      expect(error === null).toBe(isSafeButtonUrl(url));
+    },
+  );
+
   it.each(["https://example.com/a?b=1", "HTTP://example.com", "/lookup", "/"])("接受「%s」", (url) => {
     expect(isSafeButtonUrl(url)).toBe(true);
   });
@@ -210,11 +226,56 @@ describe("總管理員編輯年度內容", () => {
     ).toEqual({ ok: false, error: "not_found" });
     expect(await saveItem({ kind: "block", titleZh: "新的" })).toEqual({ ok: false, error: "not_found" });
     expect(await saveItem({ kind: "block", id: block, titleZh: "改了" })).toEqual({ ok: false, error: "not_found" });
+    expect(await moveHomeItem(headAdmin, "block", block, "down")).toEqual({ ok: false, error: "not_found" });
+    expect(await deleteHomeItem(headAdmin, "block", block)).toEqual({ ok: false, error: "not_found" });
     const stored = must(await admin.from("conferences").select("welcome_zh").eq("id", conferenceId!).single());
     expect(stored.welcome_zh).toBe("");
     expect(must(await admin.from("custom_blocks").select("title_zh").eq("conference_id", conferenceId!))).toEqual([
       { title_zh: "舊年度的" },
     ]);
+  });
+
+  it("確認是目前年度之後、寫入之前年度被換掉，也不會改到舊年度", async () => {
+    const block = await savedItem({ kind: "block", titleZh: "舊年度的" });
+    const [switcher, watcher] = [databaseClient(), databaseClient()];
+    try {
+      // 另一位總管理員正在換目前年度，還沒提交。
+      let commit!: () => void;
+      const mayCommit = new Promise<void>((resolve) => (commit = resolve));
+      let started!: (pid: number) => void;
+      const switcherPid = new Promise<number>((resolve) => (started = resolve));
+      const switched = switcher.begin(async (tx) => {
+        await tx`update public.conferences set is_current = false where id = ${conferenceId!}`;
+        const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+        started(pid);
+        await mayCommit;
+      });
+      const pid = await switcherPid;
+
+      // 這時候讀到的還是目前年度；寫入要等換年度做完。
+      const results = Promise.all([
+        saveItem({ kind: "block", titleZh: "新的" }),
+        saveItem({ kind: "block", id: block, titleZh: "改了" }),
+        moveHomeItem(headAdmin, "block", block, "up"),
+        deleteHomeItem(headAdmin, "block", block),
+      ]);
+      for (let waited = 0; ; waited += 50) {
+        const [{ blocked }] = await watcher<{ blocked: number }[]>`
+          select count(*)::int as blocked from pg_stat_activity where ${pid}::int = any(pg_blocking_pids(pid))`;
+        if (blocked === 4) break;
+        if (waited > 10_000) throw new Error("儲存沒有排在換年度後面");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      commit();
+      await switched;
+
+      expect(await results).toEqual(Array(4).fill({ ok: false, error: "not_found" }));
+      expect(must(await admin.from("custom_blocks").select("title_zh").eq("conference_id", conferenceId!))).toEqual([
+        { title_zh: "舊年度的" },
+      ]);
+    } finally {
+      await Promise.all([switcher.end(), watcher.end()]);
+    }
   });
 
   it.each([

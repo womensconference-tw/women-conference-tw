@@ -66,9 +66,13 @@ function validTime(value: string): boolean {
 /**
  * 自訂區塊按鈕的網址，和資料庫 custom_blocks_button_url_safe 一致：有網域的 http(s) 網址或站內路徑，
  * 站內路徑的第二個字不能是 / 或 \，整個網址不能有空白或控制字元（瀏覽器會當成連到別的網站）。
+ * 不能有的字元明確列出，和資料庫一字不差：U+0001–0020、U+007F–00A0、以及其他 Unicode 空白（含 U+FEFF）。
  */
 export function isSafeButtonUrl(url: string): boolean {
-  return /^(https?:\/\/[^/\\?#]+|\/([^/\\]|$))/i.test(url) && !/[\s\p{Cc}]/u.test(url);
+  return (
+    /^(https?:\/\/[^/\\?#]+|\/([^/\\]|$))/i.test(url) &&
+    !/[\u0000-\u0020\u007f-\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/.test(url)
+  );
 }
 
 // LINE ID 只有英數字與 . - _，官方帳號以 @ 開頭。
@@ -245,7 +249,6 @@ export async function saveHomeItem(
     [`${item.title}_en`]: text(input.titleEn),
     [`${item.body}_zh`]: bodyZh,
     [`${item.body}_en`]: text(input.bodyEn),
-    updated_at: new Date().toISOString(),
   };
   if (input.kind === "block") {
     const buttonUrl = text(input.buttonUrl);
@@ -259,43 +262,32 @@ export async function saveHomeItem(
     });
   }
 
-  if (!validIds(input.id)) return { ok: false, error: "not_found" };
-  const current = await checkCurrentConference(supabase, input.conferenceId);
-  if (!current.ok) return current;
+  if (!validIds(input.id, input.conferenceId)) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
 
-  if (!input.id) {
-    // 新的排在最後。兩人同時新增時排序可能相同，首頁再依 id 排，順序一樣固定。
-    const last = await supabase
-      .from(item.table)
-      .select("position")
-      .eq("conference_id", input.conferenceId)
-      .order("position", { ascending: false })
-      .limit(1);
-    if (last.error) return failure(last.error);
-    values.position = (last.data[0]?.position ?? 0) + 1;
-  }
-
-  const query = input.id
-    ? supabase.from(item.table).update(values).eq("id", input.id).eq("conference_id", input.conferenceId)
-    : supabase.from(item.table).insert({ ...values, conference_id: input.conferenceId });
-  const { data, error } = await query.select("id");
-  if (error) return failure(error);
-  if (data.length === 0) return { ok: false, error: "not_found" };
-  return { ok: true, id: data[0].id as string };
+  // 確認是目前年度與寫入在同一個交易裡（save_home_item），中間年度不會被換掉。新的排在最後。
+  const { data, error } = await supabase.rpc("save_home_item", {
+    p_table: item.table,
+    p_id: input.id || null,
+    p_conference_id: input.conferenceId,
+    p_values: values,
+  });
+  return error ? failure(error) : { ok: true, id: data as string };
 }
 
-/** 刪除一個常見問題或自訂區塊。 */
+/** 刪除一個常見問題或自訂區塊。只能刪目前年度的。 */
 export async function deleteHomeItem(supabase: SupabaseClient, kind: HomeItemKind, id: string): Promise<ContentResult> {
   if (!validIds(id)) return { ok: false, error: "not_found" };
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
-  const { data, error } = await supabase.from(HOME_ITEMS[kind].table).delete().eq("id", id).select("id");
-  if (error) return failure(error);
-  return data.length === 0 ? { ok: false, error: "not_found" } : { ok: true };
+  // 只刪目前年度的（delete_home_item）。
+  const { error } = await supabase.rpc("delete_home_item", { p_table: HOME_ITEMS[kind].table, p_id: id });
+  return error ? failure(error) : { ok: true };
 }
 
-/** 把一個常見問題或自訂區塊往前或往後移一格；已經在最前或最後時不動。 */
+/** 把一個常見問題或自訂區塊往前或往後移一格；已經在最前或最後時不動。只能移目前年度的。 */
 export async function moveHomeItem(
   supabase: SupabaseClient,
   kind: HomeItemKind,
