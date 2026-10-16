@@ -15,6 +15,7 @@ import {
   chooseCourse,
   courseIdsOf,
   extraInputOf,
+  nextRegistrationInput,
   validateCourseChoices,
   validateExtraChoices,
   validateRegistration,
@@ -118,15 +119,20 @@ const radioClass = "size-6 shrink-0 accent-primary";
  * 確認頁可以跳回任一步修改，改好後直接回到確認頁。
  * 不用下拉選單：支聯會、支會、場地、課程、午餐都是攤開的大選項。
  * 送出時有課程、午餐或午后動態剛額滿：回到那一步，那一項標成已額滿並取消選取，其他資料都保留。
+ * 代報（ADR 0003）：forOthers 時第一步多一句說明；完成頁可以「再幫一位報名」，
+ * 下一位帶入電話、Email、支聯會、支會、場地，其他清空，從第一步重新填。
  */
 export function RegistrationForm({
   locale,
   options,
   edit,
+  forOthers = false,
 }: {
   locale: Locale;
   options: RegistrationOptions;
   edit?: EditTarget;
+  /** 從首頁「幫家人或朋友報名」進來。 */
+  forOthers?: boolean;
 }) {
   const t = edit ? editMessages(messages[locale]) : messages[locale];
   // 修改時一開始的資料：她原本的報名。只在第一次算，之後由她修改。
@@ -143,6 +149,8 @@ export function RegistrationForm({
   const [extras, setExtrasState] = useState<ExtraChoices>(initial?.choices.extras ?? {});
   // 到過確認頁之後，回到前面修改時可以直接回確認頁，不必一步一步按「下一步」。
   const [reviewed, setReviewed] = useState(Boolean(edit));
+  // 按了「再幫一位報名」：第一步說明哪些資料是從上一位帶過來的。
+  const [another, setAnother] = useState(false);
   const [pending, startTransition] = useTransition();
   const selectedVenue = options.venues.find((option) => option.id === input.venueId);
   const sessions = selectedVenue?.sessions ?? [];
@@ -241,6 +249,18 @@ export function RegistrationForm({
     setStep(nextStep);
     if (nextStep === lastStep) setReviewed(true);
     window.scrollTo({ top: 0 });
+  }
+
+  // 再幫一位報名：上一位已經存下，表單換成下一位的，從第一步開始。
+  function startAnother() {
+    setInput(nextRegistrationInput(input));
+    setChoicesState({});
+    setExtrasState({});
+    setErrors({});
+    setRegistration(null);
+    setReviewed(false);
+    setAnother(true);
+    goTo(0);
   }
 
   function allErrors(): RegistrationErrors {
@@ -348,6 +368,7 @@ export function RegistrationForm({
           edit && { stakeName: edit.registration.stakeName, wardName: edit.registration.wardName }
         }
         onBack={edit && (() => edit.onClose(registration))}
+        onAnother={edit ? undefined : startAnother}
         options={options}
         t={t}
       />
@@ -367,6 +388,12 @@ export function RegistrationForm({
       {Object.keys(errors).some((field) => field !== "form") && (
         <p role="alert" className="rounded-lg border-2 border-destructive p-4 font-semibold text-destructive">
           {t.register.fixErrors}
+        </p>
+      )}
+
+      {step === 0 && !edit && (another || forOthers) && (
+        <p className="rounded-lg bg-muted px-4 py-3 font-semibold leading-snug">
+          {another ? t.register.anotherIntro : t.register.proxyIntro}
         </p>
       )}
 
@@ -1106,6 +1133,7 @@ function Completed({
   registration,
   stakeAndWard,
   onBack,
+  onAnother,
   options,
   t,
 }: {
@@ -1114,6 +1142,8 @@ function Completed({
   stakeAndWard?: { stakeName: string; wardName: string };
   /** 修改時回到查詢結果。 */
   onBack?: () => void;
+  /** 再幫一位報名（修改時沒有）。 */
+  onAnother?: () => void;
   options: RegistrationOptions;
   t: Messages;
 }) {
@@ -1144,6 +1174,11 @@ function Completed({
       {onBack && (
         <button type="button" onClick={onBack} className={cn(buttonVariants(), actionClass, "font-bold")}>
           {t.edit.backToLookupButton}
+        </button>
+      )}
+      {onAnother && (
+        <button type="button" onClick={onAnother} className={cn(buttonVariants(), actionClass, "font-bold")}>
+          {t.register.done.anotherButton}
         </button>
       )}
       <Link href="/" className={cn(buttonVariants({ variant: "outline" }), actionClass)}>

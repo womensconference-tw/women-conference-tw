@@ -430,6 +430,30 @@ export function choicesAfterVenueChange(choices: FormChoices): FormChoices {
   return { courses: {}, extras: { printedHandbook: choices.extras.printedHandbook } };
 }
 
+/**
+ * 「再幫一位報名」的下一筆（ADR 0003）：帶入代報人上一筆填的電話（或沒有電話）、Email、支聯會、支會、場地；
+ * 姓名、LINE ID 與場地以後的選擇都是這一位自己的，清空重填，肖像權也要這一位重新同意。
+ */
+export function nextRegistrationInput(previous: RegistrationInput): RegistrationInput {
+  return {
+    name: "",
+    phone: previous.phone,
+    noPhone: previous.noPhone,
+    email: previous.email,
+    lineId: "",
+    stakeId: previous.stakeId,
+    wardId: previous.wardId,
+    venueId: previous.venueId,
+    courseIds: [],
+    lunchOptionId: null,
+    afternoonActivityId: null,
+    choirPart: null,
+    services: [],
+    printedHandbook: null,
+    portraitConsent: false,
+  };
+}
+
 // submit_registration 丟出的代碼對應到哪個欄位的哪個錯誤。
 const databaseErrors: Record<string, RegistrationErrors> = {
   registration_not_open: { form: "notOpen" },

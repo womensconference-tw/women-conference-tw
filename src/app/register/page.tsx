@@ -14,11 +14,15 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t.register.title };
 }
 
-/** 報名頁。只有報名中才顯示表單；送出時資料庫會再確認一次是否報名中。 */
-export default async function RegisterPage() {
+/**
+ * 報名頁。只有報名中才顯示表單；送出時資料庫會再確認一次是否報名中。
+ * 從首頁「幫家人或朋友報名」進來（?for=others）時，表單第一步多一句代報的說明。
+ */
+export default async function RegisterPage({ searchParams }: PageProps<"/register">) {
   const locale = await getLocale();
   const t = await getMessages();
   const supabase = await createClient();
+  const forOthers = (await searchParams).for === "others";
   const [conference, allOptions] = await Promise.all([
     getCurrentConference(supabase, new Date()),
     getRegistrationOptions(supabase, locale),
@@ -35,7 +39,7 @@ export default async function RegisterPage() {
         <LanguageSwitch />
       </div>
       {options ? (
-        <RegistrationForm locale={locale} options={options} />
+        <RegistrationForm locale={locale} options={options} forOthers={forOthers} />
       ) : (
         <section className="flex flex-col gap-4">
           <h1 className="text-title leading-tight font-bold">{t.register.notOpenHeading}</h1>
