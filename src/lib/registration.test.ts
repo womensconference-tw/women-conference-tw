@@ -1292,11 +1292,13 @@ describe("開放報名後的場次與課程", () => {
   let sessionId: string;
   let otherSessionId: string;
   let courseId: string;
+  let otherVenueId: string;
 
   beforeEach(async () => {
     sessionId = await addSession(1);
     otherSessionId = await addSession(2);
     courseId = await addCourse(sessionId, 10);
+    otherVenueId = await addVenue();
     await openRegistration();
   });
 
@@ -1319,16 +1321,7 @@ describe("開放報名後的場次與課程", () => {
     ],
     [
       "把場次移到別的場地",
-      async () => {
-        const otherVenue = must(
-          await admin
-            .from("venues")
-            .insert({ conference_id: conferenceId, name_zh: "台中大雅教堂" })
-            .select("id")
-            .single(),
-        ).id;
-        return admin.from("sessions").update({ venue_id: otherVenue }).eq("id", sessionId);
-      },
+      () => admin.from("sessions").update({ venue_id: otherVenueId }).eq("id", sessionId),
     ],
   ])("%s被拒絕", async (_, change) => {
     const { error } = await change();

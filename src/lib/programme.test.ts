@@ -311,6 +311,11 @@ describe("報名開放後", () => {
     expect(await save({ kind: "venue", nameZh: "台中大雅教堂" })).toEqual({ ok: false, error: "programme_locked" });
     expect(await deleteItem(headAdmin, "venue", venue)).toEqual({ ok: false, error: "programme_locked" });
     expect(await save({ kind: "venue", id: venue, nameZh: "台北金華教堂（改名）" })).toEqual({ ok: true, id: venue });
+
+    // 由資料庫擋下，總管理員直接呼叫 API 也一樣。
+    const inserted = await headAdmin.from("venues").insert({ conference_id: conferenceId, name_zh: "台中大雅教堂" });
+    const deleted = await headAdmin.from("venues").delete().eq("id", venue);
+    expect([inserted.error?.message, deleted.error?.message]).toEqual(["programme_locked", "programme_locked"]);
   });
 
   it("不能刪除午餐與午后動態", async () => {
@@ -350,11 +355,12 @@ describe("報名開放後", () => {
 describe("成對課程", () => {
   async function twoSessions() {
     const venue = await saved({ kind: "venue", nameZh: "台北金華教堂" });
-    const first = await saved({ kind: "session", parentId: venue, nameZh: "第一場" });
-    const second = await saved({ kind: "session", parentId: venue, nameZh: "第二場" });
+    const first = await saved({ kind: "session", parentId: venue, nameZh: "第一場", position: "10" });
+    const second = await saved({ kind: "session", parentId: venue, nameZh: "第二場", position: "20" });
     return {
       venue,
       first,
+      second,
       upper: await saved({ kind: "course", parentId: first, nameZh: "手冊研習（上）" }),
       other: await saved({ kind: "course", parentId: first, nameZh: "詩歌" }),
       lower: await saved({ kind: "course", parentId: second, nameZh: "手冊研習（下）" }),
@@ -386,6 +392,33 @@ describe("成對課程", () => {
     });
   });
 
+  it("兩堂要在連續的兩個場次", async () => {
+    const { venue, upper, lower } = await twoSessions();
+    const third = await saved({ kind: "session", parentId: venue, nameZh: "第三場", position: "30" });
+    const later = await saved({ kind: "course", parentId: third, nameZh: "下午的課" });
+
+    expect(await addCoursePair(headAdmin, conferenceId!, upper, later)).toEqual({
+      ok: false,
+      error: "course_pair_invalid",
+    });
+    expect(await addCoursePair(headAdmin, conferenceId!, lower, later)).toEqual({ ok: true });
+  });
+
+  it("已成對的兩個場次中間不能再加場次，也不能把場次排到中間", async () => {
+    const { venue, upper, lower } = await twoSessions();
+    const third = await saved({ kind: "session", parentId: venue, nameZh: "第三場", position: "30" });
+    expect(await addCoursePair(headAdmin, conferenceId!, upper, lower)).toEqual({ ok: true });
+
+    expect(await save({ kind: "session", parentId: venue, nameZh: "插進來的場次", position: "15" })).toEqual({
+      ok: false,
+      error: "course_pair_invalid",
+    });
+    expect(await save({ kind: "session", id: third, nameZh: "第三場", position: "15" })).toEqual({
+      ok: false,
+      error: "course_pair_invalid",
+    });
+  });
+
   it("報名開放後不能新增或拆開", async () => {
     const { upper, other, lower, spare } = await twoSessions();
     expect(await addCoursePair(headAdmin, conferenceId!, upper, lower)).toEqual({ ok: true });
@@ -400,6 +433,26 @@ describe("成對課程", () => {
 });
 
 describe("教室只有後台看得到", () => {
+  it("課程與教室一起存：教室存不了時，新增的課程也不留下", async () => {
+    const { session } = await venueWithCourse();
+
+    const { error } = await headAdmin.rpc("save_course", {
+      p_id: null,
+      p_conference_id: conferenceId,
+      p_session_id: session,
+      p_position: 0,
+      p_title_zh: "存不了教室的課",
+      p_title_en: "",
+      p_description_zh: "",
+      p_description_en: "",
+      p_capacity: null,
+      p_classroom: "   ",
+    });
+
+    expect(error).not.toBeNull();
+    expect(must(await admin.from("courses").select("id").eq("title_zh", "存不了教室的課"))).toEqual([]);
+  });
+
   it("總管理員可以填、換、清掉教室", async () => {
     const { course } = await venueWithCourse();
     const classroom = async () =>

@@ -5,8 +5,6 @@ import { trimBlank, UUID_PATTERN } from "./registration";
  * 後台編輯目前年度的場地、場次、課程、成對課程、午餐與午后動態（#22）。
  * 只有總管理員能寫入，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
  * 報名開放後不能新增、刪除、換時段，有人選過的選項不能刪除，都由資料庫擋下，這裡把錯誤轉成代碼。
- * 只有場地的新增、刪除是在這裡擋：場地只有總管理員能改，而且資料庫若也擋，
- * 測試與 seed 就不能在已開放的年度建場地。
  */
 
 /** 可以新增、修改、刪除的項目：場地、場次、課程、午餐、午后動態。 */
@@ -102,9 +100,22 @@ export async function saveItem(
   if (!validIds(input.id, input.conferenceId, input.parentId)) return { ok: false, error: "not_found" };
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
-  if (input.kind === "venue" && !input.id) {
-    const locked = await venueLocked(supabase, input.conferenceId);
-    if (locked) return locked;
+
+  // 課程連同教室在同一個交易裡存（save_course），教室存不了時課程也不存。
+  if (input.kind === "course") {
+    const { data, error } = await supabase.rpc("save_course", {
+      p_id: input.id || null,
+      p_conference_id: input.conferenceId,
+      p_session_id: input.parentId || null,
+      p_position: position,
+      p_title_zh: nameZh,
+      p_title_en: text(input.nameEn),
+      p_description_zh: text(input.descriptionZh),
+      p_description_en: text(input.descriptionEn),
+      p_capacity: capacity,
+      p_classroom: classroom || null,
+    });
+    return error ? failure(error) : { ok: true, id: data as string };
   }
 
   const values: Record<string, unknown> = {
@@ -119,15 +130,15 @@ export async function saveItem(
       features_zh: text(input.featuresZh),
       features_en: text(input.featuresEn),
     });
-  } else if (input.kind !== "session") {
+  } else if (input.kind === "lunch" || input.kind === "activity") {
     Object.assign(values, {
       description_zh: text(input.descriptionZh),
       description_en: text(input.descriptionEn),
       capacity,
     });
   }
-  // 修改時只有課程能換上層（換時段）；新增時一定要有上層。
-  if (item.parent && input.parentId && (!input.id || input.kind === "course")) {
+  // 修改時不能換上層（課程換時段在上面）；新增時一定要有上層。
+  if (item.parent && input.parentId && !input.id) {
     values[item.parent] = input.parentId;
   }
 
@@ -137,21 +148,7 @@ export async function saveItem(
   const { data, error } = await query.select("id");
   if (error) return failure(error);
   if (data.length === 0) return { ok: false, error: "not_found" };
-  const id = data[0].id as string;
-
-  if (input.kind === "course") {
-    const saved = classroom
-      ? await supabase
-          .from("course_classrooms")
-          .upsert({ course_id: id, classroom, updated_at: new Date().toISOString() })
-      : await supabase.from("course_classrooms").delete().eq("course_id", id);
-    if (saved.error) {
-      // 新增的課程存不了教室時一起刪掉，免得總管理員看到錯誤再送一次，多出一門一樣的課。
-      if (!input.id) await supabase.from("courses").delete().eq("id", id);
-      return failure(saved.error);
-    }
-  }
-  return { ok: true, id };
+  return { ok: true, id: data[0].id as string };
 }
 
 /** 刪除一個項目。場地連同它的場次、課程、午餐、午后動態；場次連同它的課程。 */
@@ -159,20 +156,13 @@ export async function deleteItem(supabase: SupabaseClient, kind: ItemKind, id: s
   if (!validIds(id)) return { ok: false, error: "not_found" };
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
-  if (kind === "venue") {
-    const { data: venue, error } = await supabase.from("venues").select("conference_id").eq("id", id).maybeSingle();
-    if (error) return failure(error);
-    if (!venue) return { ok: false, error: "not_found" };
-    const locked = await venueLocked(supabase, venue.conference_id);
-    if (locked) return locked;
-  }
 
   const { data, error } = await supabase.from(ITEMS[kind].table).delete().eq("id", id).select("id");
   if (error) return failure(error);
   return data.length === 0 ? { ok: false, error: "not_found" } : { ok: true };
 }
 
-/** 把同場地、不同場次的兩堂課設成成對課程。 */
+/** 把同場地、連續兩個場次的兩堂課設成成對課程。 */
 export async function addCoursePair(
   supabase: SupabaseClient,
   conferenceId: string,
@@ -211,19 +201,6 @@ function validIds(...ids: (string | null | undefined)[]): boolean {
   return ids.every((id) => !id || UUID_PATTERN.test(id));
 }
 
-/*
- * 報名開放後不能新增、刪除場地：新的場地沒有場次與課程（也加不了），報名者卻選得到；
- * 刪掉的場地則會讓正在填表的人送出時被拒。修改名稱、地址等文字不受限制。
- */
-async function venueLocked(
-  supabase: SupabaseClient,
-  conferenceId: string,
-): Promise<{ ok: false; error: ProgrammeError } | null> {
-  const { data, error } = await supabase.rpc("registration_opened", { p_conference_id: conferenceId });
-  if (error) return failure(error);
-  return data === true ? { ok: false, error: "programme_locked" } : null;
-}
-
 // 承辦人員與訪客的修改反正會被資料庫擋下（刪除、修改時只是找不到資料），先擋下才能說明原因。
 async function ensureAdmin(supabase: SupabaseClient): Promise<{ ok: false; error: ProgrammeError } | null> {
   const { data, error } = await supabase.rpc("is_staff_admin");
@@ -237,6 +214,8 @@ function failure(error: PostgrestError): { ok: false; error: ProgrammeError } {
   switch (true) {
     case error.message === "programme_locked":
       return { ok: false, error: "programme_locked" };
+    case error.message === "not_found":
+      return { ok: false, error: "not_found" };
     case error.message === "course_pair_invalid":
     // 同一堂課已經是另一組的第一堂或第二堂。
     case error.code === "23505" && /course_pairs/.test(error.message):

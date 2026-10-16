@@ -150,7 +150,7 @@ export default async function VenueProgrammePage({ params, searchParams }: PageP
       <section className={cardClass}>
         <h2 className="text-xl font-bold">成對課程</h2>
         <p className="text-sm text-muted-foreground">
-          跨越連續兩個場次的課程，選了其中一堂就必須選另一堂。兩堂要在這個場地的不同場次。
+          跨越連續兩個場次的課程，選了其中一堂就必須選另一堂。兩堂要在這個場地相鄰的兩個場次。
         </p>
         {pairs.length === 0 && <p>沒有成對課程。</p>}
         <ul className="flex flex-col gap-2">

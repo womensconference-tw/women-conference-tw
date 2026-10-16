@@ -34,6 +34,8 @@ insert into public.conferences (
   'twwc-admin'
 );
 
+-- 場地也在開放報名前定案；假資料的年度已在報名中，建立時暫時關掉這條限制。
+alter table public.venues disable trigger venues_locked_after_opening;
 insert into public.venues (conference_id, position, name_zh, name_en, address_zh, address_en, features_zh, features_en)
 select id, v.position, v.name_zh, v.name_en, v.address_zh, v.address_en, v.features_zh, v.features_en
 from public.conferences, (values
@@ -42,6 +44,7 @@ from public.conferences, (values
   (3, '高雄鳥松教堂', 'Kaohsiung Niaosong Chapel', '高雄市鳥松區', 'Niaosong Dist., Kaohsiung', '無障礙設施完善', '')
 ) as v(position, name_zh, name_en, address_zh, address_en, features_zh, features_en)
 where year = 2027;
+alter table public.venues enable trigger venues_locked_after_opening;
 
 insert into public.faqs (conference_id, position, question_zh, question_en, answer_zh, answer_en)
 select id, f.position, f.question_zh, f.question_en, f.answer_zh, f.answer_en
@@ -91,6 +94,7 @@ join (values
 -- 每個場地三個場次，各有幾門課。有的限量、有的不限人數（容量空白）。
 -- 正式環境的場次與課程在開放報名前建好；假資料的年度已在報名中，所以建立時暫時關掉這條限制。
 alter table public.sessions disable trigger sessions_locked_after_opening;
+alter table public.sessions disable trigger course_pairs_valid_after_session_change;
 alter table public.courses disable trigger courses_locked_after_opening;
 insert into public.sessions (conference_id, venue_id, position, name_zh, name_en)
 select v.conference_id, v.id, s.position, s.name_zh, s.name_en
@@ -135,6 +139,7 @@ from public.courses c
 join public.sessions s on s.id = c.session_id;
 
 alter table public.sessions enable trigger sessions_locked_after_opening;
+alter table public.sessions enable trigger course_pairs_valid_after_session_change;
 alter table public.courses enable trigger courses_locked_after_opening;
 
 -- 午餐、午后動態也在開放報名前定案，建立時同樣暫時關掉限制。

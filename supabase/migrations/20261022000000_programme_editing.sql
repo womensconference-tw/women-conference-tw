@@ -82,6 +82,33 @@ create constraint trigger afternoon_activities_locked_after_opening
   for each row execute function public.venue_options_locked_after_opening();
 
 /*
+ * 場地也一樣：報名開放後不能新增、刪除或換到別的年度，只能修正名稱、地址、特色與排序。
+ * 新增的場地沒有場次與課程（也加不了），報名者卻選得到；刪掉的場地會讓正在填表的人送出時被拒。
+ */
+create function public.venues_locked_after_opening()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if tg_op = 'UPDATE' and new.id = old.id and new.conference_id = old.conference_id then
+    return new;
+  end if;
+  if (tg_op <> 'DELETE' and public.registration_opened(new.conference_id))
+    or (tg_op <> 'INSERT' and public.registration_opened(old.conference_id))
+  then
+    raise exception 'programme_locked';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+create constraint trigger venues_locked_after_opening
+  after insert or update or delete on public.venues
+  deferrable initially deferred
+  for each row execute function public.venues_locked_after_opening();
+
+/*
  * 教室（GLOSSARY「教室」）：課程上課的房間，屬於內部資料，報名期間不公開。
  * 放在另一張表、不放在 courses，前台訪客對這張表沒有任何權限，怎麼查都讀不到。
  * 總管理員隨時可以換教室（包括報名開放後）；沒填教室的課程沒有資料列。
@@ -120,3 +147,145 @@ create policy "Venue staff can read classrooms of their venue"
         and s.venue_id = (select venue_id from public.staff_members where user_id = (select auth.uid()))
     )
   );
+
+/*
+ * 成對課程要在連續的兩個場次（GLOSSARY「成對課程」）：同場地、不同場次之外，
+ * 依排序（相同時依 id，和報名表一樣）兩個場次中間不能夾著別的場次。其餘規則與排隊方式見 20261018000000_course_pairs.sql。
+ */
+create or replace function public.course_pairs_valid(p_conference_ids uuid[], p_course_ids uuid[])
+returns void
+language plpgsql
+set search_path = ''
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended('course_pairs_valid', 0));
+
+  if exists (select 1 from unnest(p_conference_ids) as conference(id) where public.registration_opened(conference.id)) then
+    raise exception 'programme_locked';
+  end if;
+
+  if exists (
+    select 1
+    from public.course_pairs p
+    join public.courses a on a.id = p.first_course_id
+    join public.sessions sa on sa.id = a.session_id
+    join public.courses b on b.id = p.second_course_id
+    join public.sessions sb on sb.id = b.session_id
+    where (p.first_course_id = any(p_course_ids) or p.second_course_id = any(p_course_ids))
+      and (
+        sa.venue_id <> sb.venue_id
+        or sa.id = sb.id
+        or exists (
+          select 1 from public.sessions s
+          where s.venue_id = sa.venue_id
+            and (
+              ((s.position, s.id) > (sa.position, sa.id) and (s.position, s.id) < (sb.position, sb.id))
+              or ((s.position, s.id) > (sb.position, sb.id) and (s.position, s.id) < (sa.position, sa.id))
+            )
+        )
+      )
+  ) or exists (
+    select 1
+    from unnest(p_course_ids) as course(id)
+    where (select count(*) from public.course_pairs p where course.id in (p.first_course_id, p.second_course_id)) > 1
+  ) then
+    raise exception 'course_pair_invalid';
+  end if;
+end;
+$$;
+
+/*
+ * 開放報名前新增場次、或改場次的排序時，可能讓這個場地的成對課程不再連續，所以重新檢查。
+ * 報名開放後不能新增場次；改排序只影響顯示順序，不再檢查（檢查本身在開放後會丟出 programme_locked）。
+ */
+create function public.course_pairs_valid_after_session_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if tg_op = 'UPDATE' and new.position = old.position then
+    return new;
+  end if;
+  if public.registration_opened(new.conference_id) then
+    return new;
+  end if;
+  perform public.course_pairs_valid(
+    array[new.conference_id],
+    array(
+      select c.id from public.courses c join public.sessions s on s.id = c.session_id where s.venue_id = new.venue_id
+    )
+  );
+  return new;
+end;
+$$;
+
+create constraint trigger course_pairs_valid_after_session_change
+  after insert or update of position on public.sessions
+  deferrable initially deferred
+  for each row execute function public.course_pairs_valid_after_session_change();
+
+/*
+ * 新增或修改課程，連同教室在同一個交易裡存好：教室存不了時課程也不存，不會留下沒有教室的新課程，
+ * 總管理員重送時也不會多出一門一樣的課。以呼叫者的權限執行，權限規則照樣只讓總管理員寫入。
+ * p_id 空值是新增；修改時 p_session_id 空值表示不換場次。p_classroom 空值表示清掉教室。
+ */
+create function public.save_course(
+  p_id uuid,
+  p_conference_id uuid,
+  p_session_id uuid,
+  p_position integer,
+  p_title_zh text,
+  p_title_en text,
+  p_description_zh text,
+  p_description_en text,
+  p_capacity integer,
+  p_classroom text
+)
+returns uuid
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_id uuid;
+begin
+  if p_id is null then
+    insert into public.courses (
+      conference_id, session_id, position, title_zh, title_en, description_zh, description_en, capacity
+    ) values (
+      p_conference_id, p_session_id, p_position, p_title_zh, p_title_en, p_description_zh, p_description_en, p_capacity
+    )
+    returning id into v_id;
+  else
+    update public.courses
+    set session_id = coalesce(p_session_id, session_id),
+      position = p_position,
+      title_zh = p_title_zh,
+      title_en = p_title_en,
+      description_zh = p_description_zh,
+      description_en = p_description_en,
+      capacity = p_capacity,
+      updated_at = now()
+    where id = p_id
+    returning id into v_id;
+    -- 不存在、或呼叫者看不到（不是總管理員、不是目前年度）。
+    if v_id is null then
+      raise exception 'not_found';
+    end if;
+  end if;
+
+  if p_classroom is null then
+    delete from public.course_classrooms where course_id = v_id;
+  else
+    insert into public.course_classrooms (course_id, classroom)
+    values (v_id, p_classroom)
+    on conflict (course_id) do update set classroom = excluded.classroom, updated_at = now();
+  end if;
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.save_course from public, anon;
+grant execute on function public.save_course to authenticated;
