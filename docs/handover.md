@@ -15,8 +15,12 @@
 | Supabase | 正式資料庫 | 以官方 GitHub 帳號登入 | 資料庫密碼在 Google Sheet |
 | 官方 Gmail 應用程式密碼 | Supabase 用官方 Gmail 寄後台登入信（Authentication → Emails → SMTP Settings） | 在官方 Gmail 的 [應用程式密碼](https://myaccount.google.com/apppasswords) 頁面產生 | Google Sheet |
 | GitHub Actions secrets | 防暫停 workflow 用的 `SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY` | repo Settings → Secrets | 不需要（兩個值都可以從 Supabase 後台再查） |
+| Cloudflare | 網域 `taiwanwomensconference.org` 的註冊與 DNS | 以官方 Gmail 登入 | Google Sheet（網域到期日、續約負責人、付款經費也記在這裡） |
+| Resend | 寄報名確認信，寄件人 `noreply@taiwanwomensconference.org` | 以官方 Gmail 登入 | `RESEND_API_KEY` 在 Google Sheet（Vercel 環境變數 `RESEND_API_KEY`、`EMAIL_FROM`） |
 
-<!-- TODO: 之後加上 Resend、網域註冊商 -->
+正式網址是 `https://www.taiwanwomensconference.org`，沒有 www 的網址會自動轉過去。舊網址 `women-conference-tw.vercel.app` 仍然可以用。
+
+Cloudflare 的 DNS 紀錄（Vercel 與 Resend 驗證用的）全部保持 **DNS only**（灰色雲朵），不要開 proxy（橘色雲朵），否則網站憑證或寄信驗證可能會出問題。
 
 ## 換屆步驟
 
@@ -34,7 +38,14 @@
 - [ ] 下一任接受邀請
 - [ ] 前任退出組織
 
-### 3. 確認服務都還正常
+### 3. 移交 Cloudflare 與 Resend
+
+兩個都以官方 Gmail 登入，換了官方 Gmail 就跟著換手，只要確認：
+
+- [ ] 用官方 Gmail 登入 Cloudflare，確認網域還在、開著自動續約；看 Google Sheet 上的到期日，確認續約的付款方式還有效、續約負責人和付款經費改成這一屆的
+- [ ] 用官方 Gmail 登入 Resend，確認網域還是 Verified
+
+### 4. 確認服務都還正常
 
 - [ ] 用官方 GitHub 帳號登入 Vercel，確認專案與環境變數都在
 - [ ] 用官方 GitHub 帳號登入 Supabase，確認正式專案沒有暫停
@@ -54,10 +65,10 @@ bash scripts/setup-production.sh
 
 ## 換網站網域時
 
-例如從 `women-conference-tw.vercel.app` 換成正式網域：
+例如 2026 年從 `women-conference-tw.vercel.app` 換成 `www.taiwanwomensconference.org`：
 
 - [ ] 在 Vercel 專案的 Settings → Domains 加上新網域
-- [ ] Supabase 後台 → Authentication → URL Configuration，把 **Site URL** 改成新網域（例如 `https://womensconference.tw`），按 Save changes。後台登入信的連結用這個網址，沒改的話工作人員點信裡的連結會回到舊網址
+- [ ] Supabase 後台 → Authentication → URL Configuration，把 **Site URL** 改成新網域（例如 `https://www.taiwanwomensconference.org`），按 Save changes。後台登入信的連結用這個網址，沒改的話工作人員點信裡的連結會回到舊網址。Redirect URLs 如果列了舊網址，也加上新網域
 - [ ] 用新網域到 `/staff/login` 寄一次登入信，確認信裡的連結是新網域、點了能登入
 
 登入信範本裡寫的是 `{{ .SiteURL }}`，不用改；程式也不用改。
