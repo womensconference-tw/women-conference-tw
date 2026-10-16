@@ -116,6 +116,7 @@ async function register(venueId: string, choices: { lunch_option_id?: string; st
         name: "測試報名者",
         phone: "0912345678",
         portrait_consented_at: new Date().toISOString(),
+        locale: "zh",
         ...choices,
         ...cancelled,
       })

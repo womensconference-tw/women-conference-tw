@@ -73,6 +73,7 @@ async function takeSeat(venueId: string, sessionId: string, courseId: string) {
         name: "佔位",
         phone: "0912345678",
         portrait_consented_at: new Date().toISOString(),
+        locale: "zh",
       })
       .select("id")
       .single(),
@@ -102,6 +103,7 @@ async function takeLunchAndActivity(venueId: string, lunchId: string, activityId
       name: "佔位",
       phone: "0912345678",
       portrait_consented_at: new Date().toISOString(),
+      locale: "zh",
       lunch_option_id: lunchId,
       afternoon_activity_id: activityId,
     }),

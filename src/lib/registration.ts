@@ -466,10 +466,11 @@ function violatedConstraint(message: string): string {
   return /violates check constraint "([^"]+)"/.exec(message)?.[1] ?? "";
 }
 
-/** 送出報名：檢查欄位，在報名中時寫入一筆與會姐妹的報名。 */
+/** 送出報名：檢查欄位，在報名中時寫入一筆與會姐妹的報名。locale 是送出當下的畫面語言，記為報名語言。 */
 export async function submitRegistration(
   supabase: SupabaseClient,
   input: RegistrationInput,
+  locale: Locale,
 ): Promise<SubmitResult> {
   const errors = validateRegistration(input);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
@@ -493,6 +494,7 @@ export async function submitRegistration(
           p_services: input.services,
           p_printed_handbook: input.printedHandbook,
           p_portrait_consent: input.portraitConsent,
+          p_locale: locale,
         })
         .single<RegistrationRow>(),
     input,

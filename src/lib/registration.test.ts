@@ -1,5 +1,6 @@
 import type { TransactionSql } from "postgres";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Locale } from "./i18n/locale";
 import { adminClient, anonClient, databaseClient, must, serverClient } from "../../test/supabase";
 import {
   cancelRegistration,
@@ -125,9 +126,9 @@ async function openRegistration() {
 }
 
 /** 以前台訪客的身分送出報名；還沒開放報名的話先開放。 */
-async function submit(input: RegistrationInput): Promise<SubmitResult> {
+async function submit(input: RegistrationInput, locale: Locale = "zh"): Promise<SubmitResult> {
   await openRegistration();
-  return submitRegistration(anonClient(), input);
+  return submitRegistration(anonClient(), input, locale);
 }
 
 function validInput(overrides: Partial<RegistrationInput> = {}): RegistrationInput {
@@ -223,7 +224,7 @@ describe("送出報名", () => {
         .eq("id", conferenceId!),
     );
 
-    const result = await submitRegistration(anonClient(), validInput());
+    const result = await submitRegistration(anonClient(), validInput(), "zh");
 
     expect(result).toEqual({ ok: false, errors: { form: "notOpen" } });
   });
@@ -360,7 +361,7 @@ describe("課程名額", () => {
     const second = await submitWhileHolding(
       (tx) => tx`
         select id from public.submit_registration(
-          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶位甲', '0912345678', null, null, true,
+          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶位甲', '0912345678', null, null, true, 'zh',
           ${[course]}::uuid[]
         )`,
       () => submit(validInput({ name: "搶位乙", courseIds: [course] })),
@@ -1055,7 +1056,7 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
     const second = await submitWhileHolding(
       (tx) => tx`
         select id from public.submit_registration(
-          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶午餐甲', '0912345678', null, null, true,
+          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶午餐甲', '0912345678', null, null, true, 'zh',
           '{}'::uuid[], ${lunch}::uuid
         )`,
       () => submit(validInput({ name: "搶午餐乙", lunchOptionId: lunch })),
@@ -1073,7 +1074,7 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
     const second = await submitWhileHolding(
       (tx) => tx`
         select id from public.submit_registration(
-          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶動態甲', '0912345678', null, null, true,
+          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶動態甲', '0912345678', null, null, true, 'zh',
           '{}'::uuid[], null, ${activity}::uuid
         )`,
       () => submit(validInput({ name: "搶動態乙", afternoonActivityId: activity })),
@@ -1439,7 +1440,7 @@ describe("跨過開放時間的修改", () => {
           insert into public.sessions (conference_id, venue_id, name_zh)
           values (${conferenceId!}, ${venueId}, '延後時偷加的場次')`;
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        visitor = await submitRegistration(anonClient(), validInput({ name: "原定時間報名" }));
+        visitor = await submitRegistration(anonClient(), validInput({ name: "原定時間報名" }), "zh");
       });
 
       await expect(attempt).rejects.toThrow(/registration_opens_at_locked|programme_locked/);
@@ -1577,6 +1578,7 @@ describe("直接呼叫資料庫的送出函式", () => {
         p_line_id: null,
         p_course_ids: [],
         p_portrait_consent: true,
+        p_locale: "zh",
         ...overrides,
       })
       .single<{ name: string; email: string | null; line_id: string | null }>();
@@ -1603,6 +1605,25 @@ describe("直接呼叫資料庫的送出函式", () => {
 
     expect(data).toMatchObject({ name: "王小美", email: null, line_id: null });
   });
+
+  it.each([null, "fr"])("報名語言是 %s 時被拒絕", async (locale) => {
+    const { error } = await callDirectly({ p_locale: locale });
+
+    expect(error).not.toBeNull();
+  });
+});
+
+describe("報名語言", () => {
+  async function storedLocale(id: string) {
+    return must(await admin.from("registrations").select("locale").eq("id", id).single()).locale;
+  }
+
+  it.each(["zh", "en"] as const)("送出時記下畫面語言 %s", async (locale) => {
+    const result = await submit(validInput(), locale);
+    if (!result.ok) throw new Error(JSON.stringify(result));
+
+    expect(await storedLocale(result.registration.id)).toBe(locale);
+  });
 });
 
 describe("報名資料表", () => {
@@ -1624,6 +1645,7 @@ describe("報名資料表", () => {
       name: "王小美",
       phone: "0912345678",
       portrait_consented_at: new Date().toISOString(),
+      locale: "zh",
     });
 
     expect(error).not.toBeNull();
@@ -2121,7 +2143,7 @@ describe("修改報名", () => {
     const result = await submitWhileHolding(
       (tx) => tx`
         select id from public.submit_registration(
-          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶位甲', '0987654321', null, null, true,
+          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶位甲', '0987654321', null, null, true, 'zh',
           ${[last]}::uuid[]
         )`,
       () => update(before.id, { courseIds: [last] }),
@@ -2160,6 +2182,7 @@ describe("修改報名", () => {
           name: "王小美",
           phone: "0912345678",
           portrait_consented_at: new Date().toISOString(),
+          locale: "zh",
         })
         .select("id")
         .single(),

@@ -123,6 +123,7 @@ async function seed({ name, venue, stake, phone, number }: Seed): Promise<string
         phone: number ? null : (phone ?? "0912345678"),
         registration_number: number ?? null,
         portrait_consented_at: new Date().toISOString(),
+        locale: "zh",
       })
       .select("id")
       .single(),
@@ -194,6 +195,7 @@ describe("後台報名名單的角色範圍", () => {
         name: "偷塞一筆",
         phone: "0999999999",
         portrait_consented_at: new Date().toISOString(),
+        locale: "zh",
       });
       expect(inserted.error).not.toBeNull();
 
@@ -229,6 +231,7 @@ describe("後台報名名單的角色範圍", () => {
         name: "去年的",
         phone: "0912345678",
         portrait_consented_at: new Date().toISOString(),
+        locale: "zh",
       }),
     );
 
