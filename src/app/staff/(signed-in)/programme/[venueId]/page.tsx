@@ -16,7 +16,7 @@ import { getCurrentStaff } from "../../../current-staff";
 import { ResultMessage } from "../../../result-message";
 import { buttonClass, inputClass } from "../../../ui";
 import { addProgrammeCoursePair, removeProgrammeCoursePair } from "../actions";
-import { capacityLabel, DeleteItem, DONE, ERRORS, ItemForm, NumberFields, TextPair } from "../forms";
+import { capacityLabel, DeleteItem, DONE, ERRORS, ItemForm, NumberFields, RegionField, TextPair } from "../forms";
 
 export const metadata: Metadata = { title: "編輯場地" };
 
@@ -69,6 +69,7 @@ export default async function VenueProgrammePage({ params, searchParams }: PageP
         <h2 className="text-xl font-bold">場地資料</h2>
         <ItemForm kind="venue" id={venue.id} {...shared} submitLabel="儲存場地資料">
           <TextPair name="name" label="名稱" zh={venue.nameZh} en={venue.nameEn} required />
+          <RegionField region={venue.region} />
           <TextPair name="address" label="地址" zh={venue.addressZh} en={venue.addressEn} />
           <TextPair name="features" label="場地特色" zh={venue.featuresZh} en={venue.featuresEn} multiline />
           <NumberFields position={venue.position} />

@@ -3,6 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import {
   listStaffMembers,
+  REGION_LABELS,
+  REGIONS,
   STAFF_ROLE_LABELS,
   STAFF_ROLES,
   type StaffListItem,
@@ -26,40 +28,21 @@ const DONE: Record<string, string> = {
 const ERRORS: Record<string, string> = {
   email_invalid: "Email 格式不對，請再檢查一次。",
   not_admin: "只有總管理員能管理工作人員帳號。",
-  scope_invalid: "教堂承辦要選場地，支聯會承辦要選支聯會。",
+  scope_invalid: "課務組要選一區；總管理員不分區。",
   already_staff: "這個 Email 已經是工作人員了。",
   last_admin: "至少要留一位總管理員，請先新增另一位總管理員。",
   staff_not_found: "找不到這位工作人員，可能已經被移除。",
   unavailable: "系統暫時出了問題，請稍後再試。",
 };
 
-type Option = { id: string; label: string };
-
 /** 工作人員帳號（只有總管理員）：新增、修改角色與負責範圍、移除。 */
 export default async function StaffMembersPage({ searchParams }: PageProps<"/staff/members">) {
-  const supabase = await createClient();
   const me = await getCurrentStaff();
   // 版面和頁面同時執行，版面的導向擋不住這裡，自己也要檢查。
   if (!me) redirect("/staff/login");
   if (me.role !== "admin") notFound();
 
-  const [members, venues, stakes] = await Promise.all([
-    listStaffMembers(supabase),
-    supabase.from("venues").select("id, name_zh, position, conferences(year)"),
-    supabase.from("stakes").select("id, name_zh, position, is_active").order("position"),
-  ]);
-  if (venues.error) throw venues.error;
-  if (stakes.error) throw stakes.error;
-
-  // 場地每年不同，新的年度排前面。
-  const venueOptions: Option[] = venues.data
-    .map((venue) => ({ ...venue, year: (venue.conferences as unknown as { year: number }).year }))
-    .sort((a, b) => b.year - a.year || a.position - b.position)
-    .map((venue) => ({ id: venue.id, label: `${venue.year} ${venue.name_zh}` }));
-  const stakeOptions: Option[] = stakes.data.map((stake) => ({
-    id: stake.id,
-    label: stake.is_active ? stake.name_zh : `${stake.name_zh}（已停用）`,
-  }));
+  const members = await listStaffMembers(await createClient());
 
   return (
     <main className="flex flex-col gap-8">
@@ -76,7 +59,7 @@ export default async function StaffMembersPage({ searchParams }: PageProps<"/sta
             <span className="font-semibold">Email</span>
             <input name="email" type="email" autoComplete="off" required className={inputClass} />
           </label>
-          <ScopeFields venues={venueOptions} stakes={stakeOptions} />
+          <ScopeFields />
           <button className={cn(buttonVariants(), buttonClass, "self-start font-bold")}>新增</button>
         </form>
       </section>
@@ -85,7 +68,7 @@ export default async function StaffMembersPage({ searchParams }: PageProps<"/sta
         <h2 className="text-xl font-bold">目前的工作人員（{members.length} 位）</h2>
         <ul className="flex flex-col gap-4">
           {members.map((member) => (
-            <MemberCard key={member.userId} member={member} me={me} venues={venueOptions} stakes={stakeOptions} />
+            <MemberCard key={member.userId} member={member} me={me} />
           ))}
         </ul>
       </section>
@@ -93,17 +76,7 @@ export default async function StaffMembersPage({ searchParams }: PageProps<"/sta
   );
 }
 
-function MemberCard({
-  member,
-  me,
-  venues,
-  stakes,
-}: {
-  member: StaffListItem;
-  me: StaffMember;
-  venues: Option[];
-  stakes: Option[];
-}) {
+function MemberCard({ member, me }: { member: StaffListItem; me: StaffMember }) {
   return (
     <li className="flex flex-col gap-3 rounded-lg border-2 border-card-outline p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -117,7 +90,7 @@ function MemberCard({
       </div>
       <form action={updateMember} className="flex flex-col gap-3">
         <input type="hidden" name="userId" value={member.userId} />
-        <ScopeFields member={member} venues={venues} stakes={stakes} />
+        <ScopeFields member={member} />
         <button className={cn(buttonVariants({ variant: "outline" }), buttonClass, "self-start")}>
           儲存角色與範圍
         </button>
@@ -139,13 +112,13 @@ function MemberCard({
   );
 }
 
-/** 角色與負責範圍。教堂承辦用場地、支聯會承辦用支聯會，另一個選單送出時不用。 */
-function ScopeFields({ member, venues, stakes }: { member?: StaffListItem; venues: Option[]; stakes: Option[] }) {
+/** 角色與負責範圍。課務組要選一區；報報組選一區或全區；總管理員不分區，送出時不用區。 */
+function ScopeFields({ member }: { member?: StaffListItem }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div className="grid gap-3 sm:grid-cols-2">
       <label className="flex flex-col gap-1">
         <span className="font-semibold">角色</span>
-        <select name="role" defaultValue={member?.role ?? "venue_staff"} className={inputClass}>
+        <select name="role" defaultValue={member?.role ?? "course_team"} className={inputClass}>
           {STAFF_ROLES.map((role) => (
             <option key={role} value={role}>
               {STAFF_ROLE_LABELS[role]}
@@ -154,23 +127,12 @@ function ScopeFields({ member, venues, stakes }: { member?: StaffListItem; venue
         </select>
       </label>
       <label className="flex flex-col gap-1">
-        <span className="font-semibold">場地（教堂承辦）</span>
-        <select name="venueId" defaultValue={member?.venueId ?? ""} className={inputClass}>
-          <option value="">—</option>
-          {venues.map((venue) => (
-            <option key={venue.id} value={venue.id}>
-              {venue.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="font-semibold">支聯會（支聯會承辦）</span>
-        <select name="stakeId" defaultValue={member?.stakeId ?? ""} className={inputClass}>
-          <option value="">—</option>
-          {stakes.map((stake) => (
-            <option key={stake.id} value={stake.id}>
-              {stake.label}
+        <span className="font-semibold">負責的區（課務組、報報組）</span>
+        <select name="region" defaultValue={member?.region ?? ""} className={inputClass}>
+          <option value="">全區（只限報報組）</option>
+          {REGIONS.map((region) => (
+            <option key={region} value={region}>
+              {REGION_LABELS[region]}
             </option>
           ))}
         </select>

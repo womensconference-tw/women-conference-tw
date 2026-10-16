@@ -30,6 +30,7 @@ export async function saveProgrammeItem(formData: FormData) {
     nameEn: field("nameEn"),
     descriptionZh: field("descriptionZh"),
     descriptionEn: field("descriptionEn"),
+    region: field("region"),
     addressZh: field("addressZh"),
     addressEn: field("addressEn"),
     featuresZh: field("featuresZh"),

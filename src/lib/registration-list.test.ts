@@ -17,8 +17,8 @@ let xindianWardId: string;
 let dayaWardId: string;
 
 /*
- * 每個測試都有一個報名中的 2099 年度大會，兩個場地（金華、大雅）、兩個支聯會（台北、台中）各一個支會，
- * 以及三位工作人員：總管理員、金華的教堂承辦、台北的支聯會承辦。測完全部刪掉、復原原本的目前年度。
+ * 每個測試都有一個報名中的 2099 年度大會，兩個場地（北區金華、中區大雅）、兩個支聯會（北區台北、中區台中）各一個支會，
+ * 以及四位工作人員：總管理員、北區課務組、北區報報組、全區報報組。測完全部刪掉、復原原本的目前年度。
  */
 beforeEach(async () => {
   const current = must(await admin.from("conferences").select("id").eq("is_current", true));
@@ -47,8 +47,8 @@ beforeEach(async () => {
     await admin
       .from("venues")
       .insert([
-        { conference_id: conference.id, position: 1, name_zh: "測試金華教堂" },
-        { conference_id: conference.id, position: 2, name_zh: "測試大雅教堂" },
+        { region: "north", conference_id: conference.id, position: 1, name_zh: "測試金華教堂" },
+        { region: "central", conference_id: conference.id, position: 2, name_zh: "測試大雅教堂" },
       ])
       .select("id, position")
       .order("position"),
@@ -64,8 +64,8 @@ beforeEach(async () => {
     await admin
       .from("stakes")
       .insert([
-        { position: 1, name_zh: "測試台北支聯會" },
-        { position: 2, name_zh: "測試台中支聯會" },
+        { position: 1, region: "north", name_zh: "測試台北支聯會" },
+        { position: 2, region: "central", name_zh: "測試台中支聯會" },
       ])
       .select("id, position")
       .order("position"),
@@ -81,8 +81,9 @@ beforeEach(async () => {
 
   for (const [email, scope] of [
     ["head@example.com", { role: "admin" }],
-    ["jinhua@example.com", { role: "venue_staff", venue_id: jinhuaId }],
-    ["taipei@example.com", { role: "stake_staff", stake_id: taipeiStakeId }],
+    ["course@example.com", { role: "course_team", region: "north" }],
+    ["report@example.com", { role: "registration_team", region: "north" }],
+    ["everywhere@example.com", { role: "registration_team", region: null }],
   ] as const) {
     const user = must(await admin.auth.admin.createUser({ email, email_confirm: true })).user;
     must(await admin.from("staff_members").insert({ user_id: user.id, ...scope }));
@@ -146,46 +147,60 @@ describe("後台報名名單的角色範圍", () => {
     expect(await names(await signedInClient("head@example.com"))).toEqual(["大雅台中", "大雅台北", "金華台中", "金華台北"]);
   });
 
-  it("教堂承辦只讀得到自己場地的報名，其他場地的讀不到", async () => {
+  it("課務組只讀得到報名該區教堂的報名，該區支聯會報名別區教堂的讀不到", async () => {
     await seedGrid();
-    const jinhua = await signedInClient("jinhua@example.com");
+    const course = await signedInClient("course@example.com");
 
-    expect(await names(jinhua)).toEqual(["金華台中", "金華台北"]);
+    expect(await names(course)).toEqual(["金華台中", "金華台北"]);
     // 直接查資料表也一樣，不是只有名單畫面藏起來。
-    const direct = must(await jinhua.from("registrations").select("name").eq("venue_id", dayaId));
+    const direct = must(await course.from("registrations").select("name").eq("venue_id", dayaId));
     expect(direct).toEqual([]);
   });
 
-  it("支聯會承辦讀得到自己支聯會在各場地的報名，其他支聯會的讀不到", async () => {
+  it("報報組讀得到報名該區教堂的報名，加上該區支聯會報名別區教堂的報名", async () => {
     await seedGrid();
-    const taipei = await signedInClient("taipei@example.com");
+    const report = await signedInClient("report@example.com");
 
-    expect(await names(taipei)).toEqual(["大雅台北", "金華台北"]);
-    const direct = must(await taipei.from("registrations").select("name").eq("stake_id", taichungStakeId));
-    expect(direct).toEqual([]);
+    expect(await names(report)).toEqual(["大雅台北", "金華台中", "金華台北"]);
+    const direct = must(await report.from("registrations").select("name").eq("venue_id", dayaId));
+    expect(direct).toEqual([{ name: "大雅台北" }]);
   });
 
-  it("支聯會承辦改不了任何報名資料，包括自己支聯會的", async () => {
-    const id = await seed({ name: "金華台北", venue: "jinhua", stake: "taipei" });
-    const taipei = await signedInClient("taipei@example.com");
+  it("全區的報報組讀得到所有報名", async () => {
+    await seedGrid();
 
-    await taipei.from("registrations").update({ name: "被改掉" }).eq("id", id);
-    await taipei.from("registrations").update({ status: "cancelled", cancelled_at: new Date().toISOString() }).eq("id", id);
-    await taipei.from("registrations").delete().eq("id", id);
-    const inserted = await taipei.from("registrations").insert({
-      conference_id: conferenceIds[0],
-      venue_id: jinhuaId,
-      stake_id: taipeiStakeId,
-      ward_id: xindianWardId,
-      name: "偷塞一筆",
-      phone: "0999999999",
-      portrait_consented_at: new Date().toISOString(),
-    });
-    expect(inserted.error).not.toBeNull();
-
-    const after = must(await admin.from("registrations").select("name, status").eq("conference_id", conferenceIds[0]));
-    expect(after).toEqual([{ name: "金華台北", status: "registered" }]);
+    expect(await names(await signedInClient("everywhere@example.com"))).toEqual([
+      "大雅台中",
+      "大雅台北",
+      "金華台中",
+      "金華台北",
+    ]);
   });
+
+  it.each(["course@example.com", "report@example.com", "everywhere@example.com"])(
+    "課務組、報報組改不了任何報名資料，包括自己範圍內的（%s）",
+    async (email) => {
+      const id = await seed({ name: "金華台北", venue: "jinhua", stake: "taipei" });
+      const staff = await signedInClient(email);
+
+      await staff.from("registrations").update({ name: "被改掉" }).eq("id", id);
+      await staff.from("registrations").update({ status: "cancelled", cancelled_at: new Date().toISOString() }).eq("id", id);
+      await staff.from("registrations").delete().eq("id", id);
+      const inserted = await staff.from("registrations").insert({
+        conference_id: conferenceIds[0],
+        venue_id: jinhuaId,
+        stake_id: taipeiStakeId,
+        ward_id: xindianWardId,
+        name: "偷塞一筆",
+        phone: "0999999999",
+        portrait_consented_at: new Date().toISOString(),
+      });
+      expect(inserted.error).not.toBeNull();
+
+      const after = must(await admin.from("registrations").select("name, status").eq("conference_id", conferenceIds[0]));
+      expect(after).toEqual([{ name: "金華台北", status: "registered" }]);
+    },
+  );
 
   it("沒登入的訪客、不在工作人員名單裡的登入帳號都讀不到任何報名", async () => {
     await seedGrid();
@@ -203,7 +218,7 @@ describe("後台報名名單的角色範圍", () => {
     );
     conferenceIds.push(old.id);
     const oldVenue = must(
-      await admin.from("venues").insert({ conference_id: old.id, name_zh: "去年的教堂" }).select("id").single(),
+      await admin.from("venues").insert({ region: "north", conference_id: old.id, name_zh: "去年的教堂" }).select("id").single(),
     );
     must(
       await admin.from("registrations").insert({
@@ -253,12 +268,12 @@ describe("後台報名名單的內容與搜尋", () => {
     });
   });
 
-  it("支會停用後，承辦人員仍看得到舊報名的支聯會與支會名稱", async () => {
+  it("支會停用後，課務組、報報組仍看得到舊報名的支聯會與支會名稱", async () => {
     await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
     must(await admin.from("stakes").update({ is_active: false }).eq("id", taipeiStakeId));
     must(await admin.from("wards").update({ is_active: false }).eq("id", xindianWardId));
 
-    for (const email of ["jinhua@example.com", "taipei@example.com"]) {
+    for (const email of ["course@example.com", "report@example.com"]) {
       const { items } = await listRegistrations(await signedInClient(email), "");
       expect(items).toMatchObject([{ stakeName: "測試台北支聯會", wardName: "測試新店支會" }]);
     }
@@ -320,7 +335,7 @@ describe("後台報名名單的內容與搜尋", () => {
   it("搜尋也只在自己的範圍裡找", async () => {
     await seedGrid();
 
-    expect(await names(await signedInClient("jinhua@example.com"), "0933333333")).toEqual([]);
-    expect(await names(await signedInClient("taipei@example.com"), "台中")).toEqual([]);
+    expect(await names(await signedInClient("course@example.com"), "0933333333")).toEqual([]);
+    expect(await names(await signedInClient("report@example.com"), "台中")).toEqual(["金華台中"]);
   });
 });

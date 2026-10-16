@@ -20,15 +20,13 @@ let conferenceId: string | undefined;
 let stakeId: string;
 let wardId: string;
 let headAdmin: SupabaseClient;
-let venueStaff: SupabaseClient;
-let stakeStaff: SupabaseClient;
+let courseTeam: SupabaseClient;
+let registrationTeam: SupabaseClient;
 
-// 每個測試有一個還沒開放報名的 2099 目前年度、一位總管理員、一位教堂承辦、一位支聯會承辦；測完全部刪掉。
-// 教堂承辦負責 seed 的場地（測試建立的場地每次不同）。
+// 每個測試有一個還沒開放報名的 2099 目前年度、一位總管理員、一位北區課務組、一位北區報報組；測完全部刪掉。
 beforeEach(async () => {
   const current = must(await admin.from("conferences").select("id").eq("is_current", true));
   previousCurrentIds = current.map((row) => row.id);
-  const seedVenueId = must(await admin.from("venues").select("id").limit(1).single()).id;
   must(await admin.from("conferences").update({ is_current: false }).eq("is_current", true));
 
   const now = Date.now();
@@ -47,19 +45,19 @@ beforeEach(async () => {
       .single(),
   ).id;
 
-  stakeId = must(await admin.from("stakes").insert({ name_zh: "測試課程支聯會" }).select("id").single()).id;
+  stakeId = must(await admin.from("stakes").insert({ region: "north", name_zh: "測試課程支聯會" }).select("id").single()).id;
   wardId = must(await admin.from("wards").insert({ stake_id: stakeId, name_zh: "測試課程支會" }).select("id").single()).id;
 
   const staff = [
-    { email: "head@example.com", role: "admin", venue_id: null, stake_id: null },
-    { email: "venue@example.com", role: "venue_staff", venue_id: seedVenueId, stake_id: null },
-    { email: "stake@example.com", role: "stake_staff", venue_id: null, stake_id: stakeId },
+    { email: "head@example.com", role: "admin", region: null },
+    { email: "course@example.com", role: "course_team", region: "north" },
+    { email: "report@example.com", role: "registration_team", region: "north" },
   ];
   for (const { email, ...scope } of staff) {
     const user = must(await admin.auth.admin.createUser({ email, email_confirm: true })).user;
     must(await admin.from("staff_members").insert({ user_id: user.id, ...scope }));
   }
-  [headAdmin, venueStaff, stakeStaff] = await Promise.all(staff.map(({ email }) => signedInClient(email)));
+  [headAdmin, courseTeam, registrationTeam] = await Promise.all(staff.map(({ email }) => signedInClient(email)));
 });
 
 afterEach(async () => {
@@ -98,7 +96,7 @@ async function saved(input: Omit<ItemInput, "conferenceId">) {
 
 /** 一個場地、一個場次、一門課。 */
 async function venueWithCourse() {
-  const venue = await saved({ kind: "venue", nameZh: "台北金華教堂" });
+  const venue = await saved({ kind: "venue", region: "north", nameZh: "台北金華教堂" });
   const session = await saved({ kind: "session", parentId: venue, nameZh: "第一場" });
   const course = await saved({ kind: "course", parentId: session, nameZh: "家譜入門", capacity: "20" });
   return { venue, session, course };
@@ -145,6 +143,7 @@ describe("總管理員編輯課程安排", () => {
   it("新增的場地、場次、課程、午餐、午后動態出現在報名表上，中英兩欄都存下", async () => {
     const venue = await saved({
       kind: "venue",
+      region: "north",
       nameZh: "台北金華教堂",
       nameEn: "Taipei Jinhua Chapel",
       addressZh: "台北市金華街",
@@ -212,13 +211,24 @@ describe("總管理員編輯課程安排", () => {
     });
   });
 
+  it("場地的區存得下來，報名開放後也能改", async () => {
+    const venue = await saved({ kind: "venue", region: "north", nameZh: "台中大雅教堂" });
+    expect((await getProgramme(headAdmin))?.venues[0].region).toBe("north");
+
+    await openRegistration();
+    await saved({ kind: "venue", id: venue, region: "central", nameZh: "台中大雅教堂" });
+    expect((await getProgramme(headAdmin))?.venues[0].region).toBe("central");
+  });
+
   it.each<[string, Omit<ItemInput, "conferenceId">, string]>([
-    ["沒填中文名稱", { kind: "venue", nameZh: "  " }, "name_required"],
+    ["沒填中文名稱", { kind: "venue", region: "north", nameZh: "  " }, "name_required"],
     ["名額不是正整數", { kind: "lunch", nameZh: "便當", capacity: "0" }, "capacity_invalid"],
-    ["排序不是整數", { kind: "venue", nameZh: "教堂", position: "一" }, "position_invalid"],
+    ["排序不是整數", { kind: "venue", region: "north", nameZh: "教堂", position: "一" }, "position_invalid"],
     ["教室太長", { kind: "course", nameZh: "課", classroom: "教".repeat(51) }, "classroom_invalid"],
+    ["場地沒選區", { kind: "venue", nameZh: "教堂" }, "region_required"],
+    ["場地的區不認得", { kind: "venue", region: "east", nameZh: "教堂" }, "region_required"],
   ])("%s時不存", async (_, input, error) => {
-    const venue = await saved({ kind: "venue", nameZh: "台北金華教堂" });
+    const venue = await saved({ kind: "venue", region: "north", nameZh: "台北金華教堂" });
     const session = await saved({ kind: "session", parentId: venue, nameZh: "第一場" });
     const parentId = input.kind === "course" ? session : input.kind === "venue" ? undefined : venue;
 
@@ -252,15 +262,8 @@ describe("總管理員編輯課程安排", () => {
 });
 
 describe("有人報名的選項不能刪除", () => {
-  it("還有教堂承辦負責的場地不能刪除，並說明原因", async () => {
-    const venue = await saved({ kind: "venue", nameZh: "台北金華教堂" });
-    must(await admin.from("staff_members").update({ venue_id: venue }).eq("role", "venue_staff"));
-
-    expect(await deleteItem(headAdmin, "venue", venue)).toEqual({ ok: false, error: "venue_has_staff" });
-  });
-
   it("有有效報名的場地不能刪除，並說明原因", async () => {
-    const venue = await saved({ kind: "venue", nameZh: "台北金華教堂" });
+    const venue = await saved({ kind: "venue", region: "north", nameZh: "台北金華教堂" });
     await register(venue);
 
     expect(await deleteItem(headAdmin, "venue", venue)).toEqual({ ok: false, error: "in_use" });
@@ -282,7 +285,7 @@ describe("有人報名的選項不能刪除", () => {
 
   // 報名紀錄要完整保留，已取消的報名選過的選項也不能默默消失。
   it("只有已取消的報名選過的午餐也不能刪除", async () => {
-    const venue = await saved({ kind: "venue", nameZh: "台北金華教堂" });
+    const venue = await saved({ kind: "venue", region: "north", nameZh: "台北金華教堂" });
     const lunch = await saved({ kind: "lunch", parentId: venue, nameZh: "便當" });
     await register(venue, { lunch_option_id: lunch, status: "cancelled" });
 
@@ -305,21 +308,21 @@ describe("報名開放後", () => {
   });
 
   it("不能新增或刪除場地", async () => {
-    const venue = await saved({ kind: "venue", nameZh: "台北金華教堂" });
+    const venue = await saved({ kind: "venue", region: "north", nameZh: "台北金華教堂" });
     await openRegistration();
 
-    expect(await save({ kind: "venue", nameZh: "台中大雅教堂" })).toEqual({ ok: false, error: "programme_locked" });
+    expect(await save({ kind: "venue", region: "north", nameZh: "台中大雅教堂" })).toEqual({ ok: false, error: "programme_locked" });
     expect(await deleteItem(headAdmin, "venue", venue)).toEqual({ ok: false, error: "programme_locked" });
-    expect(await save({ kind: "venue", id: venue, nameZh: "台北金華教堂（改名）" })).toEqual({ ok: true, id: venue });
+    expect(await save({ kind: "venue", region: "north", id: venue, nameZh: "台北金華教堂（改名）" })).toEqual({ ok: true, id: venue });
 
     // 由資料庫擋下，總管理員直接呼叫 API 也一樣。
-    const inserted = await headAdmin.from("venues").insert({ conference_id: conferenceId, name_zh: "台中大雅教堂" });
+    const inserted = await headAdmin.from("venues").insert({ region: "north", conference_id: conferenceId, name_zh: "台中大雅教堂" });
     const deleted = await headAdmin.from("venues").delete().eq("id", venue);
     expect([inserted.error?.message, deleted.error?.message]).toEqual(["programme_locked", "programme_locked"]);
   });
 
   it("不能刪除午餐與午后動態", async () => {
-    const venue = await saved({ kind: "venue", nameZh: "台北金華教堂" });
+    const venue = await saved({ kind: "venue", region: "north", nameZh: "台北金華教堂" });
     const lunch = await saved({ kind: "lunch", parentId: venue, nameZh: "便當" });
     const activity = await saved({ kind: "activity", parentId: venue, nameZh: "花圈" });
     await openRegistration();
@@ -354,7 +357,7 @@ describe("報名開放後", () => {
 
 describe("成對課程", () => {
   async function twoSessions() {
-    const venue = await saved({ kind: "venue", nameZh: "台北金華教堂" });
+    const venue = await saved({ kind: "venue", region: "north", nameZh: "台北金華教堂" });
     const first = await saved({ kind: "session", parentId: venue, nameZh: "第一場", position: "10" });
     const second = await saved({ kind: "session", parentId: venue, nameZh: "第二場", position: "20" });
     return {
@@ -422,7 +425,7 @@ describe("成對課程", () => {
   it("不能把別的場地的場次搬進成對的兩個場次中間", async () => {
     const { venue, upper, lower } = await twoSessions();
     expect(await addCoursePair(headAdmin, conferenceId!, upper, lower)).toEqual({ ok: true });
-    const other = await saved({ kind: "venue", nameZh: "台中大雅教堂" });
+    const other = await saved({ kind: "venue", region: "north", nameZh: "台中大雅教堂" });
     const between = await saved({ kind: "session", parentId: other, nameZh: "大雅的場次", position: "15" });
     await saved({ kind: "course", parentId: between, nameZh: "插花" });
 
@@ -524,20 +527,22 @@ describe("教室只有後台看得到", () => {
     expect(JSON.stringify((await visitor.from("courses").select("*")).data)).not.toContain("秘密教室");
   });
 
-  it("支聯會承辦讀不到教室；教堂承辦讀不到別的場地的教室", async () => {
+  it("課務組讀得到該區教堂的教室、讀不到別區的；報報組讀不到教室", async () => {
     const { course } = await venueWithCourse();
-    await saved({ kind: "course", id: course, nameZh: "家譜入門", classroom: "秘密教室 301" });
+    await saved({ kind: "course", id: course, nameZh: "家譜入門", classroom: "北區教室 301" });
+    const central = await saved({ kind: "venue", region: "central", nameZh: "台中大雅教堂" });
+    const session = await saved({ kind: "session", parentId: central, nameZh: "第一場" });
+    await saved({ kind: "course", parentId: session, nameZh: "插花", classroom: "中區教室 101" });
 
-    for (const client of [stakeStaff, venueStaff]) {
-      expect(must(await client.from("course_classrooms").select("classroom"))).toEqual([]);
-    }
+    expect(must(await courseTeam.from("course_classrooms").select("classroom"))).toEqual([{ classroom: "北區教室 301" }]);
+    expect(must(await registrationTeam.from("course_classrooms").select("classroom"))).toEqual([]);
   });
 });
 
 describe("只有總管理員能編輯", () => {
   it.each([
-    ["教堂承辦", () => venueStaff],
-    ["支聯會承辦", () => stakeStaff],
+    ["課務組", () => courseTeam],
+    ["報報組", () => registrationTeam],
     ["前台訪客", () => anonClient()],
   ])("%s透過後台服務改不了", async (_, client) => {
     const { venue, course } = await venueWithCourse();
@@ -551,8 +556,8 @@ describe("只有總管理員能編輯", () => {
 
   // 權限由資料庫強制（ADR 0004），直接呼叫 API 也一樣。
   it.each([
-    ["教堂承辦", () => venueStaff],
-    ["支聯會承辦", () => stakeStaff],
+    ["課務組", () => courseTeam],
+    ["報報組", () => registrationTeam],
     ["前台訪客", () => anonClient()],
   ])("%s直接呼叫 API 也新增、修改、刪除不了", async (_, client) => {
     const { venue, session, course } = await venueWithCourse();
@@ -560,7 +565,7 @@ describe("只有總管理員能編輯", () => {
     const db = client();
 
     const inserts = await Promise.all([
-      db.from("venues").insert({ conference_id: conferenceId, name_zh: "新教堂" }),
+      db.from("venues").insert({ region: "north", conference_id: conferenceId, name_zh: "新教堂" }),
       db.from("sessions").insert({ conference_id: conferenceId, venue_id: venue, name_zh: "新場次" }),
       db.from("courses").insert({ conference_id: conferenceId, session_id: session, title_zh: "新課" }),
       db.from("lunch_options").insert({ conference_id: conferenceId, venue_id: venue, name_zh: "新便當" }),

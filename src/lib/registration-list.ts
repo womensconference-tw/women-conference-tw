@@ -3,7 +3,7 @@ import { normalizePhone, trimBlank } from "./registration";
 
 /*
  * 後台報名名單（ADR 0004）：用登入的工作人員身分直接讀報名資料表，
- * 讀得到哪些由資料庫的權限規則決定（總管理員全部、教堂承辦自己的場地、支聯會承辦自己的支聯會）。
+ * 讀得到哪些由資料庫的權限規則決定（總管理員與全區的報報組全部；課務組報名該區教堂的；報報組另加該區支聯會報名別區教堂的）。
  */
 
 export type RegistrationStatus = "registered" | "cancelled";

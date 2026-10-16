@@ -5,6 +5,7 @@ import {
   addStaffMember,
   removeStaffMember,
   updateStaffMember,
+  type Region,
   type StaffResult,
   type StaffRole,
   type StaffScope,
@@ -31,7 +32,7 @@ export async function updateMember(formData: FormData) {
   const scope = scopeFrom(formData);
   const me = await getCurrentStaff();
   const result = await updateStaffMember(await createClient(), { userId, ...scope });
-  // 總管理員把自己改成承辦人員後，就看不到這一頁了，回後台首頁。
+  // 總管理員把自己改成課務組或報報組後，就看不到這一頁了，回後台首頁。
   if (result.ok && userId === me?.userId && scope.role !== "admin") redirect("/staff");
   done(result, "updated");
 }
@@ -44,15 +45,11 @@ export async function removeMember(formData: FormData) {
   done(result, "removed");
 }
 
-// 表單同時有場地與支聯會兩個選單，只取角色用得到的那一個。不認得的角色照送，由資料庫擋下。
+// 總管理員不分區，選了也不送。不認得的角色或區照送，由資料庫擋下。
 function scopeFrom(formData: FormData): StaffScope {
   const role = String(formData.get("role") ?? "") as StaffRole;
-  const pick = (name: string) => String(formData.get(name) ?? "") || null;
-  return {
-    role,
-    venueId: role === "venue_staff" ? pick("venueId") : null,
-    stakeId: role === "stake_staff" ? pick("stakeId") : null,
-  };
+  const region = (String(formData.get("region") ?? "") || null) as Region | null;
+  return { role, region: role === "admin" ? null : region };
 }
 
 function done(result: StaffResult, success: string): never {

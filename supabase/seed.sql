@@ -36,13 +36,13 @@ insert into public.conferences (
 
 -- 場地也在開放報名前定案；假資料的年度已在報名中，建立時暫時關掉這條限制。
 alter table public.venues disable trigger venues_locked_after_opening;
-insert into public.venues (conference_id, position, name_zh, name_en, address_zh, address_en, features_zh, features_en)
-select id, v.position, v.name_zh, v.name_en, v.address_zh, v.address_en, v.features_zh, v.features_en
+insert into public.venues (conference_id, position, region, name_zh, name_en, address_zh, address_en, features_zh, features_en)
+select id, v.position, v.region, v.name_zh, v.name_en, v.address_zh, v.address_en, v.features_zh, v.features_en
 from public.conferences, (values
-  (1, '台北金華教堂', 'Taipei Jinhua Chapel', '台北市大安區金華街 183 號', 'No. 183, Jinhua St., Da''an Dist., Taipei', '另有午后動態；鄰近捷運東門站', 'Afternoon activities available; near MRT Dongmen Station'),
-  (2, '台中大雅教堂', 'Taichung Daya Chapel', '台中市大雅區', 'Daya Dist., Taichung', '停車位充足', 'Plenty of parking'),
-  (3, '高雄鳥松教堂', 'Kaohsiung Niaosong Chapel', '高雄市鳥松區', 'Niaosong Dist., Kaohsiung', '無障礙設施完善', '')
-) as v(position, name_zh, name_en, address_zh, address_en, features_zh, features_en)
+  (1, 'north', '台北金華教堂', 'Taipei Jinhua Chapel', '台北市大安區金華街 183 號', 'No. 183, Jinhua St., Da''an Dist., Taipei', '另有午后動態；鄰近捷運東門站', 'Afternoon activities available; near MRT Dongmen Station'),
+  (2, 'central', '台中大雅教堂', 'Taichung Daya Chapel', '台中市大雅區', 'Daya Dist., Taichung', '停車位充足', 'Plenty of parking'),
+  (3, 'south', '高雄鳥松教堂', 'Kaohsiung Niaosong Chapel', '高雄市鳥松區', 'Niaosong Dist., Kaohsiung', '無障礙設施完善', '')
+) as v(position, region, name_zh, name_en, address_zh, address_en, features_zh, features_en)
 where year = 2027;
 alter table public.venues enable trigger venues_locked_after_opening;
 
@@ -64,12 +64,12 @@ from public.conferences, (values
 where year = 2027;
 
 -- 支聯會、支會名單（假資料，正式名單由後台維護）。最後一個支聯會已停用，報名表上不會出現。
-insert into public.stakes (position, name_zh, name_en, is_active) values
-  (1, '台北支聯會', 'Taipei Stake', true),
-  (2, '台北西支聯會', 'Taipei West Stake', true),
-  (3, '台中支聯會', 'Taichung Stake', true),
-  (4, '高雄支聯會', 'Kaohsiung Stake', true),
-  (5, '舊台北東支聯會', 'Former Taipei East Stake', false);
+insert into public.stakes (position, region, name_zh, name_en, is_active) values
+  (1, 'north', '台北支聯會', 'Taipei Stake', true),
+  (2, 'north', '台北西支聯會', 'Taipei West Stake', true),
+  (3, 'central', '台中支聯會', 'Taichung Stake', true),
+  (4, 'south', '高雄支聯會', 'Kaohsiung Stake', true),
+  (5, 'north', '舊台北東支聯會', 'Former Taipei East Stake', false);
 
 insert into public.wards (stake_id, position, name_zh, name_en, is_active)
 select s.id, w.position, w.name_zh, w.name_en, w.is_active

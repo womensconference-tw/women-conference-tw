@@ -49,6 +49,7 @@ describe("首頁內容", () => {
       await admin.from("venues").insert([
         {
           conference_id: currentId,
+          region: "north",
           position: 2,
           name_zh: "高雄鳥松教堂",
           address_zh: "高雄市鳥松區",
@@ -56,12 +57,13 @@ describe("首頁內容", () => {
         },
         {
           conference_id: currentId,
+          region: "north",
           position: 1,
           name_zh: "台北金華教堂",
           address_zh: "台北市大安區金華街",
           features_zh: "另有午后動態",
         },
-        { conference_id: pastId, position: 0, name_zh: "去年的場地" },
+        { region: "north", conference_id: pastId, position: 0, name_zh: "去年的場地" },
       ], { defaultToNull: false }),
     );
 
@@ -209,7 +211,7 @@ describe("首頁內容", () => {
 
   // 直接讀資料表也一樣，不是只靠查詢條件過濾。
   it.each([
-    { table: "venues", row: { name_zh: "場地" } },
+    { table: "venues", row: { region: "north", name_zh: "場地" } },
     { table: "faqs", row: { question_zh: "問題", answer_zh: "回答" } },
     { table: "custom_blocks", row: { title_zh: "區塊" } },
   ])("匿名訪客讀不到不是目前年度的 $table", async ({ table, row }) => {
@@ -262,7 +264,7 @@ describe("首頁內容", () => {
 
   // 只有空白、tab 或換行的文字，畫面上會變成看不見的標題或按鈕。
   it.each([
-    { table: "venues", row: { name_zh: "\n\t " } },
+    { table: "venues", row: { region: "north", name_zh: "\n\t " } },
     { table: "faqs", row: { question_zh: "\n", answer_zh: "回答" } },
     { table: "faqs", row: { question_zh: "問題", answer_zh: "\t" } },
     { table: "custom_blocks", row: { title_zh: "\n" } },
