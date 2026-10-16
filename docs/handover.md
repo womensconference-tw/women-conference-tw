@@ -15,8 +15,8 @@
 | Supabase | 正式資料庫 | 以官方 GitHub 帳號登入 | 資料庫密碼在 Google Sheet |
 | 官方 Gmail 應用程式密碼 | Supabase 用官方 Gmail 寄後台登入信（Authentication → Emails → SMTP Settings） | 在官方 Gmail 的 [應用程式密碼](https://myaccount.google.com/apppasswords) 頁面產生 | Google Sheet |
 | GitHub Actions secrets | 防暫停 workflow 用的 `SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY` | repo Settings → Secrets | 不需要（兩個值都可以從 Supabase 後台再查） |
-| Cloudflare | 網域 `taiwanwomensconference.org` 的註冊與 DNS | 以官方 Gmail 登入 | Google Sheet（網域到期日、續約負責人、付款經費也記在這裡） |
-| Resend | 寄報名確認信，寄件人 `noreply@taiwanwomensconference.org` | 以官方 Gmail 登入 | `RESEND_API_KEY` 在 Google Sheet（Vercel 環境變數 `RESEND_API_KEY`、`EMAIL_FROM`） |
+| Cloudflare | 網域 `taiwanwomensconference.org` 的註冊與 DNS | 以官方 GitHub 帳號登入 | Google Sheet（網域到期日、續約負責人、付款經費也記在這裡） |
+| Resend | 寄報名確認信，寄件人 `noreply@taiwanwomensconference.org` | 以官方 GitHub 帳號登入 | `RESEND_API_KEY` 在 Google Sheet（Vercel 環境變數 `RESEND_API_KEY`、`EMAIL_FROM`） |
 
 正式網址是 `https://www.taiwanwomensconference.org`，沒有 www 的網址會自動轉過去。舊網址 `women-conference-tw.vercel.app` 仍然可以用。
 
@@ -40,10 +40,10 @@ Cloudflare 的 DNS 紀錄（Vercel 與 Resend 驗證用的）全部保持 **DNS 
 
 ### 3. 移交 Cloudflare 與 Resend
 
-兩個都以官方 Gmail 登入，換了官方 Gmail 就跟著換手，只要確認：
+兩個都以官方 GitHub 帳號登入，移交了官方 GitHub 帳號就跟著換手，只要確認：
 
-- [ ] 用官方 Gmail 登入 Cloudflare，確認網域還在、開著自動續約；看 Google Sheet 上的到期日，確認續約的付款方式還有效、續約負責人和付款經費改成這一屆的
-- [ ] 用官方 Gmail 登入 Resend，確認網域還是 Verified
+- [ ] 用官方 GitHub 帳號登入 Cloudflare，確認網域還在、開著自動續約；看 Google Sheet 上的到期日，確認續約的付款方式還有效、續約負責人和付款經費改成這一屆的
+- [ ] 用官方 GitHub 帳號登入 Resend，確認網域還是 Verified
 
 ### 4. 確認服務都還正常
 
