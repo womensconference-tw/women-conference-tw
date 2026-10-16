@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -9,24 +9,25 @@ import { buttonClass } from "./ui";
 /**
  * 上一個動作的結果，用跳出的視窗顯示，按「確定」（或 Esc）關掉。
  * 關掉時把網址的 `?done=`、`?error=` 拿掉，重新整理或按上一頁才不會再跳一次。
+ * 用瀏覽器的 history.replaceState 改網址（Next.js 會同步 useSearchParams），不像 router.replace 會重新向伺服器要整頁資料。
+ * 因為頁面沒有重新載入，這個元件會留著；所以依網址上的代碼決定要不要打開：
+ * 再做一次同樣的動作時，網址又出現同一個代碼，視窗再打開一次。
  */
 export function ResultDialog({ kind, message }: { kind: "done" | "error"; message: string }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const code = searchParams.get(kind);
 
   useEffect(() => {
     const dialog = ref.current;
-    if (dialog && !dialog.open) dialog.showModal();
-  }, [message]);
+    if (code && dialog && !dialog.open) dialog.showModal();
+  }, [code]);
 
   function cleanUrl() {
-    const params = new URLSearchParams(searchParams);
-    params.delete("done");
-    params.delete("error");
-    const query = params.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    const url = new URL(window.location.href);
+    url.searchParams.delete("done");
+    url.searchParams.delete("error");
+    window.history.replaceState(window.history.state, "", url);
   }
 
   return (
