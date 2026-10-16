@@ -11,7 +11,8 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { getCurrentStaff } from "../../current-staff";
-import { alertClass, buttonClass, formatTime, inputClass, noticeClass } from "../../ui";
+import { ResultMessage } from "../../result-message";
+import { buttonClass, formatTime, inputClass } from "../../ui";
 import { addMember, removeMember, updateMember } from "./actions";
 
 export const metadata: Metadata = { title: "工作人員帳號" };
@@ -60,23 +61,10 @@ export default async function StaffMembersPage({ searchParams }: PageProps<"/sta
     label: stake.is_active ? stake.name_zh : `${stake.name_zh}（已停用）`,
   }));
 
-  const { done, error } = await searchParams;
-  const doneMessage = typeof done === "string" ? DONE[done] : undefined;
-  const errorMessage = typeof error === "string" ? ERRORS[error] : undefined;
-
   return (
     <main className="flex flex-col gap-8">
       <h1 className="text-2xl font-bold">工作人員帳號</h1>
-      {doneMessage && (
-        <p role="status" className={noticeClass}>
-          {doneMessage}
-        </p>
-      )}
-      {errorMessage && (
-        <p role="alert" className={alertClass}>
-          {errorMessage}
-        </p>
-      )}
+      <ResultMessage searchParams={searchParams} done={DONE} errors={ERRORS} />
 
       <section className="flex flex-col gap-3 rounded-lg border-2 border-card-outline p-4">
         <h2 className="text-xl font-bold">新增工作人員</h2>

@@ -33,7 +33,8 @@ beforeEach(async () => {
         year: 2099,
         conference_date: "2099-05-15",
         announce_at: new Date(now - 2 * DAY).toISOString(),
-        registration_opens_at: new Date(now - DAY).toISOString(),
+        // 場地要在開放前建好（venues_locked_after_opening），建好後才開放。
+        registration_opens_at: new Date(now + DAY / 2).toISOString(),
         registration_closes_at: new Date(now + DAY).toISOString(),
         is_current: true,
       })
@@ -52,6 +53,12 @@ beforeEach(async () => {
       .select("id, position")
       .order("position"),
   ).map((venue) => venue.id);
+  must(
+    await admin
+      .from("conferences")
+      .update({ registration_opens_at: new Date(now - DAY).toISOString() })
+      .eq("id", conference.id),
+  );
 
   [taipeiStakeId, taichungStakeId] = must(
     await admin

@@ -913,7 +913,7 @@ describe("成對課程", () => {
   });
 });
 
-// 午餐、午后動態屬於場地；可以在報名期間新增，所以不必在開放前建好。
+// 午餐、午后動態屬於場地；和場次、課程一樣只能在開放報名前建立（ADR 0004），所以每個測試先建好，送出時才開放報名。
 async function addLunch(capacity: number | null, venue = venueId, name = "葷食便當") {
   return must(
     await admin
@@ -1181,7 +1181,8 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
 
     const { error } = await admin.from("lunch_options").delete().eq("id", lunch);
 
-    expect(error).not.toBeNull();
+    // 報名開放後刪除也會被擋（programme_locked），這裡要確認擋下的是報名的外鍵。
+    expect(error?.code).toBe("23503");
   });
 });
 
@@ -1291,11 +1292,13 @@ describe("開放報名後的場次與課程", () => {
   let sessionId: string;
   let otherSessionId: string;
   let courseId: string;
+  let otherVenueId: string;
 
   beforeEach(async () => {
     sessionId = await addSession(1);
     otherSessionId = await addSession(2);
     courseId = await addCourse(sessionId, 10);
+    otherVenueId = await addVenue();
     await openRegistration();
   });
 
@@ -1318,16 +1321,7 @@ describe("開放報名後的場次與課程", () => {
     ],
     [
       "把場次移到別的場地",
-      async () => {
-        const otherVenue = must(
-          await admin
-            .from("venues")
-            .insert({ conference_id: conferenceId, name_zh: "台中大雅教堂" })
-            .select("id")
-            .single(),
-        ).id;
-        return admin.from("sessions").update({ venue_id: otherVenue }).eq("id", sessionId);
-      },
+      () => admin.from("sessions").update({ venue_id: otherVenueId }).eq("id", sessionId),
     ],
   ])("%s被拒絕", async (_, change) => {
     const { error } = await change();
