@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { sendSignInLink, signOut } from "../actions";
 import { getCurrentStaff } from "../current-staff";
 import { alertClass, buttonClass, inputClass, noticeClass } from "../ui";
+import { SubmitButton } from "../submit-button";
 
 export const metadata: Metadata = { title: "登入" };
 
@@ -33,7 +34,9 @@ export default async function StaffLoginPage({ searchParams }: PageProps<"/staff
         <>
           <p className={alertClass}>{ERRORS.not_staff}</p>
           <form action={signOut}>
-            <button className={cn(buttonVariants({ variant: "outline" }), buttonClass)}>登出</button>
+            <SubmitButton pendingLabel="登出中…" className={cn(buttonVariants({ variant: "outline" }), buttonClass)}>
+              登出
+            </SubmitButton>
           </form>
         </>
       ) : sent ? (
@@ -51,7 +54,9 @@ export default async function StaffLoginPage({ searchParams }: PageProps<"/staff
             Email
           </label>
           <input id="email" name="email" type="email" autoComplete="email" required className={inputClass} />
-          <button className={cn(buttonVariants(), buttonClass, "font-bold")}>寄登入連結</button>
+          <SubmitButton pendingLabel="寄送中…" className={cn(buttonVariants(), buttonClass, "font-bold")}>
+            寄登入連結
+          </SubmitButton>
           <p className="text-sm text-muted-foreground">後台帳號由總管理員新增，不能自行註冊。</p>
         </form>
       )}

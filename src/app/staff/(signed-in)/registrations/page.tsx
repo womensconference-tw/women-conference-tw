@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { getCurrentStaff } from "../../current-staff";
 import { buttonClass, formatTime, inputClass } from "../../ui";
+import { SubmitButton } from "../../submit-button";
 
 export const metadata: Metadata = { title: "報名名單" };
 
@@ -28,7 +29,9 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
           <span className="font-semibold">姓名、電話或報名編號</span>
           <input name="q" type="search" defaultValue={query} autoComplete="off" className={inputClass} />
         </label>
-        <button className={cn(buttonVariants(), buttonClass, "font-bold")}>搜尋</button>
+        <SubmitButton navigates pendingLabel="搜尋中…" className={cn(buttonVariants(), buttonClass, "font-bold")}>
+          搜尋
+        </SubmitButton>
       </form>
 
       <p role="status">

@@ -73,7 +73,7 @@ describe("工作人員帳號", () => {
     addStaffMember({ session, authAdmin: admin }, input);
 
   it("總管理員新增課務組後，她可以用那個 Email 登入，角色與負責的區都對", async () => {
-    const result = await add(headAdmin, { email: "Course@Example.com ", role: "course_team", region: "central" });
+    const result = await add(headAdmin, { email: "Course@Example.com ", name: "測試姊妹", role: "course_team", region: "central" });
     expect(result).toEqual({ ok: true });
 
     const course = await signedInClient("course@example.com");
@@ -88,11 +88,59 @@ describe("工作人員帳號", () => {
     ]);
   });
 
+  it("名字由總管理員填，前後空白去掉；登入後看得到自己的名字", async () => {
+    await add(headAdmin, { email: "lin@example.com", name: "  林姊妹 ", role: "course_team", region: "north" });
+
+    expect(await getStaffMember(await signedInClient("lin@example.com"))).toMatchObject({ name: "林姊妹" });
+    const userId = (await listStaffMembers(headAdmin)).find((member) => member.email === "lin@example.com")!.userId;
+    expect(
+      await updateStaffMember(headAdmin, { userId, name: "林春妙", role: "course_team", region: "north" }),
+    ).toEqual({ ok: true });
+    expect((await listStaffMembers(headAdmin)).find((member) => member.userId === userId)?.name).toBe("林春妙");
+  });
+
+  it.each([
+    ["空白", "  "],
+    ["超過 50 個字", "林".repeat(51)],
+  ])("名字%s時不能新增或修改", async (_, name) => {
+    expect(await add(headAdmin, { email: "noname@example.com", name, role: "admin", region: null })).toEqual({
+      ok: false,
+      error: "name_invalid",
+    });
+    const { data } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    expect(data.users.map((user) => user.email)).not.toContain("noname@example.com");
+
+    const userId = (await getStaffMember(headAdmin))!.userId;
+    expect(await updateStaffMember(headAdmin, { userId, name, role: "admin", region: null })).toEqual({
+      ok: false,
+      error: "name_invalid",
+    });
+    // 直接呼叫資料庫函式也一樣。
+    const direct = await headAdmin.rpc("update_staff_member", {
+      p_user_id: userId,
+      p_name: name,
+      p_role: "admin",
+      p_region: null,
+    });
+    expect(direct.error?.message).toBe("name_invalid");
+  });
+
+  it("課務組、報報組不能自己改名字", async () => {
+    await add(headAdmin, { email: "self@example.com", name: "原本的名字", role: "registration_team", region: null });
+    const self = await signedInClient("self@example.com");
+    const userId = (await getStaffMember(self))!.userId;
+
+    await self.from("staff_members").update({ name: "自己改的" }).eq("user_id", userId);
+    await self.rpc("update_staff_member", { p_user_id: userId, p_name: "自己改的", p_role: "registration_team", p_region: null });
+
+    expect(await getStaffMember(self)).toMatchObject({ name: "原本的名字" });
+  });
+
   it("報報組可以負責一區或全區", async () => {
-    expect(await add(headAdmin, { email: "north@example.com", role: "registration_team", region: "north" })).toEqual({
+    expect(await add(headAdmin, { email: "north@example.com", name: "測試姊妹", role: "registration_team", region: "north" })).toEqual({
       ok: true,
     });
-    expect(await add(headAdmin, { email: "all@example.com", role: "registration_team", region: null })).toEqual({
+    expect(await add(headAdmin, { email: "all@example.com", name: "測試姊妹", role: "registration_team", region: null })).toEqual({
       ok: true,
     });
 
@@ -111,10 +159,10 @@ describe("工作人員帳號", () => {
   });
 
   it("課務組、報報組不能新增工作人員，也不會因此多出登入帳號", async () => {
-    await add(headAdmin, { email: "report@example.com", role: "registration_team", region: null });
+    await add(headAdmin, { email: "report@example.com", name: "測試姊妹", role: "registration_team", region: null });
     const report = await signedInClient("report@example.com");
 
-    const result = await add(report, { email: "friend@example.com", role: "admin", region: null });
+    const result = await add(report, { email: "friend@example.com", name: "測試姊妹", role: "admin", region: null });
 
     expect(result).toEqual({ ok: false, error: "not_admin" });
     const { data } = await admin.auth.admin.listUsers({ perPage: 1000 });
@@ -127,7 +175,7 @@ describe("工作人員帳號", () => {
     ["總管理員選了區", { role: "admin", region: "north" }],
     ["不認得的區", { role: "registration_team", region: "east" }],
   ] as const)("角色和負責範圍不相符時不能新增，也不留下登入帳號：%s", async (_, scope) => {
-    const result = await add(headAdmin, { email: "wrong@example.com", ...(scope as StaffScope) });
+    const result = await add(headAdmin, { email: "wrong@example.com", name: "測試姊妹", ...(scope as StaffScope) });
 
     expect(result).toEqual({ ok: false, error: "scope_invalid" });
     const { data } = await admin.auth.admin.listUsers({ perPage: 1000 });
@@ -142,6 +190,7 @@ describe("工作人員帳號", () => {
     ]) {
       const { error } = await headAdmin.rpc("add_staff_member", {
         p_email: "head@example.com",
+        p_name: "測試姊妹",
         p_role: role,
         p_region: region,
       });
@@ -150,19 +199,19 @@ describe("工作人員帳號", () => {
   });
 
   it("同一個 Email 不能新增兩次", async () => {
-    await add(headAdmin, { email: "twice@example.com", role: "registration_team", region: "south" });
+    await add(headAdmin, { email: "twice@example.com", name: "測試姊妹", role: "registration_team", region: "south" });
 
-    expect(await add(headAdmin, { email: "twice@example.com", role: "admin", region: null })).toEqual({
+    expect(await add(headAdmin, { email: "twice@example.com", name: "測試姊妹", role: "admin", region: null })).toEqual({
       ok: false,
       error: "already_staff",
     });
   });
 
   it("總管理員可以改工作人員的角色與負責範圍", async () => {
-    await add(headAdmin, { email: "move@example.com", role: "registration_team", region: null });
+    await add(headAdmin, { email: "move@example.com", name: "測試姊妹", role: "registration_team", region: null });
     const userId = (await listStaffMembers(headAdmin)).find((member) => member.email === "move@example.com")!.userId;
 
-    expect(await updateStaffMember(headAdmin, { userId, role: "course_team", region: "south" })).toEqual({
+    expect(await updateStaffMember(headAdmin, { userId, name: "測試姊妹", role: "course_team", region: "south" })).toEqual({
       ok: true,
     });
 
@@ -173,7 +222,7 @@ describe("工作人員帳號", () => {
   });
 
   it("移除工作人員後，她的登入帳號也一起刪除，不能再登入", async () => {
-    await add(headAdmin, { email: "leaving@example.com", role: "registration_team", region: "north" });
+    await add(headAdmin, { email: "leaving@example.com", name: "測試姊妹", role: "registration_team", region: "north" });
     const leaving = await signedInClient("leaving@example.com");
     const userId = (await getStaffMember(leaving))!.userId;
 
@@ -192,7 +241,7 @@ describe("工作人員帳號", () => {
       ok: false,
       error: "last_admin",
     });
-    expect(await updateStaffMember(headAdmin, { userId, role: "course_team", region: "north" })).toEqual({
+    expect(await updateStaffMember(headAdmin, { userId, name: "測試姊妹", role: "course_team", region: "north" })).toEqual({
       ok: false,
       error: "last_admin",
     });
@@ -200,13 +249,13 @@ describe("工作人員帳號", () => {
   });
 
   it("課務組、報報組不能直接寫入工作人員名單把自己升成總管理員或改成全區", async () => {
-    await add(headAdmin, { email: "sneaky@example.com", role: "course_team", region: "north" });
+    await add(headAdmin, { email: "sneaky@example.com", name: "測試姊妹", role: "course_team", region: "north" });
     const sneaky = await signedInClient("sneaky@example.com");
     const userId = (await getStaffMember(sneaky))!.userId;
 
     await sneaky.from("staff_members").update({ role: "admin", region: null }).eq("user_id", userId);
     await sneaky.from("staff_members").update({ role: "registration_team", region: null }).eq("user_id", userId);
-    await sneaky.rpc("update_staff_member", { p_user_id: userId, p_role: "admin", p_region: null });
+    await sneaky.rpc("update_staff_member", { p_user_id: userId, p_name: "測試", p_role: "admin", p_region: null });
 
     expect(await getStaffMember(sneaky)).toMatchObject({ role: "course_team", region: "north" });
   });
@@ -219,7 +268,7 @@ describe("工作人員帳號", () => {
   });
 
   it("訪客、課務組、報報組不能直接呼叫工作人員的內部檢查", async () => {
-    await add(headAdmin, { email: "probe@example.com", role: "registration_team", region: null });
+    await add(headAdmin, { email: "probe@example.com", name: "測試姊妹", role: "registration_team", region: null });
     const probe = await signedInClient("probe@example.com");
 
     for (const client of [anonClient(), probe]) {
@@ -280,7 +329,7 @@ describe("工作人員帳號", () => {
   }
 
   it("正在被移除的總管理員，不能趁移除還沒完成時把自己加回去", async () => {
-    await add(headAdmin, { email: "second@example.com", role: "admin", region: null });
+    await add(headAdmin, { email: "second@example.com", name: "測試姊妹", role: "admin", region: null });
     const second = await signedInClient("second@example.com");
     const headId = (await getStaffMember(headAdmin))!.userId;
     const secondId = (await getStaffMember(second))!.userId;
@@ -296,6 +345,7 @@ describe("工作人員帳號", () => {
         second.rpc("add_staff_member", {
           p_email: "second@example.com",
           p_role: "admin",
+          p_name: "測試姊妹",
           p_region: null,
         }),
     );
@@ -315,6 +365,7 @@ describe("工作人員帳號", () => {
         headAdmin.rpc("add_staff_member", {
           p_email: "pending@example.com",
           p_role: "admin",
+          p_name: "測試姊妹",
           p_region: null,
         }),
     );
@@ -331,7 +382,7 @@ describe("工作人員帳號", () => {
       async (tx) => {
         await tx`set local role authenticated`;
         await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: headId, role: "authenticated" })}, true)`;
-        await tx`select public.add_staff_member('pending@example.com', 'admin', null)`;
+        await tx`select public.add_staff_member('pending@example.com', '測試姊妹', 'admin', null)`;
       },
       () => admin.auth.admin.deleteUser(pending.id, true),
     );

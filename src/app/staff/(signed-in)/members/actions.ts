@@ -6,9 +6,9 @@ import {
   removeStaffMember,
   updateStaffMember,
   type Region,
+  type StaffProfile,
   type StaffResult,
   type StaffRole,
-  type StaffScope,
 } from "@/lib/staff";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -22,18 +22,18 @@ import { getCurrentStaff } from "../../current-staff";
 export async function addMember(formData: FormData) {
   const result = await addStaffMember(
     { session: await createClient(), authAdmin: createServiceClient() },
-    { email: String(formData.get("email") ?? ""), ...scopeFrom(formData) },
+    { email: String(formData.get("email") ?? ""), ...profileFrom(formData) },
   );
   done(result, "added");
 }
 
 export async function updateMember(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
-  const scope = scopeFrom(formData);
+  const profile = profileFrom(formData);
   const me = await getCurrentStaff();
-  const result = await updateStaffMember(await createClient(), { userId, ...scope });
+  const result = await updateStaffMember(await createClient(), { userId, ...profile });
   // 總管理員把自己改成課務組或報報組後，就看不到這一頁了，回後台首頁。
-  if (result.ok && userId === me?.userId && scope.role !== "admin") redirect("/staff");
+  if (result.ok && userId === me?.userId && profile.role !== "admin") redirect("/staff");
   done(result, "updated");
 }
 
@@ -45,11 +45,11 @@ export async function removeMember(formData: FormData) {
   done(result, "removed");
 }
 
-// 總管理員不分區，選了也不送。不認得的角色或區照送，由資料庫擋下。
-function scopeFrom(formData: FormData): StaffScope {
+// 總管理員不分區，送來了也不用。不認得的角色或區照送，由資料庫擋下。
+function profileFrom(formData: FormData): StaffProfile {
   const role = String(formData.get("role") ?? "") as StaffRole;
   const region = (String(formData.get("region") ?? "") || null) as Region | null;
-  return { role, region: role === "admin" ? null : region };
+  return { name: String(formData.get("name") ?? ""), role, region: role === "admin" ? null : region };
 }
 
 function done(result: StaffResult, success: string): never {
