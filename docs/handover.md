@@ -13,10 +13,9 @@
 | GitHub `womensconferencetw` | 組織 `womensconference-tw` 的永久 Owner | 以官方 Gmail 註冊 | Google Sheet |
 | Vercel | 部署網站 | 以官方 GitHub 帳號登入 | 不需要（環境變數在 Vercel 後台；`SUPABASE_SECRET_KEY` 可以從 Supabase 後台再查） |
 | Supabase | 正式資料庫 | 以官方 GitHub 帳號登入 | 資料庫密碼在 Google Sheet |
-| 官方 Gmail 應用程式密碼 | Supabase 用官方 Gmail 寄後台登入信（Authentication → Emails → SMTP Settings） | 在官方 Gmail 的 [應用程式密碼](https://myaccount.google.com/apppasswords) 頁面產生 | Google Sheet |
 | GitHub Actions secrets | 防暫停 workflow 用的 `SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY` | repo Settings → Secrets | 不需要（兩個值都可以從 Supabase 後台再查） |
 | Cloudflare | 網域 `taiwanwomensconference.org` 的註冊與 DNS | 以官方 GitHub 帳號登入 | Google Sheet（網域到期日、續約負責人、付款經費也記在這裡） |
-| Resend | 寄報名確認信，寄件人 `noreply@taiwanwomensconference.org` | 以官方 GitHub 帳號登入 | `RESEND_API_KEY` 在 Google Sheet（Vercel 環境變數 `RESEND_API_KEY`、`EMAIL_FROM`） |
+| Resend | 寄報名確認信，也替 Supabase 寄後台登入信，寄件人都是 `noreply@taiwanwomensconference.org` | 以官方 GitHub 帳號登入 | 兩組 API key 都在 Google Sheet：網站用的 `RESEND_API_KEY`（Vercel 環境變數 `RESEND_API_KEY`、`EMAIL_FROM`），以及 Supabase 寄登入信用的 `supabase-login`（Supabase → Authentication → Emails → SMTP Settings 的 Password） |
 
 正式網址是 `https://www.taiwanwomensconference.org`，沒有 www 的網址會自動轉過去。舊網址 `women-conference-tw.vercel.app` 仍然可以用。
 
@@ -29,7 +28,6 @@ Cloudflare 的 DNS 紀錄（Vercel 與 Resend 驗證用的）全部保持 **DNS 
 - [ ] 前任把 Google Sheet 的位置告訴下一任
 - [ ] 下一任用備用碼登入官方 Gmail
 - [ ] 重設驗證器、救援電話、救援 Email，改成下一任自己的
-- [ ] 如果改了官方 Gmail 的密碼：應用程式密碼會一起失效，後台登入信就寄不出去。到 [應用程式密碼](https://myaccount.google.com/apppasswords) 刪掉舊的、產生新的，貼到 Supabase → Authentication → Emails → SMTP Settings 的 Password，並更新 Google Sheet
 - [ ] 產生新的備用碼，更新到 Google Sheet
 
 ### 2. 移交 GitHub 組織
@@ -75,7 +73,7 @@ bash scripts/setup-production.sh
 
 ## 出問題時
 
-- **工作人員收不到後台登入信**：先看垃圾郵件匣。再到 Supabase → Authentication → Emails → SMTP Settings 確認還開著自訂 SMTP；官方 Gmail 改過密碼的話，應用程式密碼已經失效，要重新產生一組貼上（見上面「移交官方 Gmail」）。Supabase 後台 Logs → Auth 可以看到寄信失敗的原因。
+- **工作人員收不到後台登入信**：先看垃圾郵件匣。再到 Resend 後台 Logs 看有沒有這封信、寄送結果是什麼；完全沒有紀錄的話，到 Supabase → Authentication → Emails → SMTP Settings 確認還開著自訂 SMTP，並到 Resend 後台 API Keys 確認 `supabase-login` 這組 key 還在（被刪掉或換過的話，產生一組新的、只能寄信的 key，貼到 SMTP Settings 的 Password，並更新 Google Sheet）。Supabase 後台 Logs → Auth 可以看到寄信失敗的原因。
 
 - **查詢報名一直顯示「系統暫時出了問題」**：看 Vercel 的環境變數 `SUPABASE_SECRET_KEY` 還在不在、是不是 Supabase 後台現在的 Secret key（換過 key 要一起更新，再重新部署）。
 - **報名者收不到確認信**：先請她看垃圾郵件匣。Supabase 後台 Table Editor → `email_logs` 看那一筆的寄送結果（`status`、`error`）；錯誤是 `RESEND_API_KEY or EMAIL_FROM not set` 就是 Vercel 少了這兩個環境變數。Resend 後台 Logs 也看得到每封信的狀態。
