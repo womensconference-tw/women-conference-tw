@@ -317,6 +317,33 @@ describe("寄確認信", () => {
     expect(log.finished_at).not.toBeNull();
   });
 
+  it("開始寄信前就出錯時，伺服器日誌也不記錯誤內容", async () => {
+    const failing = {
+      rpc: () => ({
+        abortSignal: async () => ({
+          data: null,
+          error: { code: "XX000", message: "xiaomei@example.com 王小美", details: "xiaomei@example.com" },
+        }),
+      }),
+    } as unknown as SupabaseClient;
+    const { sent, send } = fakeSender();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      expect(await sendConfirmationEmail(failing, "00000000-0000-0000-0000-000000000000", "registered", send)).toBe(
+        "failed",
+      );
+
+      const logged = JSON.stringify(consoleError.mock.calls);
+      expect(logged).not.toContain("xiaomei@example.com");
+      expect(logged).not.toContain("王小美");
+      expect(logged).toContain("XX000");
+    } finally {
+      consoleError.mockRestore();
+    }
+    expect(sent).toEqual([]);
+  });
+
   it("寫回寄送結果暫時失敗時重試，不重寄信", async () => {
     const registration = await registered();
     const server = serverClient();

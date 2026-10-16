@@ -69,8 +69,13 @@ export async function sendConfirmationEmail(
     result = await send({ to: registration.email, ...content });
   } catch (error) {
     if (!logId) {
-      // 還沒開始寄信、也沒有寄信紀錄：這裡的錯誤來自資料庫，不含信件內容。
-      console.error("confirmation email not started", { registrationId, kind, error });
+      // 還沒開始寄信、也沒有寄信紀錄。資料庫的錯誤訊息可能帶出報名資料，所以只記錯誤代碼。
+      const code = (error as { code?: unknown } | null)?.code;
+      console.error("confirmation email not started", {
+        registrationId,
+        kind,
+        code: typeof code === "string" ? code : error instanceof Error ? error.name : "unknown",
+      });
       return "failed";
     }
     result = { ok: false, error: error instanceof Error ? error.message : String(error) };
