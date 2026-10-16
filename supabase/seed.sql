@@ -128,8 +128,18 @@ join public.courses b on b.session_id = sb.id
 where a.title_zh = '婦女會手冊研習（上）' and b.title_zh = '婦女會手冊研習（下）';
 alter table public.course_pairs enable trigger course_pairs_checked;
 
+-- 教室是內部資料，只有後台看得到。
+insert into public.course_classrooms (course_id, classroom)
+select c.id, case c.position when 1 then '禮拜堂' when 2 then '文化廳' else c.position || '0' || s.position || ' 教室' end
+from public.courses c
+join public.sessions s on s.id = c.session_id;
+
 alter table public.sessions enable trigger sessions_locked_after_opening;
 alter table public.courses enable trigger courses_locked_after_opening;
+
+-- 午餐、午后動態也在開放報名前定案，建立時同樣暫時關掉限制。
+alter table public.lunch_options disable trigger lunch_options_locked_after_opening;
+alter table public.afternoon_activities disable trigger afternoon_activities_locked_after_opening;
 
 -- 每個場地各自的午餐，有的限量、有的不限。金華教堂的素食便當只有 1 份，下面的假報名會訂走。
 insert into public.lunch_options (conference_id, venue_id, position, name_zh, name_en, description_zh, description_en, capacity)
@@ -149,6 +159,9 @@ from public.venues v, (values
   (2, '聖殿巡禮', 'Temple grounds walk', '14:30–16:00，步行約 20 分鐘', '14:30–16:00, about a 20-minute walk', 30)
 ) as a(position, title_zh, title_en, description_zh, description_en, capacity)
 where v.name_zh = '台北金華教堂';
+
+alter table public.lunch_options enable trigger lunch_options_locked_after_opening;
+alter table public.afternoon_activities enable trigger afternoon_activities_locked_after_opening;
 
 -- 一筆假報名，佔掉金華教堂「家譜入門」（容量 1）唯一的名額，選課畫面會顯示「已額滿」；
 -- 也訂走唯一一份素食便當。

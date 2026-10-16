@@ -1,0 +1,389 @@
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { trimBlank, UUID_PATTERN } from "./registration";
+
+/*
+ * 後台編輯目前年度的場地、場次、課程、成對課程、午餐與午后動態（#22）。
+ * 只有總管理員能寫入，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
+ * 報名開放後不能新增、刪除、換時段，有人選過的選項不能刪除，都由資料庫擋下，這裡把錯誤轉成代碼。
+ * 只有場地的新增、刪除是在這裡擋：場地只有總管理員能改，而且資料庫若也擋，
+ * 測試與 seed 就不能在已開放的年度建場地。
+ */
+
+/** 可以新增、修改、刪除的項目：場地、場次、課程、午餐、午后動態。 */
+export const ITEM_KINDS = ["venue", "session", "course", "lunch", "activity"] as const;
+export type ItemKind = (typeof ITEM_KINDS)[number];
+
+/** 每種項目存在哪張表、名稱與上層欄位叫什麼。上層：場次屬於場地、課程屬於場次、午餐與午后動態屬於場地。 */
+const ITEMS: Record<
+  ItemKind,
+  { table: string; name: "name" | "title"; parent: "venue_id" | "session_id" | null; capacity: boolean }
+> = {
+  venue: { table: "venues", name: "name", parent: null, capacity: false },
+  session: { table: "sessions", name: "name", parent: "venue_id", capacity: false },
+  course: { table: "courses", name: "title", parent: "session_id", capacity: true },
+  lunch: { table: "lunch_options", name: "name", parent: "venue_id", capacity: true },
+  activity: { table: "afternoon_activities", name: "title", parent: "venue_id", capacity: true },
+};
+
+/** 新增或修改一個項目時填的欄位，都是表單上的原始文字。用不到的欄位不填。 */
+export type ItemInput = {
+  kind: ItemKind;
+  /** 有就是修改，沒有就是新增。 */
+  id?: string | null;
+  conferenceId: string;
+  /** 上層的場地或場次。修改課程時換場次就是換時段；其他項目修改時不能換上層，不用填。 */
+  parentId?: string | null;
+  /** 排序，小的在前；空白當成 0。 */
+  position?: string;
+  nameZh: string;
+  nameEn?: string;
+  /** 課程、午餐、午后動態的說明。 */
+  descriptionZh?: string;
+  descriptionEn?: string;
+  /** 場地的地址與特色。 */
+  addressZh?: string;
+  addressEn?: string;
+  featuresZh?: string;
+  featuresEn?: string;
+  /** 課程、午餐、午后動態的名額；空白表示不限。 */
+  capacity?: string;
+  /** 課程的教室；空白表示還沒排。 */
+  classroom?: string;
+};
+
+export type ProgrammeError =
+  | "not_admin"
+  | "name_required"
+  | "capacity_invalid"
+  | "position_invalid"
+  | "classroom_invalid"
+  | "in_use"
+  | "venue_has_staff"
+  | "programme_locked"
+  | "course_pair_invalid"
+  | "not_found"
+  | "unavailable";
+
+export type ProgrammeResult = { ok: true } | { ok: false; error: ProgrammeError };
+
+/** 教室最多幾個字，和資料庫 course_classrooms_classroom_valid 一致。 */
+const CLASSROOM_MAX_LENGTH = 50;
+
+/** 名額：空白是不限（null），正整數是上限，其他的不接受（undefined）。 */
+export function parseCapacity(raw: string): number | null | undefined {
+  const value = trimBlank(raw);
+  if (value === "") return null;
+  return /^[1-9][0-9]{0,5}$/.test(value) ? Number(value) : undefined;
+}
+
+function parsePosition(raw: string | undefined): number | undefined {
+  const value = trimBlank(raw ?? "");
+  if (value === "") return 0;
+  return /^-?[0-9]{1,6}$/.test(value) ? Number(value) : undefined;
+}
+
+/** 新增或修改一個項目。課程的教室一起存。 */
+export async function saveItem(
+  supabase: SupabaseClient,
+  input: ItemInput,
+): Promise<{ ok: true; id: string } | { ok: false; error: ProgrammeError }> {
+  const item = ITEMS[input.kind];
+  const text = (value: string | undefined) => trimBlank(value ?? "");
+
+  const nameZh = text(input.nameZh);
+  if (!nameZh) return { ok: false, error: "name_required" };
+  const position = parsePosition(input.position);
+  if (position === undefined) return { ok: false, error: "position_invalid" };
+  const capacity = parseCapacity(input.capacity ?? "");
+  if (item.capacity && capacity === undefined) return { ok: false, error: "capacity_invalid" };
+  const classroom = text(input.classroom);
+  if (classroom.length > CLASSROOM_MAX_LENGTH) return { ok: false, error: "classroom_invalid" };
+
+  if (!validIds(input.id, input.conferenceId, input.parentId)) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+  if (input.kind === "venue" && !input.id) {
+    const locked = await venueLocked(supabase, input.conferenceId);
+    if (locked) return locked;
+  }
+
+  const values: Record<string, unknown> = {
+    position,
+    [`${item.name}_zh`]: nameZh,
+    [`${item.name}_en`]: text(input.nameEn),
+  };
+  if (input.kind === "venue") {
+    Object.assign(values, {
+      address_zh: text(input.addressZh),
+      address_en: text(input.addressEn),
+      features_zh: text(input.featuresZh),
+      features_en: text(input.featuresEn),
+    });
+  } else if (input.kind !== "session") {
+    Object.assign(values, {
+      description_zh: text(input.descriptionZh),
+      description_en: text(input.descriptionEn),
+      capacity,
+    });
+  }
+  // 修改時只有課程能換上層（換時段）；新增時一定要有上層。
+  if (item.parent && input.parentId && (!input.id || input.kind === "course")) {
+    values[item.parent] = input.parentId;
+  }
+
+  const query = input.id
+    ? supabase.from(item.table).update(values).eq("id", input.id)
+    : supabase.from(item.table).insert({ ...values, conference_id: input.conferenceId });
+  const { data, error } = await query.select("id");
+  if (error) return failure(error);
+  if (data.length === 0) return { ok: false, error: "not_found" };
+  const id = data[0].id as string;
+
+  if (input.kind === "course") {
+    const saved = classroom
+      ? await supabase
+          .from("course_classrooms")
+          .upsert({ course_id: id, classroom, updated_at: new Date().toISOString() })
+      : await supabase.from("course_classrooms").delete().eq("course_id", id);
+    if (saved.error) {
+      // 新增的課程存不了教室時一起刪掉，免得總管理員看到錯誤再送一次，多出一門一樣的課。
+      if (!input.id) await supabase.from("courses").delete().eq("id", id);
+      return failure(saved.error);
+    }
+  }
+  return { ok: true, id };
+}
+
+/** 刪除一個項目。場地連同它的場次、課程、午餐、午后動態；場次連同它的課程。 */
+export async function deleteItem(supabase: SupabaseClient, kind: ItemKind, id: string): Promise<ProgrammeResult> {
+  if (!validIds(id)) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+  if (kind === "venue") {
+    const { data: venue, error } = await supabase.from("venues").select("conference_id").eq("id", id).maybeSingle();
+    if (error) return failure(error);
+    if (!venue) return { ok: false, error: "not_found" };
+    const locked = await venueLocked(supabase, venue.conference_id);
+    if (locked) return locked;
+  }
+
+  const { data, error } = await supabase.from(ITEMS[kind].table).delete().eq("id", id).select("id");
+  if (error) return failure(error);
+  return data.length === 0 ? { ok: false, error: "not_found" } : { ok: true };
+}
+
+/** 把同場地、不同場次的兩堂課設成成對課程。 */
+export async function addCoursePair(
+  supabase: SupabaseClient,
+  conferenceId: string,
+  firstCourseId: string,
+  secondCourseId: string,
+): Promise<ProgrammeResult> {
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+  if (!validIds(conferenceId, firstCourseId, secondCourseId) || firstCourseId === secondCourseId) {
+    return { ok: false, error: "course_pair_invalid" };
+  }
+
+  const { error } = await supabase
+    .from("course_pairs")
+    .insert({ conference_id: conferenceId, first_course_id: firstCourseId, second_course_id: secondCourseId });
+  return error ? failure(error) : { ok: true };
+}
+
+/** 拆開一組成對課程。 */
+export async function removeCoursePair(supabase: SupabaseClient, firstCourseId: string): Promise<ProgrammeResult> {
+  if (!validIds(firstCourseId)) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+
+  const { data, error } = await supabase
+    .from("course_pairs")
+    .delete()
+    .eq("first_course_id", firstCourseId)
+    .select("first_course_id");
+  if (error) return failure(error);
+  return data.length === 0 ? { ok: false, error: "not_found" } : { ok: true };
+}
+
+// 表單送來的編號格式不對（網頁被改過、或是很舊的頁面），當成找不到，不必交給資料庫。空的不算。
+function validIds(...ids: (string | null | undefined)[]): boolean {
+  return ids.every((id) => !id || UUID_PATTERN.test(id));
+}
+
+/*
+ * 報名開放後不能新增、刪除場地：新的場地沒有場次與課程（也加不了），報名者卻選得到；
+ * 刪掉的場地則會讓正在填表的人送出時被拒。修改名稱、地址等文字不受限制。
+ */
+async function venueLocked(
+  supabase: SupabaseClient,
+  conferenceId: string,
+): Promise<{ ok: false; error: ProgrammeError } | null> {
+  const { data, error } = await supabase.rpc("registration_opened", { p_conference_id: conferenceId });
+  if (error) return failure(error);
+  return data === true ? { ok: false, error: "programme_locked" } : null;
+}
+
+// 承辦人員與訪客的修改反正會被資料庫擋下（刪除、修改時只是找不到資料），先擋下才能說明原因。
+async function ensureAdmin(supabase: SupabaseClient): Promise<{ ok: false; error: ProgrammeError } | null> {
+  const { data, error } = await supabase.rpc("is_staff_admin");
+  // 前台訪客不能呼叫這個函式，也當成不是總管理員。
+  if (error && error.code !== "42501") return failure(error);
+  return data === true ? null : { ok: false, error: "not_admin" };
+}
+
+// 資料庫丟出的代碼轉成結果；其他錯誤記下來，畫面上顯示系統暫時出了問題。
+function failure(error: PostgrestError): { ok: false; error: ProgrammeError } {
+  switch (true) {
+    case error.message === "programme_locked":
+      return { ok: false, error: "programme_locked" };
+    case error.message === "course_pair_invalid":
+    // 同一堂課已經是另一組的第一堂或第二堂。
+    case error.code === "23505" && /course_pairs/.test(error.message):
+      return { ok: false, error: "course_pair_invalid" };
+    // 有報名（包括已取消的）指向它，外鍵擋下刪除。
+    case error.code === "23503" && /registration/.test(error.message):
+      return { ok: false, error: "in_use" };
+    // 還有教堂承辦負責這個場地，要先改她的負責範圍。
+    case error.code === "23503" && /staff_members/.test(error.message):
+      return { ok: false, error: "venue_has_staff" };
+    case error.code === "42501":
+      return { ok: false, error: "not_admin" };
+  }
+  console.error("編輯課程安排失敗", error);
+  return { ok: false, error: "unavailable" };
+}
+
+/** 後台編輯用的一個選項，中英兩欄都在。 */
+export type ProgrammeItem = {
+  id: string;
+  position: number;
+  nameZh: string;
+  nameEn: string;
+};
+
+export type ProgrammeOption = ProgrammeItem & {
+  descriptionZh: string;
+  descriptionEn: string;
+  /** null 表示不限。 */
+  capacity: number | null;
+};
+
+export type ProgrammeCourse = ProgrammeOption & { classroom: string | null };
+
+export type ProgrammeSession = ProgrammeItem & { courses: ProgrammeCourse[] };
+
+export type ProgrammeVenue = ProgrammeItem & {
+  addressZh: string;
+  addressEn: string;
+  featuresZh: string;
+  featuresEn: string;
+  sessions: ProgrammeSession[];
+  lunchOptions: ProgrammeOption[];
+  afternoonActivities: ProgrammeOption[];
+};
+
+export type Programme = {
+  conferenceId: string;
+  year: number;
+  /** 報名已開放：之後不能新增、刪除、換時段。 */
+  registrationOpened: boolean;
+  venues: ProgrammeVenue[];
+  coursePairs: { firstCourseId: string; secondCourseId: string }[];
+};
+
+/** 目前年度的完整課程安排，含教室。只要一個場地時給 venueId。沒有目前年度時回傳 null。 */
+export async function getProgramme(supabase: SupabaseClient, venueId?: string): Promise<Programme | null> {
+  const conference = await supabase
+    .from("conferences")
+    .select("id, year, registration_opens_at")
+    .eq("is_current", true)
+    .maybeSingle();
+  if (conference.error) throw conference.error;
+  if (!conference.data) return null;
+
+  const option = "id, position, description_zh, description_en, capacity";
+  let venueQuery = supabase
+      .from("venues")
+      .select(
+        `id, position, name_zh, name_en, address_zh, address_en, features_zh, features_en,
+        sessions(id, position, name_zh, name_en, courses(${option}, title_zh, title_en, course_classrooms(classroom))),
+        lunch_options(${option}, name_zh, name_en),
+        afternoon_activities(${option}, title_zh, title_en)`,
+      )
+      .eq("conference_id", conference.data.id);
+  if (venueId) venueQuery = venueQuery.eq("id", venueId);
+  const [venues, pairs] = await Promise.all([
+    venueQuery
+      .order("position")
+      .order("id")
+      .order("position", { referencedTable: "sessions" })
+      .order("id", { referencedTable: "sessions" })
+      .order("position", { referencedTable: "sessions.courses" })
+      .order("id", { referencedTable: "sessions.courses" })
+      .order("position", { referencedTable: "lunch_options" })
+      .order("id", { referencedTable: "lunch_options" })
+      .order("position", { referencedTable: "afternoon_activities" })
+      .order("id", { referencedTable: "afternoon_activities" }),
+    supabase
+      .from("course_pairs")
+      .select("first_course_id, second_course_id")
+      .eq("conference_id", conference.data.id)
+      .order("created_at"),
+  ]);
+  if (venues.error) throw venues.error;
+  if (pairs.error) throw pairs.error;
+
+  type OptionRow = {
+    id: string;
+    position: number;
+    description_zh: string;
+    description_en: string;
+    capacity: number | null;
+  };
+  const toOption = (row: OptionRow, nameZh: string, nameEn: string): ProgrammeOption => ({
+    id: row.id,
+    position: row.position,
+    nameZh,
+    nameEn,
+    descriptionZh: row.description_zh,
+    descriptionEn: row.description_en,
+    capacity: row.capacity,
+  });
+
+  const opensAt = conference.data.registration_opens_at;
+  return {
+    conferenceId: conference.data.id,
+    year: conference.data.year,
+    registrationOpened: opensAt !== null && new Date(opensAt) <= new Date(),
+    venues: venues.data.map((venue) => ({
+      id: venue.id,
+      position: venue.position,
+      nameZh: venue.name_zh,
+      nameEn: venue.name_en,
+      addressZh: venue.address_zh,
+      addressEn: venue.address_en,
+      featuresZh: venue.features_zh,
+      featuresEn: venue.features_en,
+      sessions: venue.sessions.map((session) => ({
+        id: session.id,
+        position: session.position,
+        nameZh: session.name_zh,
+        nameEn: session.name_en,
+        courses: session.courses.map((course) => ({
+          ...toOption(course, course.title_zh, course.title_en),
+          // 一門課最多一間教室（course_id 是主鍵），所以是單一物件或 null。
+          classroom: (course.course_classrooms as unknown as { classroom: string } | null)?.classroom ?? null,
+        })),
+      })),
+      lunchOptions: venue.lunch_options.map((lunch) => toOption(lunch, lunch.name_zh, lunch.name_en)),
+      afternoonActivities: venue.afternoon_activities.map((activity) =>
+        toOption(activity, activity.title_zh, activity.title_en),
+      ),
+    })),
+    coursePairs: pairs.data.map((pair) => ({
+      firstCourseId: pair.first_course_id,
+      secondCourseId: pair.second_course_id,
+    })),
+  };
+}

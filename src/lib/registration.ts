@@ -164,7 +164,7 @@ export function trimBlank(value: string): string {
 }
 // 一個場地的場次不會超過這個數；送來更多的不必交給資料庫逐一檢查。
 const MAX_COURSES = 20;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // 與資料庫產生的規則一致：100000–999999。
 const REGISTRATION_NUMBER_PATTERN = /^[1-9]\d{5}$/;
 
