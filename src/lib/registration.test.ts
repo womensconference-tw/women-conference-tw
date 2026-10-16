@@ -10,6 +10,7 @@ import {
   chooseCourse,
   isRegistrationNumber,
   lookupRegistration,
+  nextRegistrationInput,
   submitRegistration,
   updateRegistration,
   validateCourseChoices,
@@ -1623,6 +1624,111 @@ describe("報名語言", () => {
     if (!result.ok) throw new Error(JSON.stringify(result));
 
     expect(await storedLocale(result.registration.id)).toBe(locale);
+  });
+});
+
+// 代報人沒有帳號，只在每筆報名記下送出時使用的電話（ADR 0003）。
+describe("代報", () => {
+  async function submittedPhone(id: string) {
+    return must(await admin.from("registrations").select("submitted_phone").eq("id", id).single())
+      .submitted_phone;
+  }
+
+  it("連續代報多位，每位都是獨立的報名，各自用姓名和電話查得到", async () => {
+    const ids = [];
+    for (const name of ["王媽媽", "王小美", "王小華"]) {
+      const result = await submit(validInput({ name }));
+      if (!result.ok) throw new Error(JSON.stringify(result));
+      ids.push(result.registration.id);
+    }
+
+    expect(new Set(ids).size).toBe(3);
+    for (const [index, name] of ["王媽媽", "王小美", "王小華"].entries()) {
+      const found = await lookupRegistration(serverClient(), { name, phoneOrNumber: "0912345678" }, "zh");
+      expect(found.ok && found.registrations.map((registration) => registration.id)).toEqual([ids[index]]);
+    }
+  });
+
+  it("報名記下送出時使用的電話，之後改了電話也不變", async () => {
+    const saved = await submit(validInput({ phone: "0912-345-678" }));
+    if (!saved.ok) throw new Error(JSON.stringify(saved));
+
+    const updated = await updateRegistration(serverClient(), {
+      registrationId: saved.registration.id,
+      lookup: { name: "王小美", phoneOrNumber: "0912345678" },
+      changes: { ...changesOf(validInput()), phone: "0223456789" },
+    });
+
+    expect(updated.ok && updated.registration.phone).toBe("0223456789");
+    expect(await submittedPhone(saved.registration.id)).toBe("0912345678");
+  });
+
+  it("沒有電話的報名，送出時使用的電話是空的", async () => {
+    const saved = await submit(validInput({ phone: "", noPhone: true }));
+    if (!saved.ok) throw new Error(JSON.stringify(saved));
+
+    expect(await submittedPhone(saved.registration.id)).toBeNull();
+  });
+
+  it("直接寫入資料表時不能自己指定送出時使用的電話", async () => {
+    await openRegistration();
+    const row = must(
+      await admin
+        .from("registrations")
+        .insert({
+          conference_id: conferenceId,
+          venue_id: venueId,
+          stake_id: taipeiStakeId,
+          ward_id: xindianWardId,
+          name: "王小美",
+          phone: "0912345678",
+          submitted_phone: "0987654321",
+          portrait_consented_at: new Date().toISOString(),
+          locale: "zh",
+        })
+        .select("submitted_phone")
+        .single(),
+    );
+
+    expect(row.submitted_phone).toBe("0912345678");
+  });
+
+  it("再幫一位報名：帶入電話、Email、支聯會、支會、場地，其他清空", () => {
+    const previous = validInput({
+      name: "王媽媽",
+      email: "mei@example.com",
+      lineId: "mama123",
+      courseIds: ["00000000-0000-4000-8000-00000000000a"],
+      lunchOptionId: "00000000-0000-4000-8000-00000000000b",
+      afternoonActivityId: "00000000-0000-4000-8000-00000000000c",
+      choirPart: "alto",
+      services: ["reception"],
+      printedHandbook: true,
+    });
+
+    expect(nextRegistrationInput(previous)).toEqual({
+      name: "",
+      phone: "0912-345-678",
+      noPhone: false,
+      email: "mei@example.com",
+      lineId: "",
+      stakeId: taipeiStakeId,
+      wardId: xindianWardId,
+      venueId,
+      courseIds: [],
+      lunchOptionId: null,
+      afternoonActivityId: null,
+      choirPart: null,
+      services: [],
+      printedHandbook: null,
+      portraitConsent: false,
+    });
+  });
+
+  it("再幫一位報名：上一位沒有電話時，下一位也先勾著沒有電話", () => {
+    const next = nextRegistrationInput(validInput({ phone: "", noPhone: true }));
+
+    expect({ phone: next.phone, noPhone: next.noPhone }).toEqual({ phone: "", noPhone: true });
   });
 });
 

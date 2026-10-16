@@ -29,6 +29,10 @@ const zh = {
     lookupHeading: "已報名查詢",
     lookupDescription: "輸入姓名和電話（沒有電話的姐妹請用報名編號），就能看到您的報名資料。",
     lookupButton: "查詢我的報名",
+    proxyHeading: "幫家人或朋友報名",
+    proxyDescription:
+      "家人或朋友不方便自己報名，可以由您幫她報名，電話填您自己的也可以。報完一位，按「再幫一位報名」就能接著報下一位，不用重填電話和支會。您自己要參加的話，也請另外報一筆。",
+    proxyButton: "幫家人或朋友報名",
     stepsHeading: "報名三步驟",
     steps: ["填寫姓名、電話與所屬支會", "選擇要參加的場地與課程", "確認資料無誤後送出"],
     venuesHeading: "大會場地",
@@ -46,6 +50,8 @@ const zh = {
   },
   register: {
     title: "報名台灣姐妹大會",
+    proxyIntro: "您正在幫家人或朋友報名：姓名請填她的名字，電話可以填您自己的。",
+    anotherIntro: "已帶入上一位的電話、Email、支聯會、支會和場地。請填這一位的姓名；不一樣的地方可以直接修改。",
     stepProgress: (current: number, total: number, title: string) =>
       `第 ${current} 步（共 ${total} 步）：${title}`,
     stepTitles: ["基本資料", "選擇場地", "選擇課程", "午餐與服務", "肖像權同意與確認"],
@@ -154,6 +160,7 @@ const zh = {
       registrationNumberLabel: "報名編號",
       registrationNumberHint: "查詢報名時，請用姓名和這組報名編號。請一定要記下來。",
       screenshotHint: "您沒有填 Email，請把上面的報名資料截圖保存，或請家人幫忙記下來。",
+      anotherButton: "再幫一位報名",
     },
   },
   lookup: {
@@ -267,6 +274,10 @@ const en = {
     lookupDescription:
       "Enter your name and phone number (or your registration number if you have no phone) to see your registration.",
     lookupButton: "Look up my registration",
+    proxyHeading: "Register a family member or friend",
+    proxyDescription:
+      "If a family member or friend can't register on her own, you can register her, using your own phone number if you like. After each one, tap \"Register another person\" to go straight on to the next without retyping the phone number and ward. If you are attending too, please register yourself separately.",
+    proxyButton: "Register a family member or friend",
     stepsHeading: "Register in three steps",
     steps: [
       "Enter your name, phone number and ward",
@@ -289,6 +300,10 @@ const en = {
   },
   register: {
     title: "Register for the Taiwan Women's Conference",
+    proxyIntro:
+      "You are registering a family member or friend: enter her name, and you can use your own phone number.",
+    anotherIntro:
+      "The phone number, email, stake, ward and venue from the previous person are already filled in. Enter this person's name, and change anything that is different.",
     stepProgress: (current: number, total: number, title: string) =>
       `Step ${current} of ${total}: ${title}`,
     stepTitles: [
@@ -425,6 +440,7 @@ const en = {
         "Look up your registration with your name and this number. Please write it down.",
       screenshotHint:
         "You didn't give an email address. Please take a screenshot of your registration details above, or ask a family member to write them down.",
+      anotherButton: "Register another person",
     },
   },
   lookup: {

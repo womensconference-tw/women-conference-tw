@@ -11,6 +11,8 @@ import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
 const registerPath = "/register";
+// 代報的報名表：同一份表單，第一步多一句說明（見 RegisterPage）。
+const proxyRegisterPath = "/register?for=others";
 const lookupPath = "/lookup";
 
 // 按鈕高度、字級來自 globals.css 的主視覺設定；文字太長時換行而不是被截掉。
@@ -21,7 +23,7 @@ const primaryActionClass =
   "min-h-(--button-primary-min-height) text-(length:--text-lead-size) font-bold";
 
 /*
- * 首頁區塊順序依規格：報名 → 已報名查詢 → 報名三步驟 → 場地 → 需要幫忙 → 關於大會，
+ * 首頁區塊順序依規格：報名 → 幫家人或朋友報名（報名中才有）→ 已報名查詢 → 報名三步驟 → 場地 → 需要幫忙 → 關於大會，
  * 自訂區塊接在最後。不用下拉選單、不用輪播，所有內容直接攤開。
  */
 export default async function Home() {
@@ -46,6 +48,7 @@ export default async function Home() {
       ) : (
         <>
           <RegistrationSection conference={conference} content={content} t={t} locale={locale} />
+          {conference.phase === "open" && <ProxySection t={t} />}
           {/* 已截止時第一屏已經是查詢按鈕，也不能再報名，這兩區就不重複顯示。 */}
           {conference.phase !== "closed" && (
             <>
@@ -144,6 +147,18 @@ function RegistrationSection({
       )}
       {content.venues.length > 0 && <p>{t.home.simultaneous(places)}</p>}
     </section>
+  );
+}
+
+/** 代報人的入口（ADR 0003）：說明可以用自己的電話幫別人報名，報完一位可以接著報下一位。 */
+function ProxySection({ t }: SectionProps) {
+  return (
+    <Section heading={t.home.proxyHeading}>
+      <p>{t.home.proxyDescription}</p>
+      <ActionLink href={proxyRegisterPath} variant="outline">
+        {t.home.proxyButton}
+      </ActionLink>
+    </Section>
   );
 }
 
