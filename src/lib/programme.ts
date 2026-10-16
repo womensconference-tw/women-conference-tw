@@ -1,5 +1,6 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { trimBlank, UUID_PATTERN } from "./registration";
+import { REGIONS, type Region } from "./staff";
 
 /*
  * 後台編輯目前年度的場地、場次、課程、成對課程、午餐與午后動態（#22）。
@@ -38,6 +39,8 @@ export type ItemInput = {
   /** 課程、午餐、午后動態的說明。 */
   descriptionZh?: string;
   descriptionEn?: string;
+  /** 場地所在的區。 */
+  region?: string;
   /** 場地的地址與特色。 */
   addressZh?: string;
   addressEn?: string;
@@ -52,11 +55,11 @@ export type ItemInput = {
 export type ProgrammeError =
   | "not_admin"
   | "name_required"
+  | "region_required"
   | "capacity_invalid"
   | "position_invalid"
   | "classroom_invalid"
   | "in_use"
-  | "venue_has_staff"
   | "programme_locked"
   | "course_pair_invalid"
   | "not_found"
@@ -94,6 +97,8 @@ export async function saveItem(
   if (position === undefined) return { ok: false, error: "position_invalid" };
   const capacity = parseCapacity(input.capacity ?? "");
   if (item.capacity && capacity === undefined) return { ok: false, error: "capacity_invalid" };
+  const region = REGIONS.find((candidate) => candidate === input.region);
+  if (input.kind === "venue" && !region) return { ok: false, error: "region_required" };
   const classroom = text(input.classroom);
   if (classroom.length > CLASSROOM_MAX_LENGTH) return { ok: false, error: "classroom_invalid" };
 
@@ -125,6 +130,7 @@ export async function saveItem(
   };
   if (input.kind === "venue") {
     Object.assign(values, {
+      region,
       address_zh: text(input.addressZh),
       address_en: text(input.addressEn),
       features_zh: text(input.featuresZh),
@@ -201,7 +207,7 @@ function validIds(...ids: (string | null | undefined)[]): boolean {
   return ids.every((id) => !id || UUID_PATTERN.test(id));
 }
 
-// 承辦人員與訪客的修改反正會被資料庫擋下（刪除、修改時只是找不到資料），先擋下才能說明原因。
+// 課務組、報報組與訪客的修改反正會被資料庫擋下（刪除、修改時只是找不到資料），先擋下才能說明原因。
 async function ensureAdmin(supabase: SupabaseClient): Promise<{ ok: false; error: ProgrammeError } | null> {
   const { data, error } = await supabase.rpc("is_staff_admin");
   // 前台訪客不能呼叫這個函式，也當成不是總管理員。
@@ -223,9 +229,6 @@ function failure(error: PostgrestError): { ok: false; error: ProgrammeError } {
     // 有報名（包括已取消的）指向它，外鍵擋下刪除。
     case error.code === "23503" && /registration/.test(error.message):
       return { ok: false, error: "in_use" };
-    // 還有教堂承辦負責這個場地，要先改她的負責範圍。
-    case error.code === "23503" && /staff_members/.test(error.message):
-      return { ok: false, error: "venue_has_staff" };
     case error.message === "not_admin":
     case error.code === "42501":
       return { ok: false, error: "not_admin" };
@@ -254,6 +257,7 @@ export type ProgrammeCourse = ProgrammeOption & { classroom: string | null };
 export type ProgrammeSession = ProgrammeItem & { courses: ProgrammeCourse[] };
 
 export type ProgrammeVenue = ProgrammeItem & {
+  region: Region;
   addressZh: string;
   addressEn: string;
   featuresZh: string;
@@ -286,7 +290,7 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
   let venueQuery = supabase
       .from("venues")
       .select(
-        `id, position, name_zh, name_en, address_zh, address_en, features_zh, features_en,
+        `id, position, region, name_zh, name_en, address_zh, address_en, features_zh, features_en,
         sessions(id, position, name_zh, name_en, courses(${option}, title_zh, title_en, course_classrooms(classroom))),
         lunch_options(${option}, name_zh, name_en),
         afternoon_activities(${option}, title_zh, title_en)`,
@@ -341,6 +345,7 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
       position: venue.position,
       nameZh: venue.name_zh,
       nameEn: venue.name_en,
+      region: venue.region,
       addressZh: venue.address_zh,
       addressEn: venue.address_en,
       featuresZh: venue.features_zh,

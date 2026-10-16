@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import type { ItemKind, ProgrammeError } from "@/lib/programme";
+import { REGION_LABELS, REGIONS, type Region } from "@/lib/staff";
 import { cn } from "@/lib/utils";
 import { buttonClass, inputClass } from "../../ui";
 import { deleteProgrammeItem, saveProgrammeItem } from "./actions";
@@ -17,12 +18,12 @@ export const DONE: Record<string, string> = {
 export const ERRORS: Record<ProgrammeError, string> = {
   not_admin: "只有總管理員能編輯課程安排。",
   name_required: "請填中文名稱。",
+  region_required: "請選場地在哪一區。",
   capacity_invalid: "名額要填正整數；不限人數請留空白。",
   position_invalid: "排序要填整數。",
   classroom_invalid: "教室最多 50 個字。",
   in_use:
     "已經有人報名選了這一項（包括已取消的報名），不能刪除，報名紀錄才不會少了它。請先處理這些報名。",
-  venue_has_staff: "還有教堂承辦負責這個場地，請先到「工作人員帳號」改她的負責範圍或移除她。",
   programme_locked: "報名已經開放，不能再新增、刪除或換時段；只能修正文字、調整名額、排序與教室。",
   course_pair_invalid:
     "成對課程要是同一場地、連續兩個場次的兩堂課，而且每門課只能屬於一組；已設成對時，兩堂中間不能再加場次。",
@@ -92,6 +93,27 @@ export function TextPair({
         <Input name={`${name}En`} defaultValue={en} className={inputClass} />
       </label>
     </div>
+  );
+}
+
+/** 場地所在的區。課務組、報報組依這個看得到報名這個場地的人。 */
+export function RegionField({ region }: { region?: Region }) {
+  return (
+    <label className="flex flex-col gap-1 sm:max-w-xs">
+      <span className="font-semibold">
+        區<span className="text-destructive">＊</span>
+      </span>
+      <select name="region" defaultValue={region ?? ""} required className={inputClass}>
+        <option value="" disabled>
+          請選擇
+        </option>
+        {REGIONS.map((candidate) => (
+          <option key={candidate} value={candidate}>
+            {REGION_LABELS[candidate]}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

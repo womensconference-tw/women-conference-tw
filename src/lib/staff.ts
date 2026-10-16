@@ -35,30 +35,41 @@ export async function requestSignInLink(supabase: SupabaseClient, rawEmail: stri
   return { ok: true };
 }
 
-/** 後台角色：總管理員、教堂承辦、支聯會承辦。與資料庫 staff_members_role_valid 用同一組代碼。 */
-export const STAFF_ROLES = ["admin", "venue_staff", "stake_staff"] as const;
+/**
+ * 後台角色：總管理員（網站建置者與總召團）、課務組、報報組。與資料庫 staff_members_role_valid 用同一組代碼。
+ * 課務組、報報組都只能看、不能改。
+ */
+export const STAFF_ROLES = ["admin", "course_team", "registration_team"] as const;
 export type StaffRole = (typeof STAFF_ROLES)[number];
 
 export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
   admin: "總管理員",
-  venue_staff: "教堂承辦",
-  stake_staff: "支聯會承辦",
+  course_team: "課務組",
+  registration_team: "報報組",
+};
+
+/** 區：場地、支聯會與工作人員的負責範圍。與資料庫的 *_region_valid 用同一組代碼。 */
+export const REGIONS = ["north", "central", "south"] as const;
+export type Region = (typeof REGIONS)[number];
+
+export const REGION_LABELS: Record<Region, string> = {
+  north: "北區",
+  central: "中區",
+  south: "南區",
 };
 
 export type StaffMember = {
   userId: string;
   email: string;
   role: StaffRole;
-  /** 教堂承辦負責的場地；其他角色為 null。 */
-  venueId: string | null;
-  /** 支聯會承辦負責的支聯會；其他角色為 null。 */
-  stakeId: string | null;
+  /** 負責的區；總管理員與全區的報報組為 null。 */
+  region: Region | null;
 };
 
 export type StaffListItem = StaffMember & { createdAt: string; lastSignInAt: string | null };
 
 /** 新增或修改工作人員時填的角色與負責範圍。 */
-export type StaffScope = { role: StaffRole; venueId: string | null; stakeId: string | null };
+export type StaffScope = { role: StaffRole; region: Region | null };
 
 export type StaffError =
   | "email_invalid"
@@ -83,13 +94,13 @@ export async function getStaffMember(supabase: SupabaseClient): Promise<StaffMem
 
   const { data, error } = await supabase
     .from("staff_members")
-    .select("role, venue_id, stake_id")
+    .select("role, region")
     .eq("user_id", user.id)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
 
-  return { userId: user.id, email: user.email ?? "", role: data.role, venueId: data.venue_id, stakeId: data.stake_id };
+  return { userId: user.id, email: user.email ?? "", role: data.role, region: data.region };
 }
 
 /** 工作人員名單。只有總管理員能看，其他人會丟出錯誤。 */
@@ -100,8 +111,7 @@ export async function listStaffMembers(supabase: SupabaseClient): Promise<StaffL
     userId: row.user_id,
     email: row.email,
     role: row.role,
-    venueId: row.venue_id,
-    stakeId: row.stake_id,
+    region: row.region,
     createdAt: row.created_at,
     lastSignInAt: row.last_sign_in_at,
   }));
@@ -111,8 +121,7 @@ type StaffRow = {
   user_id: string;
   email: string;
   role: StaffRole;
-  venue_id: string | null;
-  stake_id: string | null;
+  region: Region | null;
   created_at: string;
   last_sign_in_at: string | null;
 };
@@ -127,7 +136,7 @@ export async function addStaffMember(
 ): Promise<StaffResult> {
   const email = normalizeEmail(input.email);
   if (!email) return { ok: false, error: "email_invalid" };
-  // 明顯不相符的先擋下，不必建了帳號再刪。場地、支聯會存不存在仍由資料庫檢查。
+  // 明顯不相符的先擋下，不必建了帳號再刪。
   if (!scopeShapeValid(input)) return { ok: false, error: "scope_invalid" };
 
   // 先擋下非總管理員，免得她們能透過這個動作建立登入帳號。
@@ -142,8 +151,7 @@ export async function addStaffMember(
   const { error } = await session.rpc("add_staff_member", {
     p_email: email,
     p_role: input.role,
-    p_venue_id: input.venueId,
-    p_stake_id: input.stakeId,
+    p_region: input.region,
   });
   // already_staff 時帳號屬於已經在名單裡的人（可能是另一位總管理員同時新增的），不能刪。
   if (error && createdUserId && error.message !== "already_staff") {
@@ -153,15 +161,16 @@ export async function addStaffMember(
   return error ? failure(error) : { ok: true };
 }
 
-// 與資料庫 staff_members_scope 同一套規則：總管理員不分範圍，承辦人員只有自己的場地或支聯會。
-function scopeShapeValid({ role, venueId, stakeId }: StaffScope): boolean {
+// 與資料庫 check_staff_scope 同一套規則：總管理員不分區，課務組一定要有一區，報報組一區或全區。
+function scopeShapeValid({ role, region }: StaffScope): boolean {
+  if (region !== null && !REGIONS.includes(region)) return false;
   switch (role) {
     case "admin":
-      return !venueId && !stakeId;
-    case "venue_staff":
-      return !!venueId && !stakeId;
-    case "stake_staff":
-      return !!stakeId && !venueId;
+      return region === null;
+    case "course_team":
+      return region !== null;
+    case "registration_team":
+      return true;
     default:
       return false;
   }
@@ -175,8 +184,7 @@ export async function updateStaffMember(
   const { error } = await session.rpc("update_staff_member", {
     p_user_id: input.userId,
     p_role: input.role,
-    p_venue_id: input.venueId,
-    p_stake_id: input.stakeId,
+    p_region: input.region,
   });
   return error ? failure(error) : { ok: true };
 }

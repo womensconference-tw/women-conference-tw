@@ -61,7 +61,7 @@ beforeEach(async () => {
   venueId = must(
     await admin
       .from("venues")
-      .insert({ conference_id: conferenceId, name_zh: "台北金華教堂", name_en: "Taipei Jinhua Chapel" })
+      .insert({ region: "north", conference_id: conferenceId, name_zh: "台北金華教堂", name_en: "Taipei Jinhua Chapel" })
       .select("id")
       .single(),
   ).id;
@@ -70,8 +70,8 @@ beforeEach(async () => {
     await admin
       .from("stakes")
       .insert([
-        { position: 1, name_zh: "測試台北支聯會", name_en: "Test Taipei Stake" },
-        { position: 2, name_zh: "測試台中支聯會", name_en: "Test Taichung Stake" },
+        { position: 1, region: "north", name_zh: "測試台北支聯會", name_en: "Test Taipei Stake" },
+        { position: 2, region: "central", name_zh: "測試台中支聯會", name_en: "Test Taichung Stake" },
       ])
       .select("id, position")
       .order("position"),
@@ -468,7 +468,7 @@ describe("課程名額", () => {
     const otherVenue = must(
       await admin
         .from("venues")
-        .insert({ conference_id: conferenceId, name_zh: "台中大雅教堂" })
+        .insert({ region: "north", conference_id: conferenceId, name_zh: "台中大雅教堂" })
         .select("id")
         .single(),
     ).id;
@@ -746,7 +746,7 @@ describe("成對課程", () => {
       ).id;
       const coursesIn = async (conference: string) => {
         const venue = must(
-          await admin.from("venues").insert({ conference_id: conference, name_zh: "測試教堂" }).select("id").single(),
+          await admin.from("venues").insert({ region: "north", conference_id: conference, name_zh: "測試教堂" }).select("id").single(),
         ).id;
         const ids = [];
         for (const position of [1, 2, 3, 4]) {
@@ -936,7 +936,7 @@ async function addActivity(capacity: number | null, venue = venueId, title = "�
 
 async function addVenue(name = "台中大雅教堂") {
   return must(
-    await admin.from("venues").insert({ conference_id: conferenceId, name_zh: name }).select("id").single(),
+    await admin.from("venues").insert({ region: "north", conference_id: conferenceId, name_zh: name }).select("id").single(),
   ).id;
 }
 

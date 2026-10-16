@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 
 async function addStake(stake: { position: number; name_zh: string; name_en?: string; is_active?: boolean }) {
-  const { id } = must(await admin.from("stakes").insert(stake).select("id").single());
+  const { id } = must(await admin.from("stakes").insert({ region: "north", ...stake }).select("id").single());
   stakeIds.push(id);
   return id;
 }
@@ -119,8 +119,8 @@ describe("報名表的選項", () => {
   it("列出目前年度的場地，依排序", async () => {
     must(
       await admin.from("venues").insert([
-        { conference_id: conferenceId, position: 2, name_zh: "高雄鳥松教堂", name_en: "" },
-        { conference_id: conferenceId, position: 1, name_zh: "台北金華教堂", name_en: "Taipei Jinhua Chapel" },
+        { region: "north", conference_id: conferenceId, position: 2, name_zh: "高雄鳥松教堂", name_en: "" },
+        { region: "north", conference_id: conferenceId, position: 1, name_zh: "台北金華教堂", name_en: "Taipei Jinhua Chapel" },
       ]),
     );
 
@@ -134,8 +134,8 @@ describe("報名表的選項", () => {
       await admin
         .from("venues")
         .insert([
-          { conference_id: conferenceId, position: 1, name_zh: "台北金華教堂" },
-          { conference_id: conferenceId, position: 2, name_zh: "台中大雅教堂" },
+          { region: "north", conference_id: conferenceId, position: 1, name_zh: "台北金華教堂" },
+          { region: "north", conference_id: conferenceId, position: 2, name_zh: "台中大雅教堂" },
         ])
         .select("id, position")
         .order("position"),
@@ -196,7 +196,7 @@ describe("報名表的選項", () => {
 
   it("成對課程帶著另一堂的場次與課程，其中一堂額滿時兩堂都標出已額滿", async () => {
     const venue = must(
-      await admin.from("venues").insert({ conference_id: conferenceId, name_zh: "台北金華教堂" }).select("id").single(),
+      await admin.from("venues").insert({ region: "north", conference_id: conferenceId, name_zh: "台北金華教堂" }).select("id").single(),
     );
     const [first, second] = must(
       await admin
@@ -238,8 +238,8 @@ describe("報名表的選項", () => {
       await admin
         .from("venues")
         .insert([
-          { conference_id: conferenceId, position: 1, name_zh: "台北金華教堂" },
-          { conference_id: conferenceId, position: 2, name_zh: "台中大雅教堂" },
+          { region: "north", conference_id: conferenceId, position: 1, name_zh: "台北金華教堂" },
+          { region: "north", conference_id: conferenceId, position: 2, name_zh: "台中大雅教堂" },
         ])
         .select("id, position")
         .order("position"),
@@ -325,7 +325,7 @@ describe("報名表的選項", () => {
     try {
       for (const [email, scope] of [
         ["head@example.com", { role: "admin" }],
-        ["taipei@example.com", { role: "stake_staff", stake_id: active }],
+        ["report@example.com", { role: "registration_team", region: "north" }],
       ] as const) {
         const user = must(await admin.auth.admin.createUser({ email, email_confirm: true })).user;
         userIds.push(user.id);

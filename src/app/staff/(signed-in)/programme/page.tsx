@@ -5,7 +5,8 @@ import { getProgramme } from "@/lib/programme";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStaff } from "../../current-staff";
 import { ResultMessage } from "../../result-message";
-import { DONE, ERRORS, ItemForm, NumberFields, TextPair } from "./forms";
+import { REGION_LABELS } from "@/lib/staff";
+import { DONE, ERRORS, ItemForm, NumberFields, RegionField, TextPair } from "./forms";
 
 export const metadata: Metadata = { title: "場地與課程" };
 
@@ -46,7 +47,7 @@ export default async function ProgrammePage({ searchParams }: PageProps<"/staff/
                     >
                       <span className="text-lg font-bold underline">{venue.nameZh}</span>
                       <span className="text-sm text-muted-foreground">
-                        {venue.sessions.length} 個場次、{courses} 門課程、{venue.lunchOptions.length} 種午餐、
+                        {REGION_LABELS[venue.region]}・{venue.sessions.length} 個場次、{courses} 門課程、{venue.lunchOptions.length} 種午餐、
                         {venue.afternoonActivities.length} 個午后動態
                       </span>
                     </Link>
@@ -61,6 +62,7 @@ export default async function ProgrammePage({ searchParams }: PageProps<"/staff/
               <h2 className="text-xl font-bold">新增場地</h2>
               <ItemForm kind="venue" conferenceId={programme.conferenceId} submitLabel="新增場地">
                 <TextPair name="name" label="名稱" required />
+                <RegionField />
                 <TextPair name="address" label="地址" />
                 <TextPair name="features" label="場地特色" multiline />
                 <NumberFields position={programme.venues.length + 1} />
