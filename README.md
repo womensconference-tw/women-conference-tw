@@ -33,6 +33,8 @@ SUPABASE_SECRET_KEY=<SECRET_KEY>
 
 `SUPABASE_SECRET_KEY` 只在網站伺服器上用來查詢、修改、取消報名（[ADR 0009](docs/adr/0009-lookup-change-cancel-through-server-only.md)），名稱不能加 `NEXT_PUBLIC_`。
 
+報名、修改、取消後的確認信用 Resend 寄出，需要 `RESEND_API_KEY` 與 `EMAIL_FROM`（見 `.env.example`），同樣只放在伺服器。本機可以不設：報名照常，寄信紀錄（`email_logs`）會記下失敗。
+
 接著啟動網站：
 
 ```bash

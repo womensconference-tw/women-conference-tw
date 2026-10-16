@@ -173,10 +173,10 @@ alter table public.afternoon_activities enable trigger afternoon_activities_lock
 with registration as (
   insert into public.registrations (
     conference_id, venue_id, stake_id, ward_id, name, phone, portrait_consented_at,
-    lunch_option_id, choir_part, services, printed_handbook
+    lunch_option_id, choir_part, services, printed_handbook, locale
   )
   select v.conference_id, v.id, w.stake_id, w.id, '測試報名者', '0912000000', now(),
-    l.id, 'soprano', '{reception}', true
+    l.id, 'soprano', '{reception}', true, 'zh'
   from public.venues v
   join public.lunch_options l on l.venue_id = v.id and l.name_zh = '素食便當',
     public.wards w

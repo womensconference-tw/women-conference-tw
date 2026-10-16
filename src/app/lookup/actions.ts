@@ -2,6 +2,7 @@
 
 import { refresh } from "next/cache";
 import { getLocale } from "@/lib/i18n/server";
+import { queueConfirmationEmail } from "@/lib/queue-confirmation-email";
 import {
   cancelRegistration,
   changesOf,
@@ -27,7 +28,7 @@ export async function lookUp(input: unknown): Promise<LookupResult> {
 
 /**
  * 修改報名送出：哪一筆、查詢時用的姓名與電話（或報名編號），以及修改後的報名表內容。
- * 是否報名中、姓名與電話是否符合、名額等由資料庫判斷。
+ * 是否報名中、姓名與電話是否符合、名額等由資料庫判斷。成功後寄確認信。
  */
 export async function updateMine(input: unknown): Promise<SubmitResult> {
   const raw = (input ?? {}) as Record<string, unknown>;
@@ -37,22 +38,28 @@ export async function updateMine(input: unknown): Promise<SubmitResult> {
     // 姓名、支聯會、支會、肖像權同意不能改，送來了也不用。
     changes: changesOf(registrationInputFrom(raw.changes)),
   });
+  if (result.ok) queueConfirmationEmail(result.registration.id, "updated");
   if (optionsMayHaveChanged(result)) refresh();
   return result;
 }
 
 /**
  * 取消報名送出：哪一筆，以及查詢時用的姓名與電話（或報名編號）。
- * 是否報名中、姓名與電話是否符合由資料庫判斷。
+ * 是否報名中、姓名與電話是否符合由資料庫判斷。成功後寄確認信。
  */
 export async function cancelMine(input: unknown): Promise<CancelResult> {
   const raw = (input ?? {}) as Record<string, unknown>;
+  const registrationId = typeof raw.registrationId === "string" ? raw.registrationId : "";
   const result = await cancelRegistration(createServiceClient(), {
-    registrationId: typeof raw.registrationId === "string" ? raw.registrationId : "",
+    registrationId,
     lookup: lookupInputFrom(raw.lookup),
   });
-  // 名額釋出了，報名表上「已額滿」的標示要重新讀取。
-  if (result.ok) refresh();
+  if (result.ok) {
+    // 已經取消的再按一次也成功（回應斷掉後重按）；取消信只寄一次（見 begin_confirmation_email）。
+    queueConfirmationEmail(registrationId, "cancelled");
+    // 名額釋出了，報名表上「已額滿」的標示要重新讀取。
+    refresh();
+  }
   return result;
 }
 

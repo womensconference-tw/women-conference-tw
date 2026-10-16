@@ -219,6 +219,25 @@ const zh = {
         "系統暫時出了問題，不確定報名有沒有取消。請再按一次「確定取消報名」；還是不行的話，請稍後重新查詢，或聯絡大會管理員。",
     },
   },
+  // 報名、修改、取消後寄給報名者的確認信。
+  email: {
+    subjects: {
+      registered: "台灣姐妹大會：報名完成",
+      updated: "台灣姐妹大會：報名已修改",
+      cancelled: "台灣姐妹大會：報名已取消",
+    },
+    greeting: (name: string) => `${name} 姐妹，您好：`,
+    intros: {
+      registered: "謝謝您報名台灣姐妹大會。以下是您的報名資料，請保存這封信。",
+      updated: "您的報名已經修改。以下是修改後的報名資料，請保存這封信。",
+      cancelled: "您的報名已經取消，名額已經讓給其他姐妹。以下是取消的報名資料。要參加的話，請重新報名。",
+    },
+    lookupHint: "要查詢、修改或取消報名，請到大會網站的「查詢我的報名」，輸入姓名和電話（沒有電話的姐妹，請填報名編號）。",
+    lookupLink: "查詢我的報名",
+    // 純文字版的信裡，標籤和內容之間的符號。
+    labelSeparator: "：",
+    footer: "這封信由系統自動寄出，請不要直接回覆。有任何問題，請用 LINE 聯絡大會管理員。",
+  },
 };
 
 export type Messages = typeof zh;
@@ -473,6 +492,27 @@ const en = {
       unknown:
         "Something went wrong, and we're not sure whether your registration was cancelled. Please press \"Yes, cancel my registration\" again. If that doesn't work, look up your registration again later, or contact the conference administrator.",
     },
+  },
+  email: {
+    subjects: {
+      registered: "Taiwan Women's Conference: you're registered",
+      updated: "Taiwan Women's Conference: your registration has been changed",
+      cancelled: "Taiwan Women's Conference: your registration has been cancelled",
+    },
+    greeting: (name: string) => `Dear ${name},`,
+    intros: {
+      registered:
+        "Thank you for registering for the Taiwan Women's Conference. Your registration details are below. Please keep this email.",
+      updated: "Your registration has been changed. Your updated details are below. Please keep this email.",
+      cancelled:
+        "Your registration has been cancelled, and your places have gone to other sisters. The cancelled registration is below. To attend, please register again.",
+    },
+    lookupHint:
+      "To look up, change or cancel your registration, go to \"Look up my registration\" on the conference website and enter your name and phone number (or your registration number if you have no phone).",
+    lookupLink: "Look up my registration",
+    labelSeparator: ": ",
+    footer:
+      "This email was sent automatically. Please don't reply to it. If you have any questions, please contact the conference administrator on LINE.",
   },
 } satisfies Messages;
 
