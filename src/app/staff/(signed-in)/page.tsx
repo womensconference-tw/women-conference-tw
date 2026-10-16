@@ -16,7 +16,7 @@ export default async function StaffHomePage() {
     <main className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">台灣姐妹大會後台</h1>
       <p>
-        你的角色是{STAFF_ROLE_LABELS[staff.role]}
+        {staff.name && `${staff.name}，`}你的角色是{STAFF_ROLE_LABELS[staff.role]}
         {scope && `，負責${scope}`}。
       </p>
     </main>

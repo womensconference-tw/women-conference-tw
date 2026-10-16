@@ -17,6 +17,7 @@ import { ResultMessage } from "../../../result-message";
 import { buttonClass, inputClass } from "../../../ui";
 import { addProgrammeCoursePair, removeProgrammeCoursePair } from "../actions";
 import { capacityLabel, DeleteItem, DONE, ERRORS, ItemForm, NumberFields, RegionField, TextPair } from "../forms";
+import { SubmitButton } from "../../../submit-button";
 
 export const metadata: Metadata = { title: "編輯場地" };
 
@@ -164,7 +165,7 @@ export default async function VenueProgrammePage({ params, searchParams }: PageP
                 <form action={removeProgrammeCoursePair}>
                   <input type="hidden" name="firstCourseId" value={pair.firstCourseId} />
                   <input type="hidden" name="venueId" value={venueId} />
-                  <button className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>拆開</button>
+                  <SubmitButton className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>拆開</SubmitButton>
                 </form>
               )}
             </li>
@@ -193,9 +194,9 @@ export default async function VenueProgrammePage({ params, searchParams }: PageP
                 </label>
               ))}
             </div>
-            <button className={cn(buttonVariants({ variant: "outline" }), buttonClass, "self-start")}>
+            <SubmitButton className={cn(buttonVariants({ variant: "outline" }), buttonClass, "self-start")}>
               設成成對課程
-            </button>
+            </SubmitButton>
           </form>
         )}
       </section>

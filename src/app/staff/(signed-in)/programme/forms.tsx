@@ -5,6 +5,7 @@ import { REGION_LABELS, REGIONS, type Region } from "@/lib/staff";
 import { cn } from "@/lib/utils";
 import { buttonClass, inputClass } from "../../ui";
 import { deleteProgrammeItem, saveProgrammeItem } from "./actions";
+import { SubmitButton } from "../../submit-button";
 
 /* 課程安排兩個頁面共用的表單與訊息。 */
 
@@ -58,7 +59,7 @@ export function ItemForm({
       {venueId && <input type="hidden" name="venueId" value={venueId} />}
       {parentId && <input type="hidden" name="parentId" value={parentId} />}
       {children}
-      <button className={cn(buttonVariants(), buttonClass, "self-start font-bold")}>{submitLabel}</button>
+      <SubmitButton className={cn(buttonVariants(), buttonClass, "self-start font-bold")}>{submitLabel}</SubmitButton>
     </form>
   );
 }
@@ -167,11 +168,11 @@ export function DeleteItem({
         <input type="hidden" name="id" value={id} />
         <input type="hidden" name="venueId" value={venueId} />
         <p>{warning ?? `確定要刪除這個${label}嗎？刪除後不能復原。`}</p>
-        <button
+        <SubmitButton
           className={cn(buttonVariants(), buttonClass, "self-start bg-destructive text-white hover:bg-destructive/80")}
         >
           確定刪除
-        </button>
+        </SubmitButton>
       </form>
     </details>
   );

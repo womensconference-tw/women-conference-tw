@@ -5,6 +5,7 @@ import { STAFF_ROLE_LABELS } from "@/lib/staff";
 import { cn } from "@/lib/utils";
 import { signOut } from "../actions";
 import { getCurrentStaff } from "../current-staff";
+import { SubmitButton } from "../submit-button";
 
 /**
  * 登入後的後台頁面。proxy 已經擋下沒登入的人；這裡再確認登入的人在工作人員名單裡，
@@ -25,10 +26,12 @@ export default async function SignedInLayout({ children }: LayoutProps<"/staff">
         </nav>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span>
-            {staff.email}（{STAFF_ROLE_LABELS[staff.role]}）
+            {staff.name ?? staff.email}（{STAFF_ROLE_LABELS[staff.role]}）
           </span>
           <form action={signOut}>
-            <button className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>登出</button>
+            <SubmitButton pendingLabel="登出中…" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+              登出
+            </SubmitButton>
           </form>
         </div>
       </header>

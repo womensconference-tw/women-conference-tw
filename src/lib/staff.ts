@@ -61,6 +61,8 @@ export const REGION_LABELS: Record<Region, string> = {
 export type StaffMember = {
   userId: string;
   email: string;
+  /** 由總管理員填；舊帳號可能還沒填（null）。 */
+  name: string | null;
   role: StaffRole;
   /** 負責的區；總管理員與全區的報報組為 null。 */
   region: Region | null;
@@ -71,8 +73,15 @@ export type StaffListItem = StaffMember & { createdAt: string; lastSignInAt: str
 /** 新增或修改工作人員時填的角色與負責範圍。 */
 export type StaffScope = { role: StaffRole; region: Region | null };
 
+/** 新增或修改工作人員時填的名字、角色與負責範圍。 */
+export type StaffProfile = StaffScope & { name: string };
+
+/** 名字最多幾個字，和資料庫 staff_members_name_valid 一致。 */
+const NAME_MAX_LENGTH = 50;
+
 export type StaffError =
   | "email_invalid"
+  | "name_invalid"
   | "not_admin"
   | "scope_invalid"
   | "already_staff"
@@ -94,13 +103,13 @@ export async function getStaffMember(supabase: SupabaseClient): Promise<StaffMem
 
   const { data, error } = await supabase
     .from("staff_members")
-    .select("role, region")
+    .select("name, role, region")
     .eq("user_id", user.id)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
 
-  return { userId: user.id, email: user.email ?? "", role: data.role, region: data.region };
+  return { userId: user.id, email: user.email ?? "", name: data.name, role: data.role, region: data.region };
 }
 
 /** 工作人員名單。只有總管理員能看，其他人會丟出錯誤。 */
@@ -110,6 +119,7 @@ export async function listStaffMembers(supabase: SupabaseClient): Promise<StaffL
   return (data as StaffRow[]).map((row) => ({
     userId: row.user_id,
     email: row.email,
+    name: row.name,
     role: row.role,
     region: row.region,
     createdAt: row.created_at,
@@ -120,6 +130,7 @@ export async function listStaffMembers(supabase: SupabaseClient): Promise<StaffL
 type StaffRow = {
   user_id: string;
   email: string;
+  name: string | null;
   role: StaffRole;
   region: Region | null;
   created_at: string;
@@ -132,10 +143,11 @@ type StaffRow = {
  */
 export async function addStaffMember(
   { session, authAdmin }: Clients,
-  input: StaffScope & { email: string },
+  input: StaffProfile & { email: string },
 ): Promise<StaffResult> {
   const email = normalizeEmail(input.email);
   if (!email) return { ok: false, error: "email_invalid" };
+  if (!nameValid(input.name)) return { ok: false, error: "name_invalid" };
   // 明顯不相符的先擋下，不必建了帳號再刪。
   if (!scopeShapeValid(input)) return { ok: false, error: "scope_invalid" };
 
@@ -150,6 +162,7 @@ export async function addStaffMember(
 
   const { error } = await session.rpc("add_staff_member", {
     p_email: email,
+    p_name: input.name,
     p_role: input.role,
     p_region: input.region,
   });
@@ -159,6 +172,13 @@ export async function addStaffMember(
     if (deleteError) console.error("新增工作人員失敗後刪除登入帳號也失敗，留下沒有角色的帳號", email, deleteError);
   }
   return error ? failure(error) : { ok: true };
+}
+
+// 與資料庫 clean_staff_name 同一套規則：去掉前後空白後不能是空的，最多 50 個字。
+function nameValid(name: string): boolean {
+  const trimmed = trimBlank(name);
+  // 和資料庫的 char_length 一樣按字（碼點）算；.length 會把「𠮷」這類字算成兩個。
+  return trimmed !== "" && [...trimmed].length <= NAME_MAX_LENGTH;
 }
 
 // 與資料庫 check_staff_scope 同一套規則：總管理員不分區，課務組一定要有一區，報報組一區或全區。
@@ -176,13 +196,15 @@ function scopeShapeValid({ role, region }: StaffScope): boolean {
   }
 }
 
-/** 修改工作人員的角色與負責範圍。 */
+/** 修改工作人員的名字、角色與負責範圍。 */
 export async function updateStaffMember(
   session: SupabaseClient,
-  input: StaffScope & { userId: string },
+  input: StaffProfile & { userId: string },
 ): Promise<StaffResult> {
+  if (!nameValid(input.name)) return { ok: false, error: "name_invalid" };
   const { error } = await session.rpc("update_staff_member", {
     p_user_id: input.userId,
+    p_name: input.name,
     p_role: input.role,
     p_region: input.region,
   });
@@ -203,7 +225,14 @@ export async function removeStaffMember({ session, authAdmin }: Clients, userId:
 }
 
 // 資料庫函式丟出的代碼直接轉成結果；其他錯誤記下來，畫面上顯示系統暫時出了問題。
-const DATABASE_ERRORS: StaffError[] = ["not_admin", "scope_invalid", "already_staff", "last_admin", "staff_not_found"];
+const DATABASE_ERRORS: StaffError[] = [
+  "name_invalid",
+  "not_admin",
+  "scope_invalid",
+  "already_staff",
+  "last_admin",
+  "staff_not_found",
+];
 
 function failure(error: { message: string }): { ok: false; error: StaffError } {
   const code = DATABASE_ERRORS.find((known) => error.message === known);
