@@ -35,7 +35,7 @@ const DONE = { added: "已新增報名。", updated: "已儲存修改。", cance
 /**
  * 報名名單：自己範圍內的報名，可依姓名、電話或報名編號搜尋。範圍由資料庫決定。
  * 預設是目前年度，可以選年度看舊年度的名單（範圍一樣）。
- * 標出疑似重複（同支會同名）與跨區（場地和支聯會的預設場地不同），也可以只看其中一種（#24）。
+ * 標出疑似重複（同支會同名）與跨區（場地和支聯會不在同一區），也可以只看其中一種（#24）。
  * 總管理員可以新增、修改、取消目前年度的報名（#17）；課務組、報報組只能看。
  */
 export default async function RegistrationsPage({ searchParams }: PageProps<"/staff/registrations">) {
@@ -101,7 +101,7 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
         <p className="text-muted-foreground">
           {filter === "duplicates"
             ? "疑似重複：姓名相同、支會也相同的有效報名，可能是同一位姐妹被報了兩次，請確認後處理。"
-            : "跨區：所選場地和她支聯會的預設場地不同的有效報名。支聯會沒設定預設場地的不標記。"}
+            : "跨區：所選教堂和她的支聯會不在同一區的有效報名。"}
         </p>
       )}
       <p role="status">

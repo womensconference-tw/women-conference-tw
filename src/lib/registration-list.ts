@@ -32,7 +32,7 @@ export type RegistrationListItem = {
   status: RegistrationStatus;
   role: RegistrantRole;
   createdAt: string;
-  /** 所選場地與支聯會的預設場地不同；支聯會沒設定預設場地時是 false（#24）。 */
+  /** 所選場地的區與支聯會的區不同（#24）。 */
   crossRegion: boolean;
   /** 同一年度、同一支會另有姓名相同的有效報名；已取消的一律是 false（#24）。 */
   suspectedDuplicate: boolean;

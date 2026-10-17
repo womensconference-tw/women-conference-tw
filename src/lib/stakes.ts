@@ -4,7 +4,7 @@ import { REGIONS, type Region } from "./staff";
 
 /*
  * 支聯會與支會名單（#23）：不屬於任何年度大會，只有總管理員能維護，由資料庫的權限規則強制（ADR 0004）。
- * 重新劃分時停用舊單位、新增新單位：支會不能改隸屬的支聯會，支聯會不能改區（資料庫也擋）。
+ * 重新劃分時停用舊支會、在新的支聯會新增：支會不能改隸屬的支聯會（資料庫也擋）。支聯會可以直接改區（#24）。
  * 有報名的單位不能刪除，只能停用；停用的不出現在前台報名表，舊報名、統計與名單照常顯示。
  */
 
@@ -12,7 +12,6 @@ export type StakeError =
   | "name_required"
   | "position_invalid"
   | "region_required"
-  | "site_invalid"
   | "in_use"
   | "not_found"
   | "not_admin"
@@ -35,41 +34,22 @@ export type DirectoryStake = {
   nameEn: string;
   region: Region;
   isActive: boolean;
-  /** 預設場地；還沒設定是 null。 */
-  defaultSite: Site | null;
   wards: DirectoryWard[];
 };
 
-/**
- * 一間教堂（場地的固定識別）。場地每個年度各有一筆，這裡用有這間教堂的最新年度那一筆：
- * 複製新年度後，預設場地自動對應到新年度的場地。
- */
-export type Site = {
-  siteKey: string;
-  /** 最新年度那一筆場地。 */
-  venueId: string;
-  nameZh: string;
-  year: number;
-};
-
-/** 後台名單：全部的支聯會與支會（含停用的），依排序列出；以及可以設為預設場地的教堂。 */
-export type StakeDirectory = { stakes: DirectoryStake[]; sites: Site[] };
+/** 後台名單：全部的支聯會與支會（含停用的），依排序列出。 */
+export type StakeDirectory = { stakes: DirectoryStake[] };
 
 export async function getStakeDirectory(supabase: SupabaseClient): Promise<StakeDirectory> {
-  const [stakes, sites] = await Promise.all([
-    supabase
-      .from("stakes")
-      .select("id, position, name_zh, name_en, region, is_active, default_site_key, wards(id, position, name_zh, name_en, is_active)")
-      .order("position")
-      .order("id")
-      .order("position", { referencedTable: "wards" })
-      .order("id", { referencedTable: "wards" }),
-    listSites(supabase),
-  ]);
+  const stakes = await supabase
+    .from("stakes")
+    .select("id, position, name_zh, name_en, region, is_active, wards(id, position, name_zh, name_en, is_active)")
+    .order("position")
+    .order("id")
+    .order("position", { referencedTable: "wards" })
+    .order("id", { referencedTable: "wards" });
   if (stakes.error) throw stakes.error;
-  const siteByKey = new Map(sites.map((site) => [site.siteKey, site]));
   return {
-    sites,
     stakes: stakes.data.map((stake) => ({
       id: stake.id,
       position: stake.position,
@@ -77,8 +57,6 @@ export async function getStakeDirectory(supabase: SupabaseClient): Promise<Stake
       nameEn: stake.name_en,
       region: stake.region,
       isActive: stake.is_active,
-      // 設定的教堂之後被刪掉了（所有年度都沒有）時，當成沒設定。
-      defaultSite: siteByKey.get(stake.default_site_key) ?? null,
       wards: stake.wards.map((ward) => ({
         id: ward.id,
         position: ward.position,
@@ -90,36 +68,21 @@ export async function getStakeDirectory(supabase: SupabaseClient): Promise<Stake
   };
 }
 
-/** 所有年度的教堂，每間一筆（最新年度的名稱），新年度的在前，同一年依場地排序。 */
-async function listSites(supabase: SupabaseClient): Promise<Site[]> {
-  const { data, error } = await supabase
-    .from("venues")
-    .select("id, site_key, name_zh, position, conferences!inner(year)")
-    .order("position")
-    .order("id");
-  if (error) throw error;
-  const rows = (data as unknown as { id: string; site_key: string; name_zh: string; conferences: { year: number } }[])
-    .map((row) => ({ siteKey: row.site_key, venueId: row.id, nameZh: row.name_zh, year: row.conferences.year }))
-    // sort 是穩定排序，同一年的維持場地的順序。
-    .sort((a, b) => b.year - a.year);
-  const seen = new Set<string>();
-  return rows.filter((site) => !seen.has(site.siteKey) && seen.add(site.siteKey));
-}
-
 export type StakeInput = {
   /** 修改時帶入；新增時不帶。 */
   id?: string;
   nameZh: string;
   nameEn: string;
-  /** 只在新增時用；之後不能改。 */
+  /** 新增時必填；修改時不帶就不改。 */
   region?: string;
   /** 表單上的原始文字；空白是 0。 */
   position: string;
-  /** 預設場地的固定識別，空字串是未設定；不帶時不改。 */
-  defaultSiteKey?: string;
 };
 
-/** 新增或修改支聯會的名稱、排序與預設場地。區只在新增時設定。 */
+/**
+ * 新增或修改支聯會的名稱、區與排序。改區後，這個支聯會的報名在名單上算新的區
+ * （報報組的範圍、跨區標記都跟著換）。
+ */
 export async function saveStake(
   supabase: SupabaseClient,
   input: StakeInput,
@@ -130,21 +93,12 @@ export async function saveStake(
   if (!validIds(input.id)) return { ok: false, error: "not_found" };
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
-  if (input.defaultSiteKey !== undefined) {
-    const siteKey = input.defaultSiteKey || null;
-    if (siteKey) {
-      if (!UUID_PATTERN.test(siteKey)) return { ok: false, error: "site_invalid" };
-      const { data, error } = await supabase.from("venues").select("id").eq("site_key", siteKey).limit(1);
-      if (error) return failure(error);
-      if (data.length === 0) return { ok: false, error: "site_invalid" };
-    }
-    values.default_site_key = siteKey;
-  }
-  if (!input.id) {
+  if (!input.id || input.region !== undefined) {
     const region = REGIONS.find((candidate) => candidate === input.region);
     if (!region) return { ok: false, error: "region_required" };
-    return saved(await supabase.from("stakes").insert({ ...values, region }).select("id"));
+    values.region = region;
   }
+  if (!input.id) return saved(await supabase.from("stakes").insert(values).select("id"));
   return saved(await supabase.from("stakes").update(values).eq("id", input.id).select("id"));
 }
 

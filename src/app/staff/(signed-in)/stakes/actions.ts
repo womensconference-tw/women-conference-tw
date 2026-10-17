@@ -19,8 +19,6 @@ export async function saveStakeItem(formData: FormData) {
     nameEn: field("nameEn"),
     region: field("region"),
     position: field("position"),
-    // 新增支聯會的表單沒有這一欄。
-    defaultSiteKey: formData.has("defaultSiteKey") ? field("defaultSiteKey") : undefined,
   });
   // 新增支聯會後直接到它的編輯頁，接著加支會。
   done(result, "saved", id ?? (result.ok ? result.id : ""));

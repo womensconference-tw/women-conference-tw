@@ -17,7 +17,7 @@ import { DONE, ERRORS, InactiveBadge, nextPosition, RegionField } from "./forms"
 
 export const metadata: Metadata = { title: "支聯會與支會" };
 
-/** 支聯會與支會（只有總管理員）：支聯會列表，可新增支聯會，點進去編輯名稱、預設場地與支會。名單不屬於任何年度。 */
+/** 支聯會與支會（只有總管理員）：支聯會列表，可新增支聯會，點進去編輯名稱、區與支會。名單不屬於任何年度。 */
 export default async function StakesPage({ searchParams }: PageProps<"/staff/stakes">) {
   const me = await getCurrentStaff();
   // 版面和頁面同時執行，版面的導向擋不住這裡，自己也要檢查。
@@ -52,8 +52,7 @@ export default async function StakesPage({ searchParams }: PageProps<"/staff/sta
                   </span>
                   <span className="text-sm text-muted-foreground">
                     {REGION_LABELS[stake.region]}・{activeWards} 個支會
-                    {stake.wards.length > activeWards && `（另有 ${stake.wards.length - activeWards} 個已停用）`}・預設場地：
-                    {stake.defaultSite?.nameZh ?? "未設定"}
+                    {stake.wards.length > activeWards && `（另有 ${stake.wards.length - activeWards} 個已停用）`}
                   </span>
                 </Link>
               </li>

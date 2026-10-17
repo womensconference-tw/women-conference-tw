@@ -539,32 +539,10 @@ describe("疑似重複", () => {
 });
 
 describe("跨區", () => {
-  /** 把支聯會的預設場地設成某個場地（記的是場地的固定識別）。 */
-  async function setDefaultVenue(stake: "taipei" | "taichung", venue: "jinhua" | "daya" | null) {
-    const siteKey =
-      venue === null
-        ? null
-        : must(
-            await admin
-              .from("venues")
-              .select("site_key")
-              .eq("id", venue === "jinhua" ? jinhuaId : dayaId)
-              .single(),
-          ).site_key;
-    must(
-      await admin
-        .from("stakes")
-        .update({ default_site_key: siteKey })
-        .eq("id", stake === "taipei" ? taipeiStakeId : taichungStakeId),
-    );
-  }
-
   const crossRegion = async (client: SupabaseClient) =>
     Object.fromEntries((await listRegistrations(client, "")).items.map((item) => [item.name, item.crossRegion]));
 
-  it("所選場地與支聯會的預設場地不同時標記跨區，相同時不標記", async () => {
-    await setDefaultVenue("taipei", "jinhua");
-    await setDefaultVenue("taichung", "daya");
+  it("所選教堂的區與支聯會的區不同時標記跨區，相同時不標記", async () => {
     await seedGrid();
 
     expect(await crossRegion(await signedInClient("head@example.com"))).toEqual({
@@ -575,40 +553,19 @@ describe("跨區", () => {
     });
   });
 
-  it("支聯會沒設定預設場地時不標記", async () => {
-    await setDefaultVenue("taipei", "jinhua");
-    await setDefaultVenue("taichung", null);
+  it("支聯會改區後，標記跟著新的區", async () => {
     await seedGrid();
+    must(await admin.from("stakes").update({ region: "north" }).eq("id", taichungStakeId));
 
     expect(await crossRegion(await signedInClient("head@example.com"))).toEqual({
       金華台北: false,
       金華台中: false,
       大雅台北: true,
-      大雅台中: false,
+      大雅台中: true,
     });
   });
 
-  it("預設場地是同一間教堂在別的年度的那筆時，比的是教堂，不是那一年的場地", async () => {
-    // 去年的金華教堂和今年的金華教堂是同一個固定識別。
-    const siteKey = must(await admin.from("venues").select("site_key").eq("id", jinhuaId).single()).site_key;
-    const old = must(
-      await admin.from("conferences").insert({ year: 2098, conference_date: "2098-05-15" }).select("id").single(),
-    );
-    conferenceIds.push(old.id);
-    must(
-      await admin
-        .from("venues")
-        .insert({ region: "north", conference_id: old.id, name_zh: "去年的金華教堂", site_key: siteKey }),
-    );
-    must(await admin.from("stakes").update({ default_site_key: siteKey }).eq("id", taipeiStakeId));
-    await seed({ name: "金華台北", venue: "jinhua", stake: "taipei" });
-
-    expect(await crossRegion(await signedInClient("head@example.com"))).toEqual({ 金華台北: false });
-  });
-
-  it("可以只列出跨區的報名，課務組、報報組也只在自己範圍內", async () => {
-    await setDefaultVenue("taipei", "jinhua");
-    await setDefaultVenue("taichung", "daya");
+  it("可以只列出有效的跨區報名，課務組、報報組也只在自己範圍內", async () => {
     await seedGrid();
     const crossOnly = async (email: string) =>
       (await listRegistrations(await signedInClient(email), "", undefined, "cross_region")).items
@@ -616,6 +573,9 @@ describe("跨區", () => {
         .sort();
 
     expect(await crossOnly("head@example.com")).toEqual(["大雅台北", "金華台中"]);
+    expect(await crossOnly("course@example.com")).toEqual(["金華台中"]);
+    expect(await crossOnly("report@example.com")).toEqual(["大雅台北", "金華台中"]);
+
     // 已取消的不列入只看跨區。
     must(
       await admin
@@ -624,7 +584,5 @@ describe("跨區", () => {
         .eq("name", "金華台中"),
     );
     expect(await crossOnly("head@example.com")).toEqual(["大雅台北"]);
-    expect(await crossOnly("course@example.com")).toEqual([]);
-    expect(await crossOnly("report@example.com")).toEqual(["大雅台北"]);
   });
 });
