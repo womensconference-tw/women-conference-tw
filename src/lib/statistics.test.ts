@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { adminClient, must, signedInClient } from "../../test/supabase";
-import { formatUsage, getStatistics, venuesInView, type Statistics } from "./statistics";
+import { describeFullOptions, formatUsage, getStatistics, venuesInView, type Statistics } from "./statistics";
 
 const admin = adminClient();
 const DAY = 24 * 60 * 60 * 1000;
@@ -526,5 +526,24 @@ describe("課程、午餐的「已報／容量」", () => {
   it("只計得到部分報名的場地不列容量", () => {
     expect(formatUsage({ count: 2, capacity: 40 }, true)).toBe("2");
     expect(formatUsage({ count: 2, capacity: null }, true)).toBe("2");
+  });
+});
+
+describe("後台超收前的確認提示", () => {
+  it("列出額滿的課程、午餐、午后動態與「已報／容量」，依場地內的順序", async () => {
+    await seed({ venue: "jinhua", ward: "xindian", course: "quilting", lunch: "bento", walk: true });
+    const statistics = await getStatistics(await signedInClient("head@example.com"), conferenceId);
+
+    expect(describeFullOptions(statistics, [walkId, bentoId, quiltingId])).toEqual([
+      "課程「拼布」：已報 1／40",
+      "午餐「便當」：已報 1／30",
+      "午后動態「散步」：已報 1／10",
+    ]);
+  });
+
+  it("不認得的選項略過", async () => {
+    const statistics = await getStatistics(await signedInClient("head@example.com"), conferenceId);
+
+    expect(describeFullOptions(statistics, ["00000000-0000-4000-8000-000000000000"])).toEqual([]);
   });
 });

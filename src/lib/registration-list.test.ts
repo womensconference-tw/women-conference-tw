@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { adminClient, anonClient, must, signedInClient } from "../../test/supabase";
-import { listRegistrations } from "./registration-list";
+import { getRegistrationForEdit, listRegistrations } from "./registration-list";
 
 const admin = adminClient();
 const DAY = 24 * 60 * 60 * 1000;
@@ -316,6 +316,7 @@ describe("後台報名名單的內容與搜尋", () => {
       stakeName: "測試台中支聯會",
       wardName: "測試大雅支會",
       status: "registered",
+      role: "attendee",
     });
   });
 
@@ -388,5 +389,47 @@ describe("後台報名名單的內容與搜尋", () => {
 
     expect(await names(await signedInClient("course@example.com"), "0933333333")).toEqual([]);
     expect(await names(await signedInClient("report@example.com"), "台中")).toEqual(["金華台中"]);
+  });
+});
+
+describe("後台修改報名時讀出的報名", () => {
+  it("讀得到存下的內容、所選課程、身分類別與支聯會、支會名稱", async () => {
+    const id = await seed({ name: "王小美", venue: "jinhua", stake: "taipei", phone: "0912345678" });
+    must(await admin.from("registrations").update({ role: "speaker", printed_handbook: true }).eq("id", id));
+
+    const registration = await getRegistrationForEdit(await signedInClient("head@example.com"), id);
+
+    expect(registration).toEqual({
+      id,
+      name: "王小美",
+      phone: "0912345678",
+      registrationNumber: null,
+      email: null,
+      lineId: null,
+      stakeId: taipeiStakeId,
+      wardId: xindianWardId,
+      venueId: jinhuaId,
+      courseIds: [],
+      lunchOptionId: null,
+      afternoonActivityId: null,
+      choirPart: null,
+      services: [],
+      printedHandbook: true,
+      role: "speaker",
+      status: "registered",
+      stakeName: "測試台北支聯會",
+      wardName: "測試新店支會",
+      isCurrentYear: true,
+    });
+  });
+
+  it("讀不到範圍外或不存在的報名", async () => {
+    const id = await seed({ name: "大雅台中", venue: "daya", stake: "taichung" });
+
+    expect(await getRegistrationForEdit(await signedInClient("course@example.com"), id)).toBeNull();
+    expect(
+      await getRegistrationForEdit(await signedInClient("head@example.com"), "00000000-0000-4000-8000-000000000000"),
+    ).toBeNull();
+    expect(await getRegistrationForEdit(await signedInClient("head@example.com"), "not-an-id")).toBeNull();
   });
 });

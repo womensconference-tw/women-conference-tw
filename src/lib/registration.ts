@@ -9,6 +9,8 @@ import { localized } from "./i18n/localized";
  * 查詢（lookupRegistration）是前台唯一能讀取報名的地方，由資料庫函式 lookup_registration 比對。
  * 修改（updateRegistration）由資料庫函式 update_registration 再比對一次姓名與電話（或報名編號），和送出走同一套名額檢查。
  * 取消（cancelRegistration）由資料庫函式 cancel_registration 同樣再比對一次，標記為已取消、不刪除。
+ * 後台（staffSubmitRegistration 等）只有總管理員能用，不受報名期間限制，可設身分類別、確認後超收（#17、ADR 0004）；
+ * 資料庫函式 staff_* 和前台的函式共用寫入與名額檢查的步驟，不另寫一套規則。
  */
 
 /** 即席唱詩班的聲部。與資料庫 registrations_choir_part_valid 用同一組代碼。 */
@@ -499,30 +501,35 @@ export async function submitRegistration(
   const errors = validateRegistration(input);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
+  // 前台的代碼只對應到前台的錯誤（見 saved）。
   return saved(
     "submit_registration",
     () =>
       supabase
-        .rpc("submit_registration", {
-          p_venue_id: input.venueId,
-          p_stake_id: input.stakeId,
-          p_ward_id: input.wardId,
-          p_name: trimBlank(input.name),
-          p_phone: input.noPhone ? null : normalizePhone(input.phone),
-          p_email: trimBlank(input.email) || null,
-          p_line_id: trimBlank(input.lineId) || null,
-          p_course_ids: input.courseIds,
-          p_lunch_option_id: input.lunchOptionId,
-          p_afternoon_activity_id: input.afternoonActivityId,
-          p_choir_part: input.choirPart,
-          p_services: input.services,
-          p_printed_handbook: input.printedHandbook,
-          p_portrait_consent: input.portraitConsent,
-          p_locale: locale,
-        })
+        .rpc("submit_registration", { ...newRegistrationParams(input), p_locale: locale })
         .single<RegistrationRow>(),
     input,
-  );
+  ) as Promise<SubmitResult>;
+}
+
+/** 送出新報名的資料庫函式共用的參數（前台、後台）。 */
+function newRegistrationParams(input: RegistrationInput) {
+  return {
+    p_venue_id: input.venueId,
+    p_stake_id: input.stakeId,
+    p_ward_id: input.wardId,
+    p_name: trimBlank(input.name),
+    p_phone: input.noPhone ? null : normalizePhone(input.phone),
+    p_email: trimBlank(input.email) || null,
+    p_line_id: trimBlank(input.lineId) || null,
+    p_course_ids: input.courseIds,
+    p_lunch_option_id: input.lunchOptionId,
+    p_afternoon_activity_id: input.afternoonActivityId,
+    p_choir_part: input.choirPart,
+    p_services: input.services,
+    p_printed_handbook: input.printedHandbook,
+    p_portrait_consent: input.portraitConsent,
+  };
 }
 
 /** 修改報名的輸入：哪一筆、查詢時用的姓名與電話（或報名編號），以及修改後的內容。 */
@@ -544,23 +551,26 @@ export async function updateRegistration(
 
   return saved(
     "update_registration",
-    () =>
-      supabase.rpc("update_registration", {
-        ...identity,
-        // 改電話的修改已經存下、回應卻斷掉時，她再送一次：資料庫也拿這支新的電話比對（見 update_registration）。
-        p_phone: changes.noPhone ? null : normalizePhone(changes.phone),
-        p_email: trimBlank(changes.email) || null,
-        p_line_id: trimBlank(changes.lineId) || null,
-        p_venue_id: changes.venueId,
-        p_course_ids: changes.courseIds,
-        p_lunch_option_id: changes.lunchOptionId,
-        p_afternoon_activity_id: changes.afternoonActivityId,
-        p_choir_part: changes.choirPart,
-        p_services: changes.services,
-        p_printed_handbook: changes.printedHandbook,
-      }),
+    () => supabase.rpc("update_registration", { ...identity, ...changeParams(changes) }),
     changes,
-  );
+  ) as Promise<SubmitResult>;
+}
+
+/** 修改報名的資料庫函式共用的參數（前台、後台）。 */
+function changeParams(changes: RegistrationChanges) {
+  return {
+    // 前台改電話的修改已經存下、回應卻斷掉時，她再送一次：資料庫也拿這支新的電話比對（見 update_registration）。
+    p_phone: changes.noPhone ? null : normalizePhone(changes.phone),
+    p_email: trimBlank(changes.email) || null,
+    p_line_id: trimBlank(changes.lineId) || null,
+    p_venue_id: changes.venueId,
+    p_course_ids: changes.courseIds,
+    p_lunch_option_id: changes.lunchOptionId,
+    p_afternoon_activity_id: changes.afternoonActivityId,
+    p_choir_part: changes.choirPart,
+    p_services: changes.services,
+    p_printed_handbook: changes.printedHandbook,
+  };
 }
 
 /**
@@ -617,12 +627,164 @@ export async function cancelRegistration(
   return { ok: true };
 }
 
-/** 呼叫寫入報名的資料庫函式，把結果或丟出的代碼轉成 SubmitResult。 */
+/** 身分類別（GLOSSARY）。與資料庫 registrations_role_valid 用同一組代碼；前台報名一律是與會姐妹。 */
+export const REGISTRANT_ROLES = ["attendee", "committee", "speaker", "guest_leader", "team", "volunteer"] as const;
+export type RegistrantRole = (typeof REGISTRANT_ROLES)[number];
+
+export const REGISTRANT_ROLE_LABELS: Record<RegistrantRole, string> = {
+  attendee: "與會姐妹",
+  committee: "籌備委員",
+  speaker: "講師",
+  guest_leader: "貴賓及領袖",
+  team: "工作團隊",
+  volunteer: "志工",
+};
+
+/** 後台新增報名的內容：報名表的內容加上身分類別（RegistrantRole，送來的原樣）。 */
+export type StaffRegistrationInput = RegistrationInput & { role: string };
+
+/** 後台修改報名時可以改的部分：和前台修改相同，加上身分類別。 */
+export type StaffRegistrationChanges = RegistrationChanges & { role: string };
+
+export type StaffRegistrationField = RegistrationField | "role";
+
+export type StaffRegistrationError =
+  | RegistrationError
+  | "roleInvalid"
+  /** 不是總管理員（課務組、報報組只能看）。 */
+  | "notAllowed";
+
+export type StaffRegistrationErrors = Partial<Record<StaffRegistrationField, StaffRegistrationError>>;
+
+export type StaffSubmitResult =
+  | { ok: true; registration: Registration }
+  | {
+      ok: false;
+      errors: StaffRegistrationErrors;
+      fullIds?: string[];
+      /** 有選項額滿、沒有帶確認旗標：問過總管理員之後，帶 confirmFull 再送一次就會超收。 */
+      needsConfirmation?: true;
+    };
+
+/** 後台的資料庫函式丟出的代碼。 */
+const staffDatabaseErrors: Record<string, StaffRegistrationErrors> = {
+  ...databaseErrors,
+  not_allowed: { form: "notAllowed" },
+  registration_not_found: { form: "notFound" },
+  role_invalid: { role: "roleInvalid" },
+};
+
+/** 後台才會碰到的資料表限制（前台報名一律是與會姐妹）。 */
+const staffConstraintErrors: Record<string, StaffRegistrationErrors> = {
+  ...constraintErrors,
+  registrations_role_valid: { role: "roleInvalid" },
+};
+
+function validateRole(role: string): StaffRegistrationErrors {
+  return (REGISTRANT_ROLES as readonly string[]).includes(role) ? {} : { role: "roleInvalid" };
+}
+
+/** 額滿而被拒、還沒確認過時，標出需要確認。 */
+function withConfirmation(result: StaffSubmitResult, confirmFull: boolean): StaffSubmitResult {
+  return !result.ok && result.fullIds && !confirmFull ? { ...result, needsConfirmation: true } : result;
+}
+
+/** 把送來的後台報名表內容整理成 StaffRegistrationInput（見 registrationInputFrom）。 */
+export function staffRegistrationInputFrom(input: unknown): StaffRegistrationInput {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  return { ...registrationInputFrom(raw), role: typeof raw.role === "string" ? raw.role : "" };
+}
+
+/**
+ * 後台新增報名（只限總管理員）：和前台同一套欄位與選項檢查，但不受報名期間限制，可設身分類別。
+ * 有選項額滿時，沒帶 confirmFull 就被拒絕並回傳需要確認；帶了就超收。報名語言由 locale 指定。
+ */
+export async function staffSubmitRegistration(
+  supabase: SupabaseClient,
+  input: StaffRegistrationInput,
+  { confirmFull, locale = "zh" }: { confirmFull: boolean; locale?: Locale },
+): Promise<StaffSubmitResult> {
+  const errors = { ...validateRegistration(input), ...validateRole(input.role) };
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+
+  const result = await saved(
+    "staff_submit_registration",
+    () =>
+      supabase
+        .rpc("staff_submit_registration", {
+          ...newRegistrationParams(input),
+          p_locale: locale,
+          p_role: input.role,
+          p_confirm_full: confirmFull,
+        })
+        .single<RegistrationRow>(),
+    input,
+    staffDatabaseErrors,
+    staffConstraintErrors,
+  );
+  return withConfirmation(result, confirmFull);
+}
+
+/** 後台修改報名的輸入：哪一筆、修改後的內容，以及是否已確認超收。 */
+export type StaffUpdateInput = { registrationId: string; changes: StaffRegistrationChanges; confirmFull: boolean };
+
+/**
+ * 後台修改報名（只限總管理員）：和前台修改同一套規則，她原本已佔的選項仍算她的；
+ * 不受報名期間限制，可以改身分類別。新選的選項額滿時，和新增一樣要帶 confirmFull 才會超收。
+ */
+export async function staffUpdateRegistration(
+  supabase: SupabaseClient,
+  { registrationId, changes, confirmFull }: StaffUpdateInput,
+): Promise<StaffSubmitResult> {
+  const errors = { ...validateChanges(changes), ...validateRole(changes.role) };
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  if (!UUID_PATTERN.test(registrationId)) return { ok: false, errors: { form: "notFound" } };
+
+  const result = await saved(
+    "staff_update_registration",
+    () =>
+      supabase
+        .rpc("staff_update_registration", {
+          p_registration_id: registrationId,
+          ...changeParams(changes),
+          p_role: changes.role,
+          p_confirm_full: confirmFull,
+        })
+        .single<RegistrationRow>(),
+    changes,
+    staffDatabaseErrors,
+    staffConstraintErrors,
+  );
+  return withConfirmation(result, confirmFull);
+}
+
+export type StaffCancelResult = { ok: true } | { ok: false; error: "notAllowed" | "notFound" | "unknown" };
+
+/** 後台取消報名（只限總管理員）：不受報名期間限制。標記為已取消、不刪除，已取消的再取消一次照樣成功。 */
+export async function staffCancelRegistration(
+  supabase: SupabaseClient,
+  registrationId: string,
+): Promise<StaffCancelResult> {
+  if (!UUID_PATTERN.test(registrationId)) return { ok: false, error: "notFound" };
+  const { error } = await supabase.rpc("staff_cancel_registration", { p_registration_id: registrationId });
+  if (!error) return { ok: true };
+  if (error.message === "not_allowed") return { ok: false, error: "notAllowed" };
+  if (error.message === "registration_not_found") return { ok: false, error: "notFound" };
+  console.error("staff_cancel_registration failed", error);
+  return { ok: false, error: "unknown" };
+}
+
+/**
+ * 呼叫寫入報名的資料庫函式，把結果或丟出的代碼轉成結果。codes、constraints 是丟出的代碼、違反的資料表限制
+ * 對應到的錯誤。前台只給前台的對應（預設），結果就只會有前台的錯誤，所以前台的呼叫可以當成 SubmitResult。
+ */
 async function saved(
   name: string,
   call: () => PromiseLike<PostgrestSingleResponse<RegistrationRow | null>>,
   input: RegistrationChanges,
-): Promise<SubmitResult> {
+  codes: Record<string, StaffRegistrationErrors> = databaseErrors,
+  constraints: Record<string, StaffRegistrationErrors> = constraintErrors,
+): Promise<StaffSubmitResult> {
   let response = await call();
   // 管理員同時調整幾門課的名額時，可能和報名互相等待，資料庫會中止其中一邊（deadlock detected）。
   // 被中止的報名整筆都沒寫入，直接重送就好，不必讓她看到「系統出了問題」。
@@ -640,7 +802,7 @@ async function saved(
       const fullIds = error.details ? error.details.split(",") : [];
       return { ok: false, errors: fullErrors(input, fullIds), fullIds };
     }
-    const known = databaseErrors[error.message] ?? constraintErrors[violatedConstraint(error.message)];
+    const known = codes[error.message] ?? constraints[violatedConstraint(error.message)];
     if (known) return { ok: false, errors: known };
     console.error(`${name} failed`, error);
     return { ok: false, errors: { form: "unknown" } };
