@@ -433,3 +433,198 @@ describe("後台修改報名時讀出的報名", () => {
     expect(await getRegistrationForEdit(await signedInClient("head@example.com"), "not-an-id")).toBeNull();
   });
 });
+
+describe("疑似重複", () => {
+  /** 在台北支聯會另加一個支會。 */
+  async function anotherTaipeiWard() {
+    return must(
+      await admin.from("wards").insert({ stake_id: taipeiStakeId, name_zh: "測試景美支會" }).select("id").single(),
+    ).id;
+  }
+
+  const duplicates = async (client: SupabaseClient, query = "") =>
+    (await listRegistrations(client, query, undefined, "duplicates")).items.map((item) => item.name).sort();
+
+  it("列出姓名與支會都相同的有效報名，姓名前後、中間的空白與英文大小寫不影響", async () => {
+    await seed({ name: "王小美", venue: "jinhua", stake: "taipei", phone: "0911111111" });
+    await seed({ name: "王 小美", venue: "daya", stake: "taipei", phone: "0922222222" });
+    await seed({ name: "王　小美", venue: "jinhua", stake: "taipei", phone: "0933333333" });
+    await seed({ name: "Amy Lin", venue: "jinhua", stake: "taipei" });
+    await seed({ name: "amy lin", venue: "jinhua", stake: "taipei" });
+    await seed({ name: "陳大明", venue: "jinhua", stake: "taipei" });
+
+    expect(await duplicates(await signedInClient("head@example.com"))).toEqual(["Amy Lin", "amy lin", "王 小美", "王　小美", "王小美"]);
+  });
+
+  it("姓名相同但支會不同的不列入", async () => {
+    const jingmeiWardId = await anotherTaipeiWard();
+    await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
+    const other = await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
+    must(await admin.from("registrations").update({ ward_id: jingmeiWardId }).eq("id", other));
+    await seed({ name: "王小美", venue: "jinhua", stake: "taichung" });
+
+    expect(await duplicates(await signedInClient("head@example.com"))).toEqual([]);
+  });
+
+  it("已取消的報名不列入，也不讓剩下的一筆變成疑似重複", async () => {
+    await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
+    const cancelled = await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
+    must(
+      await admin
+        .from("registrations")
+        .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+        .eq("id", cancelled),
+    );
+
+    expect(await duplicates(await signedInClient("head@example.com"))).toEqual([]);
+  });
+
+  it("只比對同一年度的報名", async () => {
+    await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
+    const old = must(
+      await admin.from("conferences").insert({ year: 2098, conference_date: "2098-05-15" }).select("id").single(),
+    );
+    conferenceIds.push(old.id);
+    const oldVenue = must(
+      await admin.from("venues").insert({ region: "north", conference_id: old.id, name_zh: "去年的教堂" }).select("id").single(),
+    );
+    must(
+      await admin.from("registrations").insert({
+        conference_id: old.id,
+        venue_id: oldVenue.id,
+        stake_id: taipeiStakeId,
+        ward_id: xindianWardId,
+        name: "王小美",
+        phone: "0912345678",
+        portrait_consented_at: new Date().toISOString(),
+        locale: "zh",
+      }),
+    );
+
+    expect(await duplicates(await signedInClient("head@example.com"))).toEqual([]);
+  });
+
+  it("一般名單上也標出哪幾筆是疑似重複", async () => {
+    await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
+    await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
+    await seed({ name: "陳大明", venue: "jinhua", stake: "taipei" });
+
+    const { items } = await listRegistrations(await signedInClient("head@example.com"), "");
+    expect(items.map((item) => [item.name, item.suspectedDuplicate]).sort()).toEqual([
+      ["王小美", true],
+      ["王小美", true],
+      ["陳大明", false],
+    ]);
+  });
+
+  it("同一支會、同名的排在一起", async () => {
+    await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
+    await seed({ name: "王大明", venue: "jinhua", stake: "taipei" });
+    await seed({ name: "王 大明", venue: "jinhua", stake: "taipei" });
+    await seed({ name: "王 小美", venue: "jinhua", stake: "taipei" });
+
+    const { items } = await listRegistrations(await signedInClient("head@example.com"), "", undefined, "duplicates");
+    const keys = items.map((item) => item.name.replace(" ", ""));
+    expect([["王大明", "王大明", "王小美", "王小美"], ["王小美", "王小美", "王大明", "王大明"]]).toContainEqual(keys);
+  });
+
+  it("疑似重複的清單也可以搜尋", async () => {
+    await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
+    await seed({ name: "王小美", venue: "jinhua", stake: "taipei" });
+    await seed({ name: "陳大明", venue: "jinhua", stake: "taipei" });
+    await seed({ name: "陳大明", venue: "jinhua", stake: "taipei" });
+
+    expect(await duplicates(await signedInClient("head@example.com"), "大明")).toEqual(["陳大明", "陳大明"]);
+  });
+});
+
+describe("跨區", () => {
+  /** 把支聯會的預設場地設成某個場地（記的是場地的固定識別）。 */
+  async function setDefaultVenue(stake: "taipei" | "taichung", venue: "jinhua" | "daya" | null) {
+    const siteKey =
+      venue === null
+        ? null
+        : must(
+            await admin
+              .from("venues")
+              .select("site_key")
+              .eq("id", venue === "jinhua" ? jinhuaId : dayaId)
+              .single(),
+          ).site_key;
+    must(
+      await admin
+        .from("stakes")
+        .update({ default_site_key: siteKey })
+        .eq("id", stake === "taipei" ? taipeiStakeId : taichungStakeId),
+    );
+  }
+
+  const crossRegion = async (client: SupabaseClient) =>
+    Object.fromEntries((await listRegistrations(client, "")).items.map((item) => [item.name, item.crossRegion]));
+
+  it("所選場地與支聯會的預設場地不同時標記跨區，相同時不標記", async () => {
+    await setDefaultVenue("taipei", "jinhua");
+    await setDefaultVenue("taichung", "daya");
+    await seedGrid();
+
+    expect(await crossRegion(await signedInClient("head@example.com"))).toEqual({
+      金華台北: false,
+      金華台中: true,
+      大雅台北: true,
+      大雅台中: false,
+    });
+  });
+
+  it("支聯會沒設定預設場地時不標記", async () => {
+    await setDefaultVenue("taipei", "jinhua");
+    await setDefaultVenue("taichung", null);
+    await seedGrid();
+
+    expect(await crossRegion(await signedInClient("head@example.com"))).toEqual({
+      金華台北: false,
+      金華台中: false,
+      大雅台北: true,
+      大雅台中: false,
+    });
+  });
+
+  it("預設場地是同一間教堂在別的年度的那筆時，比的是教堂，不是那一年的場地", async () => {
+    // 去年的金華教堂和今年的金華教堂是同一個固定識別。
+    const siteKey = must(await admin.from("venues").select("site_key").eq("id", jinhuaId).single()).site_key;
+    const old = must(
+      await admin.from("conferences").insert({ year: 2098, conference_date: "2098-05-15" }).select("id").single(),
+    );
+    conferenceIds.push(old.id);
+    must(
+      await admin
+        .from("venues")
+        .insert({ region: "north", conference_id: old.id, name_zh: "去年的金華教堂", site_key: siteKey }),
+    );
+    must(await admin.from("stakes").update({ default_site_key: siteKey }).eq("id", taipeiStakeId));
+    await seed({ name: "金華台北", venue: "jinhua", stake: "taipei" });
+
+    expect(await crossRegion(await signedInClient("head@example.com"))).toEqual({ 金華台北: false });
+  });
+
+  it("可以只列出跨區的報名，課務組、報報組也只在自己範圍內", async () => {
+    await setDefaultVenue("taipei", "jinhua");
+    await setDefaultVenue("taichung", "daya");
+    await seedGrid();
+    const crossOnly = async (email: string) =>
+      (await listRegistrations(await signedInClient(email), "", undefined, "cross_region")).items
+        .map((item) => item.name)
+        .sort();
+
+    expect(await crossOnly("head@example.com")).toEqual(["大雅台北", "金華台中"]);
+    // 已取消的不列入只看跨區。
+    must(
+      await admin
+        .from("registrations")
+        .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+        .eq("name", "金華台中"),
+    );
+    expect(await crossOnly("head@example.com")).toEqual(["大雅台北"]);
+    expect(await crossOnly("course@example.com")).toEqual([]);
+    expect(await crossOnly("report@example.com")).toEqual(["大雅台北"]);
+  });
+});
