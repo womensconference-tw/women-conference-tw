@@ -19,6 +19,8 @@ const submitClass = cn(buttonVariants(), buttonClass, "self-start font-bold");
 
 const DONE: Record<string, string> = {
   copied: "已建立新年度。設為目前年度之前，首頁還是顯示原本的年度。",
+  copied_without_some_pairs:
+    "已建立新年度，但有成對課程因為去年調過場次順序、兩個場次不再相鄰，沒有複製。請到「場地與課程」重新設定這些成對課程。設為目前年度之前，首頁還是顯示原本的年度。",
   switched:
     "已設為目前年度，首頁改顯示這一年。公告上線前首頁只顯示「即將公布」，這段時間請到「首頁內容」「場地與課程」準備新年度。",
 };

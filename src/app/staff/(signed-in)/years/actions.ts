@@ -16,7 +16,8 @@ export async function copyYear(formData: FormData) {
     year: field("year"),
     conferenceDate: field("conferenceDate"),
   });
-  redirect(result.ok ? "/staff/years?done=copied" : `/staff/years?error=${result.error}`);
+  if (!result.ok) redirect(`/staff/years?error=${result.error}`);
+  redirect(`/staff/years?done=${result.skippedCoursePairs > 0 ? "copied_without_some_pairs" : "copied"}`);
 }
 
 export async function makeCurrentYear(formData: FormData) {

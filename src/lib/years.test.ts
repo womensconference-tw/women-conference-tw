@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { adminClient, anonClient, must, signedInClient } from "../../test/supabase";
+import type { TransactionSql } from "postgres";
+import { adminClient, anonClient, databaseClient, must, serverClient, signedInClient } from "../../test/supabase";
 import { getCurrentConference } from "./conference";
 import { getContentEditor, toTaipeiDateTimeInput } from "./content";
 import { getProgramme, type Programme } from "./programme";
+import { cancelRegistration, submitRegistration, updateRegistration, type RegistrationInput } from "./registration";
 import { listRegistrations } from "./registration-list";
 import { copyConference, listConferences, setCurrentConference } from "./years";
 
@@ -205,6 +207,69 @@ describe("複製去年建立新年度", () => {
     });
   });
 
+  it("排序數字相同的場次，複製後仍是原本的順序，成對課程照樣複製", async () => {
+    const venue = must(
+      await admin.from("venues").insert({ conference_id: sourceId, region: "north", name_zh: "台北金華教堂" }).select("id").single(),
+    ).id;
+    // 五個排序數字都是 0 的場次，顯示順序由編號決定；每個場次一門課。
+    for (const name of ["甲", "乙", "丙", "丁", "戊"]) {
+      const session = must(
+        await admin.from("sessions").insert({ conference_id: sourceId, venue_id: venue, name_zh: `${name}場` }).select("id").single(),
+      ).id;
+      must(await admin.from("courses").insert({ conference_id: sourceId, session_id: session, title_zh: `${name}課` }));
+    }
+    const before = (await getProgramme(headAdmin))!.venues[0].sessions;
+    // 依顯示順序相鄰的第二、三個場次的課設成對。
+    must(
+      await admin.from("course_pairs").insert({
+        conference_id: sourceId,
+        first_course_id: before[1].courses[0].id,
+        second_course_id: before[2].courses[0].id,
+      }),
+    );
+
+    await switchedTo(await copied());
+
+    const after = arrangement((await getProgramme(headAdmin))!);
+    expect(after.venues[0].sessions.map((session) => session.nameZh)).toEqual(before.map((session) => session.nameZh));
+    expect(after.coursePairs).toEqual([[before[1].courses[0].nameZh, before[2].courses[0].nameZh]]);
+  });
+
+  it("去年報名開放後調過場次順序、成對課程不再相鄰時，其他照樣複製，那一組不複製並告知", async () => {
+    const venue = must(
+      await admin.from("venues").insert({ conference_id: sourceId, region: "north", name_zh: "台北金華教堂" }).select("id").single(),
+    ).id;
+    const course = async (position: number, name: string) => {
+      const session = must(
+        await admin
+          .from("sessions")
+          .insert({ conference_id: sourceId, venue_id: venue, position, name_zh: `${name}場` })
+          .select("id")
+          .single(),
+      ).id;
+      const id = must(
+        await admin.from("courses").insert({ conference_id: sourceId, session_id: session, title_zh: `${name}課` }).select("id").single(),
+      ).id;
+      return { session, id };
+    };
+    const a = await course(1, "甲");
+    const b = await course(2, "乙");
+    const c = await course(3, "丙");
+    must(await admin.from("course_pairs").insert({ conference_id: sourceId, first_course_id: a.id, second_course_id: b.id }));
+    // 開放報名後只能調排序：把丙場移到甲、乙中間。
+    must(await admin.from("conferences").update({ registration_opens_at: new Date(Date.now() - DAY).toISOString() }).eq("id", sourceId));
+    must(await admin.from("sessions").update({ position: 3 }).eq("id", b.session));
+    must(await admin.from("sessions").update({ position: 2 }).eq("id", c.session));
+
+    const result = await copyConference(headAdmin, { sourceConferenceId: sourceId, year: "2100", conferenceDate: "2100-05-15" });
+
+    expect(result).toMatchObject({ ok: true, skippedCoursePairs: 1 });
+    await switchedTo((result as { conferenceId: string }).conferenceId);
+    const after = arrangement((await getProgramme(headAdmin))!);
+    expect(after.venues[0].sessions.map((session) => session.nameZh)).toEqual(["甲場", "丙場", "乙場"]);
+    expect(after.coursePairs).toEqual([]);
+  });
+
   it("首頁內容、常見問題、自訂區塊都複製過去", async () => {
     await lastYear();
 
@@ -383,5 +448,142 @@ describe("複製時填錯", () => {
   it("日期不存在", async () => {
     const result = await copyConference(headAdmin, { sourceConferenceId: sourceId, year: "2100", conferenceDate: "2100-02-30" });
     expect(result).toEqual({ ok: false, error: "date_invalid" });
+  });
+});
+
+type Database = ReturnType<typeof databaseClient>;
+
+/** 開一個交易做完 `work` 後先不提交，等 release() 才提交。失敗時 release() 也要呼叫，交易才會結束、放開鎖。 */
+function holdOpen(client: Database, work: (tx: TransactionSql) => Promise<unknown>) {
+  let release!: () => void;
+  const mayCommit = new Promise<void>((resolve) => (release = resolve));
+  let started!: (pid: number) => void;
+  let failed!: (error: unknown) => void;
+  const pid = new Promise<number>((resolve, reject) => ((started = resolve), (failed = reject)));
+  const done = client.begin(async (tx) => {
+    await work(tx);
+    const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+    started(pid);
+    await mayCommit;
+  });
+  done.catch(failed);
+  return { pid, release, done };
+}
+
+/** 正在等 `pid` 放開鎖的連線。 */
+async function waitingFor(watcher: Database, pid: number): Promise<number[]> {
+  const rows = await watcher<{ pid: number }[]>`
+    select pid from pg_stat_activity where ${pid}::int = any(pg_blocking_pids(pid))`;
+  return rows.map((row) => row.pid);
+}
+
+async function waitUntil(message: string, condition: () => Promise<boolean>) {
+  for (let waited = 0; !(await condition()); waited += 50) {
+    if (waited > 10_000) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+describe("切換目前年度時有人正在報名", () => {
+  let venueId: string;
+  let lunchId: string;
+  let registrationId: string;
+
+  // 2099 報名中：一個場地、一個午餐、一筆報名。
+  beforeEach(async () => {
+    venueId = must(
+      await admin.from("venues").insert({ conference_id: sourceId, region: "north", name_zh: "台北金華教堂" }).select("id").single(),
+    ).id;
+    lunchId = must(
+      await admin.from("lunch_options").insert({ conference_id: sourceId, venue_id: venueId, name_zh: "素食便當" }).select("id").single(),
+    ).id;
+    must(
+      await admin
+        .from("conferences")
+        .update({ registration_opens_at: new Date(Date.now() - DAY).toISOString() })
+        .eq("id", sourceId),
+    );
+    registrationId = must(
+      await admin
+        .from("registrations")
+        .insert({
+          conference_id: sourceId,
+          venue_id: venueId,
+          stake_id: stakeId,
+          ward_id: wardId,
+          name: "已報名的",
+          phone: "0911111111",
+          portrait_consented_at: new Date().toISOString(),
+          locale: "zh",
+        })
+        .select("id")
+        .single(),
+    ).id;
+  });
+
+  const input = (): RegistrationInput => ({
+    name: "新報名的",
+    phone: "0922222222",
+    noPhone: false,
+    email: "",
+    lineId: "",
+    stakeId,
+    wardId,
+    venueId,
+    courseIds: [],
+    lunchOptionId: lunchId,
+    afternoonActivityId: null,
+    choirPart: null,
+    services: [],
+    printedHandbook: false,
+    portraitConsent: true,
+  });
+  const lookup = { name: "已報名的", phoneOrNumber: "0911111111" };
+
+  // 先鎖住報名會碰到的那一列，讓報名讀完目前年度之後卡在那裡；這時才開始切換。
+  it.each([
+    ["送出報名", "lunch_options", () => lunchId, () => submitRegistration(anonClient(), input(), "zh")],
+    [
+      "修改報名",
+      "registrations",
+      () => registrationId,
+      () => updateRegistration(serverClient(), { registrationId, lookup, changes: { ...input(), phone: "0911111111", lunchOptionId: null } }),
+    ],
+    ["取消報名", "registrations", () => registrationId, () => cancelRegistration(serverClient(), { registrationId, lookup })],
+  ] as const)("%s做到一半時，切換要等它做完，報名照樣算在原本的年度", async (_, table, rowId, act) => {
+    const id = await copied();
+    const [holder, watcher] = [databaseClient(), databaseClient()];
+    const holding = holdOpen(holder, (tx) => tx`select 1 from ${tx(`public.${table}`)} where id = ${rowId()} for update`);
+    let switching: Promise<unknown> = Promise.resolve();
+    try {
+      const holderPid = await holding.pid;
+      const acting = act();
+      let actPid: number | undefined;
+      await waitUntil("報名沒有卡在那一列", async () => {
+        [actPid] = await waitingFor(watcher, holderPid);
+        return actPid !== undefined;
+      });
+
+      switching = switchedTo(id);
+      await waitUntil("切換沒有等做到一半的報名", async () => (await waitingFor(watcher, actPid!)).length === 1);
+      holding.release();
+
+      expect(await acting).toMatchObject({ ok: true });
+      await switching;
+      expect((await listRegistrations(headAdmin, "", 2099)).total).toBeGreaterThan(0);
+    } finally {
+      holding.release();
+      await Promise.all([holding.done.catch(() => {}), switching.catch(() => {})]);
+      await Promise.all([holder.end(), watcher.end()]);
+    }
+  }, 30_000);
+
+  it("切換之後才送出的舊年度報名表，不會寫進舊年度", async () => {
+    await switchedTo(await copied());
+
+    const result = await submitRegistration(anonClient(), input(), "zh");
+
+    expect(result.ok).toBe(false);
+    expect((await listRegistrations(headAdmin, "", 2099)).items.map((item) => item.name)).toEqual(["已報名的"]);
   });
 });

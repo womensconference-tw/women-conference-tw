@@ -59,11 +59,14 @@ export type CopyConferenceInput = {
   conferenceDate: string;
 };
 
-/** 複製一個年度建立新年度。報名不複製，時程時間點空著待填，也不會變成目前年度。 */
+/**
+ * 複製一個年度建立新年度。報名不複製，時程時間點空著待填，也不會變成目前年度。
+ * 去年報名開放後調過場次順序、兩個場次不再相鄰的成對課程不複製，`skippedCoursePairs` 是略過幾組。
+ */
 export async function copyConference(
   supabase: SupabaseClient,
   input: CopyConferenceInput,
-): Promise<{ ok: true; conferenceId: string } | { ok: false; error: YearError }> {
+): Promise<{ ok: true; conferenceId: string; skippedCoursePairs: number } | { ok: false; error: YearError }> {
   const year = Number(trimBlank(input.year));
   if (!/^\d{4}$/.test(trimBlank(input.year)) || year < 2000) return { ok: false, error: "year_invalid" };
   const conferenceDate = trimBlank(input.conferenceDate);
@@ -72,12 +75,15 @@ export async function copyConference(
   if (!conferenceDate.startsWith(`${year}-`)) return { ok: false, error: "date_not_in_year" };
   if (!UUID_PATTERN.test(input.sourceConferenceId)) return { ok: false, error: "not_found" };
 
-  const { data, error } = await supabase.rpc("copy_conference", {
-    p_source_id: input.sourceConferenceId,
-    p_year: year,
-    p_conference_date: conferenceDate,
-  });
-  return error ? failure(error) : { ok: true, conferenceId: data as string };
+  const { data, error } = await supabase
+    .rpc("copy_conference", {
+      p_source_id: input.sourceConferenceId,
+      p_year: year,
+      p_conference_date: conferenceDate,
+    })
+    .single<{ new_conference_id: string; skipped_course_pairs: number }>();
+  if (error) return failure(error);
+  return { ok: true, conferenceId: data.new_conference_id, skippedCoursePairs: data.skipped_course_pairs };
 }
 
 export type SetCurrentConferenceInput = {
