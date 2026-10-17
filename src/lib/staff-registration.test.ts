@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { adminClient, anonClient, must, serverClient, signedInClient } from "../../test/supabase";
+import { adminClient, anonClient, databaseClient, must, serverClient, signedInClient } from "../../test/supabase";
 import {
   changesOf,
   staffCancelRegistration,
@@ -500,6 +500,22 @@ describe("只有總管理員能新增、修改、取消報名", () => {
     await client.from("registration_courses").delete().eq("registration_id", id);
 
     expect(await stored(id)).toEqual(before);
+  });
+
+  it("寫入報名的共用步驟只能由入口函式呼叫，任何角色都不能直接呼叫", async () => {
+    const sql = databaseClient();
+    try {
+      const rows = await sql`
+        select p.proname, r.rolname, has_function_privilege(r.rolname, p.oid, 'EXECUTE') as allowed
+        from pg_proc p, pg_roles r
+        where p.pronamespace = 'public'::regnamespace
+          and p.proname in ('insert_registration', 'change_registration')
+          and r.rolname in ('anon', 'authenticated', 'service_role')`;
+      expect(rows).toHaveLength(6);
+      expect(rows.filter((row) => row.allowed)).toEqual([]);
+    } finally {
+      await sql.end();
+    }
   });
 
   it("未登入的訪客不能呼叫後台的函式", async () => {

@@ -109,7 +109,11 @@ export function RegistrationEditor({
       : {},
   );
   const [errors, setErrors] = useState<StaffRegistrationErrors>({});
-  const [fullOptions, setFullOptions] = useState<string[] | null>(null);
+  // 等總管理員確認超收的那一次送出：送出的內容與額滿選項的說明。按「確定加入」時重送的是這份內容，
+  // 不是畫面上目前的內容，提示裡列的和實際超收的才會一致。
+  const [confirming, setConfirming] = useState<{ sent: StaffRegistrationInput; fullOptions: string[] } | null>(
+    null,
+  );
   const [pending, startTransition] = useTransition();
   const dialog = useRef<HTMLDialogElement>(null);
 
@@ -145,18 +149,13 @@ export function RegistrationEditor({
     update({ courseIds: courseIdsOf(next) });
   }
 
-  function submit(confirmFull: boolean) {
-    const pairErrors = validateCourseChoices(choices, sessions);
-    if (pairErrors.courses === "coursePairRequired") {
-      setErrors(pairErrors);
-      return;
-    }
+  function submit(sent: StaffRegistrationInput, confirmFull: boolean) {
     startTransition(async () => {
       let result: StaffFormResult;
       try {
         result = registration
-          ? await editRegistration(registration.id, input, confirmFull)
-          : await addRegistration(input, confirmFull);
+          ? await editRegistration(registration.id, sent, confirmFull)
+          : await addRegistration(sent, confirmFull);
       } catch {
         setErrors({ form: "unknown" });
         return;
@@ -167,7 +166,7 @@ export function RegistrationEditor({
       }
       if (result.needsConfirmation) {
         setErrors({});
-        setFullOptions(result.fullOptions ?? []);
+        setConfirming({ sent, fullOptions: result.fullOptions ?? [] });
         dialog.current?.showModal();
         return;
       }
@@ -178,18 +177,26 @@ export function RegistrationEditor({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!pending) submit(false);
+    if (pending) return;
+    const pairErrors = validateCourseChoices(choices, sessions);
+    if (pairErrors.courses === "coursePairRequired") {
+      setErrors(pairErrors);
+      return;
+    }
+    submit(input, false);
   }
 
   function confirmFull() {
     dialog.current?.close();
-    submit(true);
+    if (confirming) submit(confirming.sent, true);
   }
 
   const errorList = Object.entries(errors) as [StaffRegistrationField, StaffRegistrationError][];
 
   return (
     <form onSubmit={handleSubmit} noValidate className="flex max-w-2xl flex-col gap-6">
+      {/* 送出中不能改內容：回應回來時（例如要確認超收）畫面上的才是剛送出的那份。 */}
+      <fieldset disabled={pending} className="contents">
       {errorList.length > 0 && (
         <div role="alert" className={alertClass}>
           <p>沒有存下，請修改：</p>
@@ -469,6 +476,7 @@ export function RegistrationEditor({
         {pending && <LoaderCircle aria-hidden className="size-4 animate-spin" />}
         {pending ? "處理中…" : registration ? "儲存修改" : "新增報名"}
       </button>
+      </fieldset>
 
       <dialog
         ref={dialog}
@@ -480,7 +488,7 @@ export function RegistrationEditor({
           已額滿
         </h2>
         <ul className="mt-3 list-disc pl-6 text-lg">
-          {(fullOptions?.length ? fullOptions : ["所選的選項"]).map((line) => (
+          {(confirming?.fullOptions.length ? confirming.fullOptions : ["所選的選項"]).map((line) => (
             <li key={line}>{line}</li>
           ))}
         </ul>
@@ -488,7 +496,10 @@ export function RegistrationEditor({
         <div className="mt-6 flex flex-wrap justify-end gap-3">
           <button
             type="button"
-            onClick={() => dialog.current?.close()}
+            onClick={() => {
+              dialog.current?.close();
+              setConfirming(null);
+            }}
             className={cn(buttonVariants({ variant: "outline" }), buttonClass)}
           >
             取消

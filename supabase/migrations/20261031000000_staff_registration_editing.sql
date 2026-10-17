@@ -199,8 +199,9 @@ begin
 end;
 $$;
 
-revoke all on function public.insert_registration from public, anon, authenticated;
-revoke all on function public.change_registration from public, anon, authenticated;
+-- 只由下面的入口函式呼叫（以擁有者的權限）。Supabase 預設也給 service_role 執行權限，一併拿掉。
+revoke all on function public.insert_registration from public, anon, authenticated, service_role;
+revoke all on function public.change_registration from public, anon, authenticated, service_role;
 
 -- 前台的送出、修改改成呼叫上面兩個函式，其他和 20261029000000_year_management.sql 的版本相同。
 create or replace function public.submit_registration(
