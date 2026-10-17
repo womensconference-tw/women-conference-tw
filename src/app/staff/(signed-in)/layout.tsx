@@ -21,6 +21,7 @@ export default async function SignedInLayout({ children }: LayoutProps<"/staff">
         <nav className="flex flex-wrap items-center gap-4 font-semibold">
           <Link href="/staff">後台首頁</Link>
           <Link href="/staff/registrations">報名名單</Link>
+          <Link href="/staff/statistics">統計</Link>
           {staff.role === "admin" && <Link href="/staff/content">首頁內容</Link>}
           {staff.role === "admin" && <Link href="/staff/programme">場地與課程</Link>}
           {staff.role === "admin" && <Link href="/staff/years">年度管理</Link>}

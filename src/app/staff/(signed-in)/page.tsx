@@ -5,7 +5,7 @@ import { getCurrentStaff } from "../current-staff";
 
 export const metadata: Metadata = { title: "後台首頁" };
 
-/** 後台首頁：顯示目前登入的角色與負責範圍。統計等功能之後加在這裡。 */
+/** 後台首頁：顯示目前登入的角色與負責範圍。 */
 export default async function StaffHomePage() {
   const staff = await getCurrentStaff();
   // 版面和頁面同時執行，版面的導向擋不住這裡，自己也要檢查。
