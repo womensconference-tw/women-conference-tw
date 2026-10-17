@@ -18,7 +18,7 @@ import { createClient } from "@/lib/supabase/server";
  * 是不是總管理員、名額、要不要確認超收都由資料庫判斷，這裡不另外檢查。成功後和前台一樣寄確認信。
  */
 
-/** 結果；需要確認超收時多附額滿選項的說明（例如「課程「拼布」：已報 30／30」）。 */
+/** 結果；需要確認超收時多附額滿選項的說明（例如「課程「拼布」：名額 30 人，目前已報 30 人，加入後變成 31 人（超過名額 1 人）」）。 */
 export type StaffFormResult = StaffSubmitResult & { fullOptions?: string[] };
 
 /** 新增報名。confirmFull 是總管理員看過額滿提示、確定要超收。 */

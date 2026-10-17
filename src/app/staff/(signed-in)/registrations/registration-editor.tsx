@@ -492,7 +492,7 @@ export function RegistrationEditor({
             <li key={line}>{line}</li>
           ))}
         </ul>
-        <p className="mt-3 text-lg">已經額滿，確定要加入嗎？加入後會超過名額。</p>
+        <p className="mt-3 text-lg">確定要加入嗎？</p>
         <div className="mt-6 flex flex-wrap justify-end gap-3">
           <button
             type="button"
