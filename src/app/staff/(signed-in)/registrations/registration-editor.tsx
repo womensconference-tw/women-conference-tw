@@ -89,7 +89,7 @@ function inputOf(registration: RegistrationForEdit): StaffRegistrationInput {
 
 /**
  * 後台新增、修改報名的表單（只有總管理員看得到）。所有欄位攤在同一頁，和前台同一套檢查由報名服務負責。
- * 已額滿的選項照樣可選；送出時資料庫回報額滿，先跳出提示列出「已報／名額」，按「確定加入」才帶確認旗標再送一次。
+ * 已額滿的選項照樣可選；送出時資料庫回報額滿，先跳出提示列出加入前後的人數，按「確定加入」才帶確認旗標再送一次。
  * 修改時姓名、支聯會、支會不能改，有沒有電話也不能改（和前台修改相同）。
  */
 export function RegistrationEditor({

@@ -173,9 +173,12 @@ export function joiningUsage({ count, capacity }: { count: number; capacity: num
 
 /**
  * 後台超收前的確認提示（#17）：額滿的課程、午餐、午后動態各一句（見 joiningUsage）。
- * 依場地、場次內的順序；不認得的 id 略過。成對課程的另一堂也會列出（一堂額滿，兩堂一起確認）。
+ * 依場地、場次內的順序；不認得的 id 略過。成對課程的另一堂也會列出（一堂額滿，兩堂一起確認），
+ * 但修改時她原本已佔的選項（heldIds）不列出：加入後人數不變。
  */
-export function describeFullOptions(statistics: Statistics, ids: string[]): string[] {
+export function describeFullOptions(statistics: Statistics, fullIds: string[], heldIds: string[] = []): string[] {
+  // 她原本已佔的不會多一人（成對課程補列的另一堂可能是），不列出。
+  const ids = fullIds.filter((id) => !heldIds.includes(id));
   return statistics.venues.flatMap((venue) => [
     ...venue.sessions
       .flatMap((session) => session.courses)

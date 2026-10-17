@@ -547,6 +547,15 @@ describe("後台超收前的確認提示", () => {
     expect(describeFullOptions(statistics, ["00000000-0000-4000-8000-000000000000"])).toEqual([]);
   });
 
+  // 成對課程一堂額滿時，資料庫會把另一堂一起列為額滿；另一堂可能是她原本就佔著的，加入後人數不變，不能列出。
+  it("修改時她原本已佔的選項不列出", async () => {
+    const statistics = await getStatistics(await signedInClient("head@example.com"), conferenceId);
+
+    expect(describeFullOptions(statistics, [quiltingId, bentoId], [quiltingId])).toEqual([
+      "午餐「便當」：名額 30 人，目前已報 0 人，加入後變成 1 人",
+    ]);
+  });
+
   it("加入後超過名額時寫出超過幾人", () => {
     expect(joiningUsage({ count: 1, capacity: 1 })).toBe("名額 1 人，目前已報 1 人，加入後變成 2 人（超過名額 1 人）");
     expect(joiningUsage({ count: 32, capacity: 30 })).toBe(
