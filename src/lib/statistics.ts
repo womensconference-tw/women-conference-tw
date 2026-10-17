@@ -161,6 +161,24 @@ export function formatUsage(option: Pick<OptionStatistics, "count" | "capacity">
   return option.capacity === null ? `${option.count}（不限）` : `${option.count}／${option.capacity}`;
 }
 
+/**
+ * 後台超收前的確認提示（#17）：額滿的課程、午餐、午后動態各一句，例如「課程「拼布」：已報 30／30」。
+ * 依場地、場次內的順序；不認得的 id 略過。成對課程的另一堂也會列出（一堂額滿，兩堂一起確認）。
+ */
+export function describeFullOptions(statistics: Statistics, ids: string[]): string[] {
+  const usage = (option: { count: number; capacity: number | null }) => `已報 ${formatUsage(option, false)}`;
+  return statistics.venues.flatMap((venue) => [
+    ...venue.sessions
+      .flatMap((session) => session.courses)
+      .filter((course) => ids.includes(course.id))
+      .map((course) => `課程「${course.title}」：${usage(course)}`),
+    ...venue.lunches.filter((lunch) => ids.includes(lunch.id)).map((lunch) => `午餐「${lunch.name}」：${usage(lunch)}`),
+    ...venue.activities
+      .filter((activity) => ids.includes(activity.id))
+      .map((activity) => `午后動態「${activity.name}」：${usage(activity)}`),
+  ]);
+}
+
 function sum(options: { count: number }[]): number {
   return options.reduce((total, item) => total + item.count, 0);
 }

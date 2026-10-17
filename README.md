@@ -114,6 +114,8 @@ npm run test:watch
 
 測試只透過公開的介面（例如 `src/lib/conference.ts` 的 `getCurrentConference`）檢查外部行為，並以前台訪客的身分（publishable key，受 RLS 限制）呼叫；測試資料用 secret key 準備，跑完會還原。
 
+畫面操作（點選單、按按鈕）用 Testing Library 在模擬的瀏覽器（jsdom）裡測，不必開真的瀏覽器，例如 `src/app/staff/(signed-in)/registrations/registration-editor.test.tsx`。這類測試檔第一行寫 `// @vitest-environment jsdom`，伺服器動作用 `vi.mock` 換成假的，由測試決定回應；其他測試照樣在 Node 環境執行。
+
 ## 部署與交接
 
 正式環境部署在 Vercel，資料庫是正式 Supabase 專案，環境變數只放在 Vercel／Supabase 後台。第一次設定（或重建）正式環境時跑引導腳本：

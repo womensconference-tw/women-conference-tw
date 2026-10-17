@@ -1,5 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { normalizePhone, trimBlank } from "./registration";
+import {
+  normalizePhone,
+  trimBlank,
+  UUID_PATTERN,
+  type ChoirPart,
+  type RegistrantRole,
+  type Registration,
+  type Service,
+} from "./registration";
 
 /*
  * 後台報名名單（ADR 0004）：用登入的工作人員身分直接讀報名資料表，
@@ -22,6 +30,7 @@ export type RegistrationListItem = {
   stakeName: string;
   wardName: string;
   status: RegistrationStatus;
+  role: RegistrantRole;
   createdAt: string;
 };
 
@@ -41,7 +50,7 @@ export async function listRegistrations(
   let request = supabase
     .from("registrations")
     .select(
-      "id, name, phone, registration_number, status, created_at, venues(name_zh), stakes(name_zh), wards(name_zh), conferences!inner(year, is_current)",
+      "id, name, phone, registration_number, status, role, created_at, venues(name_zh), stakes(name_zh), wards(name_zh), conferences!inner(year, is_current)",
       { count: "exact" },
     );
   request = year === undefined ? request.eq("conferences.is_current", true) : request.eq("conferences.year", year);
@@ -70,6 +79,7 @@ export async function listRegistrations(
       stakeName: row.stakes?.name_zh ?? "",
       wardName: row.wards?.name_zh ?? "",
       status: row.status,
+      role: row.role,
       createdAt: row.created_at,
     })),
     total: count ?? 0,
@@ -82,10 +92,84 @@ type RegistrationRow = {
   phone: string | null;
   registration_number: string | null;
   status: RegistrationStatus;
+  role: RegistrantRole;
   created_at: string;
   venues: { name_zh: string } | null;
   stakes: { name_zh: string } | null;
   wards: { name_zh: string } | null;
+};
+
+/** 後台修改報名時讀出的一筆：存下的內容，加上身分類別、狀態、支聯會與支會名稱、是不是目前年度。 */
+export type RegistrationForEdit = Registration & {
+  role: RegistrantRole;
+  status: RegistrationStatus;
+  stakeName: string;
+  wardName: string;
+  /** 只有目前年度的報名能修改、取消。 */
+  isCurrentYear: boolean;
+};
+
+/** 用登入的工作人員身分讀一筆報名；範圍外、不存在或編號格式不對時是 null。 */
+export async function getRegistrationForEdit(
+  supabase: SupabaseClient,
+  id: string,
+): Promise<RegistrationForEdit | null> {
+  if (!UUID_PATTERN.test(id)) return null;
+  const { data, error } = await supabase
+    .from("registrations")
+    .select(
+      "id, name, phone, registration_number, email, line_id, stake_id, ward_id, venue_id, lunch_option_id, afternoon_activity_id, choir_part, services, printed_handbook, role, status, stakes(name_zh), wards(name_zh), conferences(is_current), registration_courses(course_id)",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const row = data as unknown as EditRow;
+  return {
+    id: row.id,
+    name: row.name,
+    phone: row.phone,
+    registrationNumber: row.registration_number,
+    email: row.email,
+    lineId: row.line_id,
+    stakeId: row.stake_id,
+    wardId: row.ward_id,
+    venueId: row.venue_id,
+    courseIds: row.registration_courses.map((course) => course.course_id).toSorted(),
+    lunchOptionId: row.lunch_option_id,
+    afternoonActivityId: row.afternoon_activity_id,
+    choirPart: row.choir_part,
+    services: row.services,
+    printedHandbook: row.printed_handbook,
+    role: row.role,
+    status: row.status,
+    stakeName: row.stakes?.name_zh ?? "",
+    wardName: row.wards?.name_zh ?? "",
+    isCurrentYear: row.conferences?.is_current ?? false,
+  };
+}
+
+type EditRow = {
+  id: string;
+  name: string;
+  phone: string | null;
+  registration_number: string | null;
+  email: string | null;
+  line_id: string | null;
+  stake_id: string;
+  ward_id: string;
+  venue_id: string;
+  lunch_option_id: string | null;
+  afternoon_activity_id: string | null;
+  choir_part: ChoirPart | null;
+  services: Service[];
+  printed_handbook: boolean;
+  role: RegistrantRole;
+  status: RegistrationStatus;
+  stakes: { name_zh: string } | null;
+  wards: { name_zh: string } | null;
+  conferences: { is_current: boolean } | null;
+  registration_courses: { course_id: string }[];
 };
 
 /**
