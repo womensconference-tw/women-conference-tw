@@ -239,6 +239,54 @@ describe("後台報名名單的角色範圍", () => {
   });
 });
 
+describe("後台選年度看舊年度的名單", () => {
+  /** 2099 年的四筆報名變成去年：另建一個 2100 目前年度。 */
+  async function lastYearGrid() {
+    await seedGrid();
+    must(await admin.from("conferences").update({ is_current: false }).eq("id", conferenceIds[0]));
+    const now = Date.now();
+    const current = must(
+      await admin
+        .from("conferences")
+        .insert({
+          year: 2100,
+          conference_date: "2100-05-15",
+          announce_at: new Date(now - 2 * DAY).toISOString(),
+          registration_opens_at: new Date(now + DAY).toISOString(),
+          registration_closes_at: new Date(now + 2 * DAY).toISOString(),
+          is_current: true,
+        })
+        .select("id")
+        .single(),
+    );
+    conferenceIds.push(current.id);
+  }
+
+  const namesIn = async (client: SupabaseClient, year: number, query = "") =>
+    (await listRegistrations(client, query, year)).items.map((item) => item.name).sort();
+
+  it("選了年度就列出那一年的報名，沒選時是目前年度", async () => {
+    await lastYearGrid();
+    const head = await signedInClient("head@example.com");
+
+    expect(await namesIn(head, 2099)).toEqual(["大雅台中", "大雅台北", "金華台中", "金華台北"]);
+    expect(await names(head)).toEqual([]);
+  });
+
+  it("舊年度的名單也只看得到自己範圍內的", async () => {
+    await lastYearGrid();
+
+    expect(await namesIn(await signedInClient("course@example.com"), 2099)).toEqual(["金華台中", "金華台北"]);
+    expect(await namesIn(await signedInClient("report@example.com"), 2099)).toEqual(["大雅台北", "金華台中", "金華台北"]);
+  });
+
+  it("舊年度也能搜尋", async () => {
+    await lastYearGrid();
+
+    expect(await namesIn(await signedInClient("head@example.com"), 2099, "大雅")).toEqual(["大雅台中", "大雅台北"]);
+  });
+});
+
 describe("後台報名名單的內容與搜尋", () => {
   it("每筆顯示電話或報名編號、支聯會、支會、場地與狀態", async () => {
     const id = await seed({ name: "王小美", venue: "jinhua", stake: "taipei", phone: "0912345678" });

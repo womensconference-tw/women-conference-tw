@@ -29,21 +29,22 @@ export type RegistrationListItem = {
 export const LIST_LIMIT = 200;
 
 /**
- * 目前年度、自己範圍內的報名，新的在前。`query` 空白時列出全部；
+ * 某個年度（`year`，沒給是目前年度）、自己範圍內的報名，新的在前。舊年度的名單也照同樣的範圍。`query` 空白時列出全部；
  * 整理後只剩數字（可有開頭的 +）時找電話或報名編號，否則找姓名。都是部分相符。
  * `total` 是符合的總筆數，可能比列出的多（見 LIST_LIMIT）。
  */
 export async function listRegistrations(
   supabase: SupabaseClient,
   query: string,
+  year?: number,
 ): Promise<{ items: RegistrationListItem[]; total: number }> {
   let request = supabase
     .from("registrations")
     .select(
-      "id, name, phone, registration_number, status, created_at, venues(name_zh), stakes(name_zh), wards(name_zh), conferences!inner(is_current)",
+      "id, name, phone, registration_number, status, created_at, venues(name_zh), stakes(name_zh), wards(name_zh), conferences!inner(year, is_current)",
       { count: "exact" },
-    )
-    .eq("conferences.is_current", true);
+    );
+  request = year === undefined ? request.eq("conferences.is_current", true) : request.eq("conferences.year", year);
 
   const text = trimBlank(query);
   const phone = normalizePhone(text);
