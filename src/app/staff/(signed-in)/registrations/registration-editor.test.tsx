@@ -130,7 +130,9 @@ describe("後台修改報名的超收確認", () => {
     await user.selectOptions(screen.getByLabelText("上午"), QUILTING);
     await user.click(screen.getByRole("button", { name: "儲存修改" }));
 
-    const dialog = screen.getByRole("alertdialog", { hidden: true });
+    // 測試環境的對話框不會擋住背景，查詢要包含隱藏的元素；所以另外確認對話框真的打開了。
+    const dialog = screen.getByRole<HTMLDialogElement>("alertdialog", { hidden: true });
+    expect(dialog.open).toBe(true);
     expect(within(dialog).getByText("課程「拼布」：已報 30／30")).toBeTruthy();
     expect(editRegistration).toHaveBeenLastCalledWith(
       registration.id,
@@ -151,16 +153,28 @@ describe("後台修改報名的超收確認", () => {
     expect(push).toHaveBeenCalledWith("/staff/registrations?done=updated");
   });
 
-  it("按「取消」就不送出", async () => {
+  it("按「取消」就不送出，對話框關掉；之後再按「儲存修改」會重新問，不會直接超收", async () => {
     const user = userEvent.setup();
-    editRegistration.mockResolvedValueOnce(needsConfirmation);
+    editRegistration.mockResolvedValue(needsConfirmation);
     render(<RegistrationEditor options={options} registration={registration} />);
+    const dialog = screen.getByRole<HTMLDialogElement>("alertdialog", { hidden: true });
 
     await user.selectOptions(screen.getByLabelText("上午"), QUILTING);
     await user.click(screen.getByRole("button", { name: "儲存修改" }));
     await user.click(screen.getByRole("button", { name: "取消", hidden: true }));
 
+    expect(dialog.open).toBe(false);
     expect(editRegistration).toHaveBeenCalledTimes(1);
     expect(push).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "儲存修改" }));
+
+    expect(editRegistration).toHaveBeenCalledTimes(2);
+    expect(editRegistration).toHaveBeenLastCalledWith(
+      registration.id,
+      expect.objectContaining({ courseIds: [QUILTING] }),
+      false,
+    );
+    expect(dialog.open).toBe(true);
   });
 });
