@@ -1,13 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import type { ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import { schedulePhase, type SchedulePhase } from "@/lib/conference";
 import {
   getContentEditor,
   missingEnglish,
-  toTaipeiDateTimeInput,
   type ContentError,
   type HomeItem,
   type HomeItemKind,
@@ -15,6 +13,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { getCurrentStaff } from "../../current-staff";
+import { DateTimeField, Field } from "../../fields";
 import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
 import { TextPair } from "../../text-pair";
@@ -72,7 +71,13 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
     return (
       <main className="flex flex-col gap-8">
         <h1 className="text-2xl font-bold">首頁內容</h1>
-        <p>還沒有目前年度，請先設定目前年度。</p>
+        <p>
+          還沒有目前年度，請先到
+          <Link href="/staff/years" className="font-semibold underline">
+            年度管理
+          </Link>
+          設定目前年度。
+        </p>
       </main>
     );
   }
@@ -196,43 +201,6 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
         description="臨時要公告的內容，顯示在首頁最後面，依這裡的順序。"
       />
     </main>
-  );
-}
-
-function Field({
-  label,
-  hint,
-  required = false,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  required?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="font-semibold">
-        {label}
-        {required && <span className="text-destructive">＊</span>}
-      </span>
-      {children}
-      {hint && <span className="text-sm text-muted-foreground">{hint}</span>}
-    </label>
-  );
-}
-
-function DateTimeField({ name, label, value, hint }: { name: string; label: string; value: string | null; hint: string }) {
-  return (
-    <Field label={label} hint={hint} required>
-      <input
-        name={name}
-        type="datetime-local"
-        defaultValue={toTaipeiDateTimeInput(value)}
-        required
-        className={inputClass}
-      />
-    </Field>
   );
 }
 
