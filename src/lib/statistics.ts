@@ -162,20 +162,32 @@ export function formatUsage(option: Pick<OptionStatistics, "count" | "capacity">
 }
 
 /**
- * 後台超收前的確認提示（#17）：額滿的課程、午餐、午后動態各一句，例如「課程「拼布」：已報 30／30」。
- * 依場地、場次內的順序；不認得的 id 略過。成對課程的另一堂也會列出（一堂額滿，兩堂一起確認）。
+ * 加入一人前後的人數，給後台超收前的確認提示，例如「名額 30 人，目前已報 30 人，加入後變成 31 人（超過名額 1 人）」。
+ * 加入後沒超過（例如成對課程裡還有空位的那堂）不寫超過；名額不限只寫目前人數。
  */
-export function describeFullOptions(statistics: Statistics, ids: string[]): string[] {
-  const usage = (option: { count: number; capacity: number | null }) => `已報 ${formatUsage(option, false)}`;
+export function joiningUsage({ count, capacity }: { count: number; capacity: number | null }): string {
+  if (capacity === null) return `名額不限，目前已報 ${count} 人`;
+  const over = count + 1 - capacity;
+  return `名額 ${capacity} 人，目前已報 ${count} 人，加入後變成 ${count + 1} 人${over > 0 ? `（超過名額 ${over} 人）` : ""}`;
+}
+
+/**
+ * 後台超收前的確認提示（#17）：額滿的課程、午餐、午后動態各一句（見 joiningUsage）。
+ * 依場地、場次內的順序；不認得的 id 略過。成對課程的另一堂也會列出（一堂額滿，兩堂一起確認），
+ * 但修改時她原本已佔的選項（heldIds）不列出：加入後人數不變。
+ */
+export function describeFullOptions(statistics: Statistics, fullIds: string[], heldIds: string[] = []): string[] {
+  // 她原本已佔的不會多一人（成對課程補列的另一堂可能是），不列出。
+  const ids = fullIds.filter((id) => !heldIds.includes(id));
   return statistics.venues.flatMap((venue) => [
     ...venue.sessions
       .flatMap((session) => session.courses)
       .filter((course) => ids.includes(course.id))
-      .map((course) => `課程「${course.title}」：${usage(course)}`),
-    ...venue.lunches.filter((lunch) => ids.includes(lunch.id)).map((lunch) => `午餐「${lunch.name}」：${usage(lunch)}`),
+      .map((course) => `課程「${course.title}」：${joiningUsage(course)}`),
+    ...venue.lunches.filter((lunch) => ids.includes(lunch.id)).map((lunch) => `午餐「${lunch.name}」：${joiningUsage(lunch)}`),
     ...venue.activities
       .filter((activity) => ids.includes(activity.id))
-      .map((activity) => `午后動態「${activity.name}」：${usage(activity)}`),
+      .map((activity) => `午后動態「${activity.name}」：${joiningUsage(activity)}`),
   ]);
 }
 

@@ -10,6 +10,7 @@ import {
   staffUpdateRegistration,
   type StaffSubmitResult,
 } from "@/lib/registration";
+import { getRegistrationForEdit } from "@/lib/registration-list";
 import { describeFullOptions, getStatistics } from "@/lib/statistics";
 import { createClient } from "@/lib/supabase/server";
 
@@ -18,7 +19,7 @@ import { createClient } from "@/lib/supabase/server";
  * 是不是總管理員、名額、要不要確認超收都由資料庫判斷，這裡不另外檢查。成功後和前台一樣寄確認信。
  */
 
-/** 結果；需要確認超收時多附額滿選項的說明（例如「課程「拼布」：已報 30／30」）。 */
+/** 結果；需要確認超收時多附額滿選項的說明（例如「課程「拼布」：名額 30 人，目前已報 30 人，加入後變成 31 人（超過名額 1 人）」）。 */
 export type StaffFormResult = StaffSubmitResult & { fullOptions?: string[] };
 
 /** 新增報名。confirmFull 是總管理員看過額滿提示、確定要超收。 */
@@ -45,7 +46,7 @@ export async function editRegistration(
     confirmFull: confirmFull === true,
   });
   if (result.ok) queueConfirmationEmail(result.registration.id, "updated");
-  return withFullOptions(result);
+  return withFullOptions(result, typeof registrationId === "string" ? registrationId : undefined);
 }
 
 /** 取消報名，做完回到名單。 */
@@ -59,14 +60,22 @@ export async function cancelRegistrationByStaff(formData: FormData) {
 }
 
 // 額滿選項的說明只是讓提示比較清楚；讀不到時照樣跳出提示，不讓總管理員卡在「系統出了問題」。
-async function withFullOptions(result: StaffSubmitResult): Promise<StaffFormResult> {
+// 修改時傳入 registrationId：她原本已佔的選項不列出（見 describeFullOptions）。修改被拒時報名沒變，讀到的是原本的。
+async function withFullOptions(result: StaffSubmitResult, registrationId?: string): Promise<StaffFormResult> {
   if (result.ok || !result.needsConfirmation) return result;
   try {
     const supabase = await createClient();
     const { data, error } = await supabase.from("conferences").select("id").eq("is_current", true).maybeSingle();
     if (error) throw error;
     if (!data) return result;
-    return { ...result, fullOptions: describeFullOptions(await getStatistics(supabase, data.id), result.fullIds ?? []) };
+    const registration = registrationId ? await getRegistrationForEdit(supabase, registrationId) : null;
+    const heldIds = registration
+      ? [...registration.courseIds, registration.lunchOptionId, registration.afternoonActivityId].filter(
+          (id): id is string => id !== null,
+        )
+      : [];
+    const statistics = await getStatistics(supabase, data.id);
+    return { ...result, fullOptions: describeFullOptions(statistics, result.fullIds ?? [], heldIds) };
   } catch (error) {
     console.error("讀不到額滿選項的人數", error);
     return result;

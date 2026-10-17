@@ -84,7 +84,7 @@ const needsConfirmation: StaffFormResult = {
   errors: { courses: "courseFull" },
   fullIds: [QUILTING],
   needsConfirmation: true,
-  fullOptions: ["課程「拼布」：已報 30／30"],
+  fullOptions: ["課程「拼布」：名額 30 人，目前已報 30 人，加入後變成 31 人（超過名額 1 人）"],
 };
 
 beforeAll(() => {
@@ -133,7 +133,7 @@ describe("後台修改報名的超收確認", () => {
     // 測試環境的對話框不會擋住背景，查詢要包含隱藏的元素；所以另外確認對話框真的打開了。
     const dialog = screen.getByRole<HTMLDialogElement>("alertdialog", { hidden: true });
     expect(dialog.open).toBe(true);
-    expect(within(dialog).getByText("課程「拼布」：已報 30／30")).toBeTruthy();
+    expect(within(dialog).getByText("課程「拼布」：名額 30 人，目前已報 30 人，加入後變成 31 人（超過名額 1 人）")).toBeTruthy();
     expect(editRegistration).toHaveBeenLastCalledWith(
       registration.id,
       expect.objectContaining({ courseIds: [QUILTING] }),

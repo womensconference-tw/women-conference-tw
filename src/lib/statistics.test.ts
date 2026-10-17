@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { adminClient, must, signedInClient } from "../../test/supabase";
-import { describeFullOptions, formatUsage, getStatistics, venuesInView, type Statistics } from "./statistics";
+import { describeFullOptions, formatUsage, joiningUsage, getStatistics, venuesInView, type Statistics } from "./statistics";
 
 const admin = adminClient();
 const DAY = 24 * 60 * 60 * 1000;
@@ -530,14 +530,14 @@ describe("課程、午餐的「已報／容量」", () => {
 });
 
 describe("後台超收前的確認提示", () => {
-  it("列出額滿的課程、午餐、午后動態與「已報／容量」，依場地內的順序", async () => {
+  it("列出額滿的課程、午餐、午后動態加入前後的人數，依場地內的順序", async () => {
     await seed({ venue: "jinhua", ward: "xindian", course: "quilting", lunch: "bento", walk: true });
     const statistics = await getStatistics(await signedInClient("head@example.com"), conferenceId);
 
     expect(describeFullOptions(statistics, [walkId, bentoId, quiltingId])).toEqual([
-      "課程「拼布」：已報 1／40",
-      "午餐「便當」：已報 1／30",
-      "午后動態「散步」：已報 1／10",
+      "課程「拼布」：名額 40 人，目前已報 1 人，加入後變成 2 人",
+      "午餐「便當」：名額 30 人，目前已報 1 人，加入後變成 2 人",
+      "午后動態「散步」：名額 10 人，目前已報 1 人，加入後變成 2 人",
     ]);
   });
 
@@ -545,5 +545,31 @@ describe("後台超收前的確認提示", () => {
     const statistics = await getStatistics(await signedInClient("head@example.com"), conferenceId);
 
     expect(describeFullOptions(statistics, ["00000000-0000-4000-8000-000000000000"])).toEqual([]);
+  });
+
+  // 成對課程一堂額滿時，資料庫會把另一堂一起列為額滿；另一堂可能是她原本就佔著的，加入後人數不變，不能列出。
+  it("修改時她原本已佔的選項不列出", async () => {
+    const statistics = await getStatistics(await signedInClient("head@example.com"), conferenceId);
+
+    expect(describeFullOptions(statistics, [quiltingId, bentoId], [quiltingId])).toEqual([
+      "午餐「便當」：名額 30 人，目前已報 0 人，加入後變成 1 人",
+    ]);
+  });
+
+  it("加入後超過名額時寫出超過幾人", () => {
+    expect(joiningUsage({ count: 1, capacity: 1 })).toBe("名額 1 人，目前已報 1 人，加入後變成 2 人（超過名額 1 人）");
+    expect(joiningUsage({ count: 32, capacity: 30 })).toBe(
+      "名額 30 人，目前已報 32 人，加入後變成 33 人（超過名額 3 人）",
+    );
+  });
+
+  // 成對課程一堂額滿時，另一堂也會列出，但那一堂可能還有空位。
+  it("加入後沒有超過名額時不寫超過", () => {
+    expect(joiningUsage({ count: 5, capacity: 30 })).toBe("名額 30 人，目前已報 5 人，加入後變成 6 人");
+    expect(joiningUsage({ count: 29, capacity: 30 })).toBe("名額 30 人，目前已報 29 人，加入後變成 30 人");
+  });
+
+  it("名額不限時只寫目前已報幾人", () => {
+    expect(joiningUsage({ count: 5, capacity: null })).toBe("名額不限，目前已報 5 人");
   });
 });
