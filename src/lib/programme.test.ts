@@ -533,9 +533,17 @@ describe("教室只有後台看得到", () => {
     await saved({ kind: "course", id: course, nameZh: "家譜入門", classroom: "北區教室 301" });
     const central = await saved({ kind: "venue", region: "central", nameZh: "台中大雅教堂" });
     const session = await saved({ kind: "session", parentId: central, nameZh: "第一場" });
-    await saved({ kind: "course", parentId: session, nameZh: "插花", classroom: "中區教室 101" });
+    const centralCourse = await saved({ kind: "course", parentId: session, nameZh: "插花", classroom: "中區教室 101" });
+    // seed 的舊年度也有北區教堂的教室，課務組一樣讀得到；這裡只看這個測試的兩門課。
+    const classrooms = (client: SupabaseClient) =>
+      client.from("course_classrooms").select("classroom").in("course_id", [course, centralCourse]);
 
-    expect(must(await courseTeam.from("course_classrooms").select("classroom"))).toEqual([{ classroom: "北區教室 301" }]);
+    expect(must(await classrooms(courseTeam))).toEqual([{ classroom: "北區教室 301" }]);
+    expect(must(await classrooms(registrationTeam))).toEqual([]);
+    // 整張表也一樣：課務組讀不到別區的教室（舊年度的北區教室讀得到），報報組一間都讀不到。
+    expect(must(await courseTeam.from("course_classrooms").select("classroom"))).not.toContainEqual({
+      classroom: "中區教室 101",
+    });
     expect(must(await registrationTeam.from("course_classrooms").select("classroom"))).toEqual([]);
   });
 });
