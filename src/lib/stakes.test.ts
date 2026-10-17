@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { adminClient, anonClient, must, signedInClient } from "../../test/supabase";
 import { listRegistrations } from "./registration-list";
 import { getRegistrationOptions } from "./registration-options";
-import { copyConference } from "./years";
 import { deleteUnit, getStakeDirectory, saveStake, saveWard, setUnitActive } from "./stakes";
 
 const admin = adminClient();
@@ -105,18 +104,39 @@ describe("新增與修改", () => {
     });
   });
 
-  it("既有支會不能改隸屬的支聯會，支聯會也不能改區", async () => {
+  it("既有支會不能改隸屬的支聯會", async () => {
     const zhubei = await addedStake("測試竹北支聯會");
     const hsinchu = await addedStake("測試新竹支聯會");
     const wardId = await addedWard(zhubei, "測試竹北一支會");
 
     const moved = await headAdmin.from("wards").update({ stake_id: hsinchu }).eq("id", wardId);
     expect(moved.error?.message).toBe("ward_stake_fixed");
-    const regionChanged = await headAdmin.from("stakes").update({ region: "south" }).eq("id", zhubei);
-    expect(regionChanged.error?.message).toBe("stake_region_fixed");
 
     const directory = await getStakeDirectory(headAdmin);
     expect(directory.stakes.find((stake) => stake.id === zhubei)?.wards.map((ward) => ward.id)).toEqual([wardId]);
+  });
+});
+
+describe("改區", () => {
+  it("總管理員可以改支聯會的區", async () => {
+    const stakeId = await addedStake("測試竹北支聯會", "north");
+
+    expect(await saveStake(headAdmin, { id: stakeId, nameZh: "測試竹北支聯會", nameEn: "", region: "central", position: "" })).toEqual({
+      ok: true,
+      id: stakeId,
+    });
+    expect((await getStakeDirectory(headAdmin)).stakes.find((stake) => stake.id === stakeId)).toMatchObject({ region: "central" });
+  });
+
+  it("修改時沒帶區就不改；帶了不認得的區時擋下", async () => {
+    const stakeId = await addedStake("測試竹北支聯會", "north");
+
+    await saveStake(headAdmin, { id: stakeId, nameZh: "測試竹北支聯會", nameEn: "", position: "" });
+    expect(await saveStake(headAdmin, { id: stakeId, nameZh: "測試竹北支聯會", nameEn: "", region: "east", position: "" })).toEqual({
+      ok: false,
+      error: "region_required",
+    });
+    expect((await getStakeDirectory(headAdmin)).stakes.find((stake) => stake.id === stakeId)).toMatchObject({ region: "north" });
   });
 });
 
@@ -259,89 +279,15 @@ describe("有報名的單位", () => {
     const listed = options.stakes.flatMap((stake) => stake.wards.filter((ward) => ward.nameZh === "測試峨眉支會").map((ward) => ward.id));
     expect(listed).toEqual([newWard]);
   });
-});
 
-describe("預設場地", () => {
-  let previousCurrentIds: string[] = [];
-  let conferenceId: string;
-  let jinhuaId: string;
+  it("支聯會改區後，報報組的範圍跟著換到新的區", async () => {
+    const stakeId = await addedStake("測試竹東支聯會", "north");
+    const wardId = await addedWard(stakeId, "測試峨眉支會");
+    await registered("王小美", stakeId, wardId);
 
-  // 一個還沒開放報名的 2099 目前年度，有北區金華教堂。
-  beforeEach(async () => {
-    const current = must(await admin.from("conferences").select("id").eq("is_current", true));
-    previousCurrentIds = current.map((row) => row.id);
-    must(await admin.from("conferences").update({ is_current: false }).eq("is_current", true));
-    conferenceId = must(
-      await admin
-        .from("conferences")
-        .insert({
-          year: 2099,
-          conference_date: "2099-05-15",
-          announce_at: new Date(Date.now() - 2 * DAY).toISOString(),
-          registration_opens_at: new Date(Date.now() + DAY).toISOString(),
-          registration_closes_at: new Date(Date.now() + 2 * DAY).toISOString(),
-          is_current: true,
-        })
-        .select("id")
-        .single(),
-    ).id;
-    jinhuaId = must(
-      await admin.from("venues").insert({ conference_id: conferenceId, region: "north", name_zh: "測試金華教堂" }).select("id").single(),
-    ).id;
-  });
+    await saveStake(headAdmin, { id: stakeId, nameZh: "測試竹東支聯會", nameEn: "", region: "central", position: "" });
 
-  afterEach(async () => {
-    must(await admin.from("conferences").delete().gte("year", 2099));
-    if (previousCurrentIds.length > 0) {
-      must(await admin.from("conferences").update({ is_current: true }).in("id", previousCurrentIds));
-    }
-  });
-
-  const defaultSiteOf = async (stakeId: string) =>
-    (await getStakeDirectory(headAdmin)).stakes.find((stake) => stake.id === stakeId)?.defaultSite;
-
-  it("從場地中挑選，可以改回未設定", async () => {
-    const stakeId = await addedStake("測試竹北支聯會");
-    const site = (await getStakeDirectory(headAdmin)).sites.find((candidate) => candidate.venueId === jinhuaId);
-    expect(site).toMatchObject({ nameZh: "測試金華教堂", year: 2099 });
-
-    const saved = await saveStake(headAdmin, {
-      id: stakeId,
-      nameZh: "測試竹北支聯會",
-      nameEn: "",
-      position: "",
-      defaultSiteKey: site!.siteKey,
-    });
-    expect(saved).toEqual({ ok: true, id: stakeId });
-    expect(await defaultSiteOf(stakeId)).toMatchObject({ venueId: jinhuaId, nameZh: "測試金華教堂" });
-
-    await saveStake(headAdmin, { id: stakeId, nameZh: "測試竹北支聯會", nameEn: "", position: "", defaultSiteKey: "" });
-    expect(await defaultSiteOf(stakeId)).toBeNull();
-  });
-
-  it("不是任何場地的識別時擋下", async () => {
-    const stakeId = await addedStake("測試竹北支聯會");
-
-    const saved = await saveStake(headAdmin, {
-      id: stakeId,
-      nameZh: "測試竹北支聯會",
-      nameEn: "",
-      position: "",
-      defaultSiteKey: "00000000-0000-4000-8000-000000000000",
-    });
-    expect(saved).toEqual({ ok: false, error: "site_invalid" });
-  });
-
-  it("複製新年度後仍然有效，對應到新年度的同一間教堂", async () => {
-    const stakeId = await addedStake("測試竹北支聯會");
-    const site = (await getStakeDirectory(headAdmin)).sites.find((candidate) => candidate.venueId === jinhuaId)!;
-    await saveStake(headAdmin, { id: stakeId, nameZh: "測試竹北支聯會", nameEn: "", position: "", defaultSiteKey: site.siteKey });
-
-    const copied = await copyConference(headAdmin, { sourceConferenceId: conferenceId, year: "2100", conferenceDate: "2100-05-15" });
-    if (!copied.ok) throw new Error(`複製失敗：${copied.error}`);
-    const [newJinhua] = must(await admin.from("venues").select("id").eq("conference_id", copied.conferenceId));
-    must(await admin.from("venues").update({ name_zh: "測試金華教堂（新館）" }).eq("id", newJinhua.id));
-
-    expect(await defaultSiteOf(stakeId)).toMatchObject({ venueId: newJinhua.id, nameZh: "測試金華教堂（新館）", year: 2100 });
+    expect((await listRegistrations(registrationTeam, "王小美")).items).toEqual([]);
+    expect((await listRegistrations(centralRegistrationTeam, "王小美")).items).toHaveLength(1);
   });
 });

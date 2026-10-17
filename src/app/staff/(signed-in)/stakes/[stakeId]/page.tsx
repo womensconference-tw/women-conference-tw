@@ -3,7 +3,6 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { UUID_PATTERN } from "@/lib/registration";
-import { REGION_LABELS } from "@/lib/staff";
 import { getStakeDirectory } from "@/lib/stakes";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -14,14 +13,14 @@ import { TextPair } from "../../../text-pair";
 import { buttonClass } from "../../../ui";
 import { NumberFields } from "../../programme/forms";
 import { saveStakeItem, saveWardItem } from "../actions";
-import { ActiveToggle, DeleteUnit, DONE, ERRORS, InactiveBadge, nextPosition, SiteField } from "../forms";
+import { ActiveToggle, DeleteUnit, DONE, ERRORS, InactiveBadge, nextPosition, RegionField } from "../forms";
 
 export const metadata: Metadata = { title: "編輯支聯會" };
 
 const cardClass = "flex flex-col gap-3 rounded-lg border-2 border-card-outline p-4";
 
 /**
- * 編輯一個支聯會（只有總管理員）：名稱、排序、預設場地、停用；它的支會的新增、修改、停用、刪除。
+ * 編輯一個支聯會（只有總管理員）：名稱、區、排序、停用；它的支會的新增、修改、停用、刪除。
  * 支會不能換到別的支聯會；重新劃分時停用舊支會、在新的支聯會新增。
  */
 export default async function StakePage({ params, searchParams }: PageProps<"/staff/stakes/[stakeId]">) {
@@ -32,7 +31,7 @@ export default async function StakePage({ params, searchParams }: PageProps<"/st
 
   const { stakeId } = await params;
   if (!UUID_PATTERN.test(stakeId)) notFound();
-  const { stakes, sites } = await getStakeDirectory(await createClient());
+  const { stakes } = await getStakeDirectory(await createClient());
   const stake = stakes.find((candidate) => candidate.id === stakeId);
   if (!stake) notFound();
 
@@ -54,11 +53,10 @@ export default async function StakePage({ params, searchParams }: PageProps<"/st
 
       <section className={cardClass}>
         <h2 className="text-xl font-bold">支聯會資料</h2>
-        <p>區：{REGION_LABELS[stake.region]}（不能改；要改區請停用這個支聯會，再新增一個）</p>
         <form action={saveStakeItem} className="flex flex-col gap-3">
           <input type="hidden" name="id" value={stake.id} />
           <TextPair name="name" label="名稱" zh={stake.nameZh} en={stake.nameEn} required />
-          <SiteField sites={sites} value={stake.defaultSite?.siteKey ?? null} />
+          <RegionField value={stake.region} />
           <NumberFields position={stake.position} />
           <SubmitButton className={cn(buttonVariants(), buttonClass, "self-start font-bold")}>儲存支聯會資料</SubmitButton>
         </form>

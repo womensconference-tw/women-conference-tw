@@ -32,7 +32,18 @@ export type RegistrationListItem = {
   status: RegistrationStatus;
   role: RegistrantRole;
   createdAt: string;
+  /** 所選場地的區與支聯會的區不同（#24）。 */
+  crossRegion: boolean;
+  /** 同一年度、同一支會另有姓名相同的有效報名；已取消的一律是 false（#24）。 */
+  suspectedDuplicate: boolean;
 };
+
+/** 名單只列出某一種：疑似重複（同一支會、同名的排在一起）或有效的跨區報名。 */
+export type RegistrationFilter = "duplicates" | "cross_region";
+
+export function isRegistrationFilter(value: unknown): value is RegistrationFilter {
+  return value === "duplicates" || value === "cross_region";
+}
 
 /** 一次最多列出的筆數；超過時請用搜尋縮小範圍。 */
 export const LIST_LIMIT = 200;
@@ -41,16 +52,18 @@ export const LIST_LIMIT = 200;
  * 某個年度（`year`，沒給是目前年度）、自己範圍內的報名，新的在前。舊年度的名單也照同樣的範圍。`query` 空白時列出全部；
  * 整理後只剩數字（可有開頭的 +）時找電話或報名編號，否則找姓名。都是部分相符。
  * `total` 是符合的總筆數，可能比列出的多（見 LIST_LIMIT）。
+ * 給了 `filter` 時只列出疑似重複或跨區的報名（見 RegistrationFilter）。疑似重複和跨區都只在自己範圍內比對。
  */
 export async function listRegistrations(
   supabase: SupabaseClient,
   query: string,
   year?: number,
+  filter?: RegistrationFilter,
 ): Promise<{ items: RegistrationListItem[]; total: number }> {
   let request = supabase
     .from("registrations")
     .select(
-      "id, name, phone, registration_number, status, role, created_at, venues(name_zh), stakes(name_zh), wards(name_zh), conferences!inner(year, is_current)",
+      "id, name, phone, registration_number, status, role, created_at, is_cross_region, is_suspected_duplicate, venues(name_zh), stakes(name_zh), wards(name_zh), conferences!inner(year, is_current)",
       { count: "exact" },
     );
   request = year === undefined ? request.eq("conferences.is_current", true) : request.eq("conferences.year", year);
@@ -64,6 +77,14 @@ export async function listRegistrations(
     );
   } else if (text) {
     request = request.ilike("name", `%${escapeLike(text)}%`);
+  }
+
+  if (filter === "duplicates") {
+    // 同一支會、同名（只差空白或大小寫也算）的排在一起。
+    request = request.eq("is_suspected_duplicate", true).order("ward_id").order("name_key");
+  } else if (filter === "cross_region") {
+    // 只看還要來的人；已取消的在一般名單上仍標著跨區。
+    request = request.eq("is_cross_region", true).eq("status", "registered");
   }
 
   const { data, count, error } = await request.order("created_at", { ascending: false }).limit(LIST_LIMIT);
@@ -81,6 +102,8 @@ export async function listRegistrations(
       status: row.status,
       role: row.role,
       createdAt: row.created_at,
+      crossRegion: row.is_cross_region,
+      suspectedDuplicate: row.is_suspected_duplicate,
     })),
     total: count ?? 0,
   };
@@ -94,6 +117,8 @@ type RegistrationRow = {
   status: RegistrationStatus;
   role: RegistrantRole;
   created_at: string;
+  is_cross_region: boolean;
+  is_suspected_duplicate: boolean;
   venues: { name_zh: string } | null;
   stakes: { name_zh: string } | null;
   wards: { name_zh: string } | null;

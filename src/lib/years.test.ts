@@ -297,7 +297,7 @@ describe("複製去年建立新年度", () => {
     expect((await listRegistrations(headAdmin, "")).total).toBe(0);
   });
 
-  it("場地沿用同一個固定識別，支聯會的預設場地在新年度仍對得上（跨區標記用）", async () => {
+  it("場地沿用同一個固定識別", async () => {
     await lastYear();
 
     const id = await copied();

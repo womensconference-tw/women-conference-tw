@@ -3,7 +3,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { REGISTRANT_ROLE_LABELS } from "@/lib/registration";
-import { listRegistrations, REGISTRATION_STATUS_LABELS } from "@/lib/registration-list";
+import {
+  isRegistrationFilter,
+  listRegistrations,
+  REGISTRATION_STATUS_LABELS,
+  type RegistrationFilter,
+} from "@/lib/registration-list";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { listConferences } from "@/lib/years";
@@ -14,11 +19,23 @@ import { SubmitButton } from "../../submit-button";
 
 export const metadata: Metadata = { title: "報名名單" };
 
+const FILTERS: Record<RegistrationFilter, string> = { duplicates: "只看疑似重複", cross_region: "只看跨區" };
+
+/** 名單上的小標籤：疑似重複、跨區。 */
+function Tag({ children }: { children: string }) {
+  return (
+    <span className="ml-2 inline-block rounded border border-current px-1.5 text-sm font-semibold whitespace-nowrap">
+      {children}
+    </span>
+  );
+}
+
 const DONE = { added: "已新增報名。", updated: "已儲存修改。", cancelled: "已取消報名。" };
 
 /**
  * 報名名單：自己範圍內的報名，可依姓名、電話或報名編號搜尋。範圍由資料庫決定。
  * 預設是目前年度，可以選年度看舊年度的名單（範圍一樣）。
+ * 標出疑似重複（同支會同名）與跨區（場地和支聯會不在同一區），也可以只看其中一種（#24）。
  * 總管理員可以新增、修改、取消目前年度的報名（#17）；課務組、報報組只能看。
  */
 export default async function RegistrationsPage({ searchParams }: PageProps<"/staff/registrations">) {
@@ -27,12 +44,13 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
   // 版面和頁面同時執行，版面的導向擋不住這裡，自己也要檢查。
   if (!me) redirect("/staff/login");
 
-  const { q, year: yearParam } = await searchParams;
+  const { q, year: yearParam, show } = await searchParams;
   const query = typeof q === "string" ? q : "";
+  const filter = isRegistrationFilter(show) ? show : undefined;
   const years = await listConferences(supabase);
   // 沒選、或選的年度不在清單裡（網址被改過）時，是目前年度；還沒有目前年度時沒有報名可列。
   const selected = years.find((year) => String(year.year) === yearParam) ?? years.find((year) => year.isCurrent);
-  const { items, total } = await listRegistrations(supabase, query, selected?.year);
+  const { items, total } = await listRegistrations(supabase, query, selected?.year, filter);
   const canEdit = me.role === "admin" && Boolean(selected?.isCurrent);
 
   return (
@@ -63,14 +81,37 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
           <span className="font-semibold">姓名、電話或報名編號</span>
           <input name="q" type="search" defaultValue={query} autoComplete="off" className={inputClass} />
         </label>
+        <label className="flex flex-col gap-1 sm:w-48">
+          <span className="font-semibold">顯示</span>
+          <select name="show" defaultValue={filter ?? ""} className={inputClass}>
+            <option value="">全部</option>
+            {Object.entries(FILTERS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
         <SubmitButton navigates pendingLabel="搜尋中…" className={cn(buttonVariants(), buttonClass, "font-bold")}>
           搜尋
         </SubmitButton>
       </form>
 
+      {filter && (
+        <p className="text-muted-foreground">
+          {filter === "duplicates"
+            ? "疑似重複：姓名相同、支會也相同的有效報名，可能是同一位姐妹被報了兩次，請確認後處理。"
+            : "跨區：所選教堂和她的支聯會不在同一區的有效報名。"}
+        </p>
+      )}
       <p role="status">
-        {query.trim() ? `找到 ${total} 筆` : `共 ${total} 筆`}（含已取消）
-        {total > items.length && `，只列出最新的 ${items.length} 筆，請用搜尋縮小範圍`}。
+        {query.trim() || filter ? `找到 ${total} 筆` : `共 ${total} 筆`}
+        {!filter && "（含已取消）"}
+        {total > items.length &&
+          (filter === "duplicates"
+            ? `，依支會與姓名排序只列出前 ${items.length} 筆，請用搜尋縮小範圍`
+            : `，只列出最新的 ${items.length} 筆，請用搜尋縮小範圍`)}
+        。
       </p>
 
       {items.length > 0 && (
@@ -91,12 +132,18 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
             <tbody>
               {items.map((item) => (
                 <tr key={item.id} className={cn("border-b", item.status === "cancelled" && "text-muted-foreground")}>
-                  <td className="p-2 font-semibold">{item.name}</td>
+                  <td className="p-2 font-semibold">
+                    {item.name}
+                    {item.suspectedDuplicate && <Tag>疑似重複</Tag>}
+                  </td>
                   <td className="p-2 whitespace-nowrap">{item.phone ?? `編號 ${item.registrationNumber}`}</td>
                   <td className="p-2">
                     {item.stakeName}／{item.wardName}
                   </td>
-                  <td className="p-2">{item.venueName}</td>
+                  <td className="p-2">
+                    {item.venueName}
+                    {item.crossRegion && <Tag>跨區</Tag>}
+                  </td>
                   <td className="p-2 whitespace-nowrap">{REGISTRANT_ROLE_LABELS[item.role]}</td>
                   <td className="p-2 whitespace-nowrap">{REGISTRATION_STATUS_LABELS[item.status]}</td>
                   <td className="p-2 whitespace-nowrap">{formatTime(item.createdAt)}</td>

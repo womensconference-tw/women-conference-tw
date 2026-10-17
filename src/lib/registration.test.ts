@@ -191,6 +191,15 @@ describe("送出報名", () => {
     expect(results.map((result) => result.ok)).toEqual([true, true, true]);
   });
 
+  // 疑似重複由後台判斷處理（#24），前台不擋。
+  it("姓名、支會都和已有的報名相同時照樣報名成功", async () => {
+    const first = await submit(validInput());
+    const again = await submit(validInput({ phone: "0922-333-444" }));
+    const samePhone = await submit(validInput());
+
+    expect([first.ok, again.ok, samePhone.ok]).toEqual([true, true, true]);
+  });
+
   it("沒有電話的人拿到 6 碼報名編號", async () => {
     const result = await submit(
       validInput({ phone: "", noPhone: true }),
