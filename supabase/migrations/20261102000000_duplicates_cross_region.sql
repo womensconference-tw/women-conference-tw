@@ -31,7 +31,8 @@ drop function public.stake_region_fixed();
 
 /*
  * 疑似重複：同一年度、同一支會，另有一筆姓名相同的有效報名。已取消的報名不算，也不讓別筆變成疑似重複。
- * 姓名去掉所有空白（包括中文輸入法的全形空白）、英文不分大小寫再比，「王 小美」和「王小美」視為相同。
+ * 姓名去掉所有空白（和 trim_blank 同一組空白字元，包括全形空白與 U+FEFF）、英文不分大小寫再比，
+ * 「王 小美」和「王小美」視為相同。
  */
 create function public.registration_name_key(name text)
 returns text
@@ -39,8 +40,18 @@ language sql
 immutable
 set search_path = ''
 as $$
-  select lower(regexp_replace(name, '[\s\u3000]', '', 'g'));
+  select lower(regexp_replace(name, '[\t\n\v\f\r \u0085   -     　﻿]', '', 'g'));
 $$;
+
+/*
+ * 比對用的姓名存成資料庫自動算的欄位。直接比欄位（text 的 = 是 leakproof），權限規則之下也能用索引；
+ * 比函式算出來的值時，權限規則要先逐筆檢查，報名多時「只看疑似重複」會慢好幾秒。
+ * 匿名化清掉姓名時，這個欄位跟著變成空值，不再比對。
+ */
+alter table public.registrations
+  add column name_key text generated always as (public.registration_name_key(name)) stored;
+
+create index registrations_duplicate_key on public.registrations (conference_id, ward_id, name_key);
 
 create function public.is_suspected_duplicate(public.registrations)
 returns boolean
@@ -53,24 +64,11 @@ as $$
     from public.registrations other
     where other.conference_id = $1.conference_id
       and other.ward_id = $1.ward_id
+      and other.name_key = $1.name_key
       and other.id <> $1.id
       and other.status = 'registered'
-      and public.registration_name_key(other.name) = public.registration_name_key($1.name)
   );
 $$;
-
--- 名單依這個排序，只差空白或大小寫的同名報名才會排在一起。
-create function public.duplicate_name_key(public.registrations)
-returns text
-language sql
-immutable
-set search_path = ''
-as $$
-  select public.registration_name_key($1.name);
-$$;
-
-create index registrations_duplicate_key
-  on public.registrations (conference_id, ward_id, public.registration_name_key(name));
 
 revoke all on function public.is_cross_region(public.registrations) from public, anon;
 revoke all on function public.is_suspected_duplicate(public.registrations) from public, anon;

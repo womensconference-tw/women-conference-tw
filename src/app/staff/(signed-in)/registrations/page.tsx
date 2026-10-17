@@ -107,7 +107,11 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
       <p role="status">
         {query.trim() || filter ? `找到 ${total} 筆` : `共 ${total} 筆`}
         {!filter && "（含已取消）"}
-        {total > items.length && `，只列出最新的 ${items.length} 筆，請用搜尋縮小範圍`}。
+        {total > items.length &&
+          (filter === "duplicates"
+            ? `，依支會與姓名排序只列出前 ${items.length} 筆，請用搜尋縮小範圍`
+            : `，只列出最新的 ${items.length} 筆，請用搜尋縮小範圍`)}
+        。
       </p>
 
       {items.length > 0 && (

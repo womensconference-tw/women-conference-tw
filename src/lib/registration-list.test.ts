@@ -448,12 +448,13 @@ describe("疑似重複", () => {
   it("列出姓名與支會都相同的有效報名，姓名前後、中間的空白與英文大小寫不影響", async () => {
     await seed({ name: "王小美", venue: "jinhua", stake: "taipei", phone: "0911111111" });
     await seed({ name: "王 小美", venue: "daya", stake: "taipei", phone: "0922222222" });
-    await seed({ name: "王　小美", venue: "jinhua", stake: "taipei", phone: "0933333333" });
+    await seed({ name: "王\u3000小美", venue: "jinhua", stake: "taipei", phone: "0933333333" });
+    await seed({ name: "王\uFEFF小美", venue: "jinhua", stake: "taipei", phone: "0944444444" });
     await seed({ name: "Amy Lin", venue: "jinhua", stake: "taipei" });
     await seed({ name: "amy lin", venue: "jinhua", stake: "taipei" });
     await seed({ name: "陳大明", venue: "jinhua", stake: "taipei" });
 
-    expect(await duplicates(await signedInClient("head@example.com"))).toEqual(["Amy Lin", "amy lin", "王 小美", "王　小美", "王小美"]);
+    expect(await duplicates(await signedInClient("head@example.com"))).toEqual(["Amy Lin", "amy lin", "王 小美", "王\u3000小美", "王小美", "王\uFEFF小美"]);
   });
 
   it("姓名相同但支會不同的不列入", async () => {

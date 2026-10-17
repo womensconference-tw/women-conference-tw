@@ -81,7 +81,7 @@ export async function listRegistrations(
 
   if (filter === "duplicates") {
     // 同一支會、同名（只差空白或大小寫也算）的排在一起。
-    request = request.eq("is_suspected_duplicate", true).order("ward_id").order("duplicate_name_key");
+    request = request.eq("is_suspected_duplicate", true).order("ward_id").order("name_key");
   } else if (filter === "cross_region") {
     // 只看還要來的人；已取消的在一般名單上仍標著跨區。
     request = request.eq("is_cross_region", true).eq("status", "registered");
