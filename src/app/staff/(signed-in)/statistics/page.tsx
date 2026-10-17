@@ -4,7 +4,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { messages } from "@/lib/i18n/messages";
 import { CHOIR_PARTS, SERVICES } from "@/lib/registration";
 import { REGION_LABELS } from "@/lib/staff";
-import { getStatistics, venuesInView, type OptionStatistics } from "@/lib/statistics";
+import { formatUsage, getStatistics, venuesInView } from "@/lib/statistics";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { listConferences } from "@/lib/years";
@@ -101,7 +101,7 @@ export default async function StatisticsPage({ searchParams }: PageProps<"/staff
                   rows={session.courses.map((course) => ({
                     key: course.id,
                     label: course.title,
-                    value: usage(course, venue.partial),
+                    value: formatUsage(course, venue.partial),
                   }))}
                 />
               ))}
@@ -113,7 +113,7 @@ export default async function StatisticsPage({ searchParams }: PageProps<"/staff
                     ...venue.lunches.map((lunch) => ({
                       key: lunch.id,
                       label: lunch.name,
-                      value: usage(lunch, venue.partial),
+                      value: formatUsage(lunch, venue.partial),
                     })),
                     { key: "none", label: "不需要", value: venue.noLunch },
                   ]}
@@ -127,7 +127,7 @@ export default async function StatisticsPage({ searchParams }: PageProps<"/staff
                     ...venue.activities.map((activity) => ({
                       key: activity.id,
                       label: activity.name,
-                      value: usage(activity, venue.partial),
+                      value: formatUsage(activity, venue.partial),
                     })),
                     { key: "none", label: "不參加", value: venue.noActivity },
                   ]}
@@ -158,12 +158,6 @@ export default async function StatisticsPage({ searchParams }: PageProps<"/staff
       )}
     </main>
   );
-}
-
-/** 「已報／容量」；不限人數的只顯示已報人數。只計得到部分報名（`partial`）時不列容量，免得看起來還有很多名額。 */
-function usage(option: Pick<OptionStatistics, "count" | "capacity">, partial: boolean): string {
-  if (partial) return String(option.count);
-  return option.capacity === null ? `${option.count}（不限）` : `${option.count}／${option.capacity}`;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

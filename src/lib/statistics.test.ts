@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { adminClient, must, signedInClient } from "../../test/supabase";
-import { getStatistics, venuesInView, type Statistics } from "./statistics";
+import { formatUsage, getStatistics, venuesInView, type Statistics } from "./statistics";
 
 const admin = adminClient();
 const DAY = 24 * 60 * 60 * 1000;
@@ -433,6 +433,44 @@ describe("後台統計", () => {
     expect(statistics.printedHandbook).toBe(countWhere((row) => row.printed_handbook));
   });
 
+  it("分組超過 API 一次最多回傳的列數（1,000）時也不會漏算", async () => {
+    // 1,001 個支會各一人：支會的分組加上其他分組超過 1,000 列。
+    const manyWards = must(
+      await admin
+        .from("wards")
+        .insert(
+          Array.from({ length: 1001 }, (_, index) => ({
+            stake_id: taipeiStakeId,
+            position: index,
+            name_zh: `支會${index}`,
+          })),
+        )
+        .select("id"),
+    );
+    must(
+      await admin.from("registrations").insert(
+        manyWards.map((ward, index) => ({
+          conference_id: conferenceId,
+          venue_id: jinhuaId,
+          stake_id: taipeiStakeId,
+          ward_id: ward.id,
+          name: `多支會${index}`,
+          phone: `08${String(index).padStart(8, "0")}`,
+          portrait_consented_at: new Date().toISOString(),
+          locale: "zh",
+          lunch_option_id: bentoId,
+          printed_handbook: true,
+        })),
+      ),
+    );
+    const statistics = await getStatistics(await signedInClient("head@example.com"), conferenceId);
+
+    expect(statistics.total).toBe(1001);
+    expect(statistics.printedHandbook).toBe(1001);
+    expect(venue(statistics, jinhuaId).noLunch).toBe(0);
+    expect(statistics.stakes[0].wards).toHaveLength(1001);
+  });
+
   it("不是工作人員的登入帳號算不到任何報名", async () => {
     await seedMix();
     must(await admin.auth.admin.createUser({ email: "stranger@example.com", email_confirm: true }));
@@ -476,5 +514,17 @@ describe("統計頁列出的場地", () => {
       ["n", false],
       ["c", true],
     ]);
+  });
+});
+
+describe("課程、午餐的「已報／容量」", () => {
+  it("有容量的顯示已報／容量，不限人數的顯示已報人數", () => {
+    expect(formatUsage({ count: 2, capacity: 40 }, false)).toBe("2／40");
+    expect(formatUsage({ count: 2, capacity: null }, false)).toBe("2（不限）");
+  });
+
+  it("只計得到部分報名的場地不列容量", () => {
+    expect(formatUsage({ count: 2, capacity: 40 }, true)).toBe("2");
+    expect(formatUsage({ count: 2, capacity: null }, true)).toBe("2");
   });
 });

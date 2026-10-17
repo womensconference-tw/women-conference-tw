@@ -52,7 +52,7 @@ export type Statistics = {
 
 /** 某個年度大會、自己範圍內的統計。 */
 export async function getStatistics(supabase: SupabaseClient, conferenceId: string): Promise<Statistics> {
-  const [counts, venues, sessions, courses, lunches, activities, stakes, wards] = await Promise.all([
+  const [counts, venues, sessions, courses, lunches, activities] = await Promise.all([
     supabase.rpc("registration_counts", { p_conference_id: conferenceId }),
     supabase.from("venues").select("id, name_zh, region").eq("conference_id", conferenceId).order("position"),
     supabase.from("sessions").select("id, venue_id, name_zh").eq("conference_id", conferenceId).order("position"),
@@ -71,15 +71,14 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
       .select("id, venue_id, title_zh, capacity")
       .eq("conference_id", conferenceId)
       .order("position"),
-    supabase.from("stakes").select("id, name_zh").order("position").order("name_zh"),
-    supabase.from("wards").select("id, stake_id, name_zh").order("position").order("name_zh"),
   ]);
-  for (const result of [counts, venues, sessions, courses, lunches, activities, stakes, wards]) {
+  for (const result of [counts, venues, sessions, courses, lunches, activities]) {
     if (result.error) throw result.error;
   }
 
+  const rows = counts.data as CountRow[];
   const tally = new Map<string, number>();
-  for (const row of counts.data as CountRow[]) tally.set(`${row.kind}:${row.key ?? ""}`, row.count);
+  for (const row of rows) tally.set(`${row.kind}:${row.key ?? ""}`, row.count);
   const count = (kind: string, key = "") => tally.get(`${kind}:${key}`) ?? 0;
 
   const option = (row: { id: string; name: string; capacity: number | null }, kind: string): OptionStatistics => ({
@@ -126,16 +125,16 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
         noActivity: venueActivities.length > 0 ? venueCount - sum(venueActivities) : 0,
       };
     }),
-    stakes: stakes
-      .data!.filter((stake) => count("stake", stake.id) > 0)
-      .map((stake) => ({
-        id: stake.id,
-        name: stake.name_zh,
-        count: count("stake", stake.id),
-        wards: wards
-          .data!.filter((ward) => ward.stake_id === stake.id && count("ward", ward.id) > 0)
-          .map((ward) => ({ id: ward.id, name: ward.name_zh, count: count("ward", ward.id) })),
+    stakes: inOrder(rows.filter((row) => row.kind === "stake")).map((stake) => ({
+      id: stake.key!,
+      name: stake.name!,
+      count: stake.count,
+      wards: inOrder(rows.filter((row) => row.kind === "ward" && row.parent === stake.key)).map((ward) => ({
+        id: ward.key!,
+        name: ward.name!,
+        count: ward.count,
       })),
+    })),
     choir: Object.fromEntries(CHOIR_PARTS.map((part) => [part, count("choir", part)])) as Record<ChoirPart, number>,
     services: Object.fromEntries(SERVICES.map((service) => [service, count("service", service)])) as Record<
       Service,
@@ -145,7 +144,22 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
   };
 }
 
-type CountRow = { kind: string; key: string | null; count: number };
+/** registration_counts 的一項。支聯會、支會另有名稱、顯示順序，支會的 parent 是所屬支聯會。 */
+type CountRow = { kind: string; key?: string; count: number; name?: string; parent?: string; position?: number };
+
+/** 依顯示順序、再依名稱排，和支聯會、支會名單一樣。 */
+function inOrder(rows: CountRow[]): CountRow[] {
+  return rows.toSorted((a, b) => a.position! - b.position! || a.name!.localeCompare(b.name!));
+}
+
+/**
+ * 課程、午餐、午后動態的「已報／容量」；不限人數的只顯示已報人數。
+ * 只計得到部分報名（`partial`，見 venuesInView）時不列容量，免得額滿的課看起來還有很多名額。
+ */
+export function formatUsage(option: Pick<OptionStatistics, "count" | "capacity">, partial: boolean): string {
+  if (partial) return String(option.count);
+  return option.capacity === null ? `${option.count}（不限）` : `${option.count}／${option.capacity}`;
+}
 
 function sum(options: { count: number }[]): number {
   return options.reduce((total, item) => total + item.count, 0);

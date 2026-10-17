@@ -36,9 +36,12 @@ create policy "Staff can read course choices of registrations in their scope"
  * total 全體、venue 場地、stake 支聯會、ward 支會、course 課程、lunch 午餐、activity 午后動態、
  * choir 唱詩班聲部、service 其他服務意願、handbook 要紙本手冊。key 是場地等的 id 或代碼。
  * 以呼叫者的權限執行，只數得到她讀得到的報名；不是工作人員的帳號一筆也數不到。
+ * 支聯會、支會另附名稱、顯示順序與所屬支聯會（parent），不必另外查整份名單。
+ * 回傳一個陣列 [{kind, key, count, ...}, ...]，不是一列一列：API 一次最多回傳 1,000 列（config.toml 的 max_rows），
+ * 支會、課程、午餐加起來可能超過，超過的會被截掉、被當成 0。
  */
 create function public.registration_counts(p_conference_id uuid)
-returns table (kind text, key text, count integer)
+returns jsonb
 language sql
 stable
 security invoker
@@ -48,29 +51,39 @@ as $$
     select *
     from public.registrations
     where conference_id = p_conference_id and status = 'registered'
+  ),
+  counts (kind, key, count, name, parent, position) as (
+    select 'total', null, count(*)::integer, null, null, null::integer from r
+    union all
+    select 'venue', venue_id::text, count(*)::integer, null, null, null from r group by venue_id
+    union all
+    select 'stake', st.id::text, count(*)::integer, st.name_zh, null, st.position
+    from r join public.stakes st on st.id = r.stake_id
+    group by st.id
+    union all
+    select 'ward', w.id::text, count(*)::integer, w.name_zh, w.stake_id::text, w.position
+    from r join public.wards w on w.id = r.ward_id
+    group by w.id
+    union all
+    select 'course', rc.course_id::text, count(*)::integer, null, null, null
+    from r join public.registration_courses rc on rc.registration_id = r.id
+    group by rc.course_id
+    union all
+    select 'lunch', lunch_option_id::text, count(*)::integer, null, null, null from r where lunch_option_id is not null group by lunch_option_id
+    union all
+    select 'activity', afternoon_activity_id::text, count(*)::integer, null, null, null
+    from r where afternoon_activity_id is not null group by afternoon_activity_id
+    union all
+    select 'choir', choir_part, count(*)::integer, null, null, null from r where choir_part is not null group by choir_part
+    union all
+    select 'service', service, count(*)::integer, null, null, null from r, unnest(r.services) as service group by service
+    union all
+    select 'handbook', null, count(*)::integer, null, null, null from r where printed_handbook
   )
-  select 'total', null, count(*)::integer from r
-  union all
-  select 'venue', venue_id::text, count(*)::integer from r group by venue_id
-  union all
-  select 'stake', stake_id::text, count(*)::integer from r group by stake_id
-  union all
-  select 'ward', ward_id::text, count(*)::integer from r group by ward_id
-  union all
-  select 'course', rc.course_id::text, count(*)::integer
-  from r join public.registration_courses rc on rc.registration_id = r.id
-  group by rc.course_id
-  union all
-  select 'lunch', lunch_option_id::text, count(*)::integer from r where lunch_option_id is not null group by lunch_option_id
-  union all
-  select 'activity', afternoon_activity_id::text, count(*)::integer
-  from r where afternoon_activity_id is not null group by afternoon_activity_id
-  union all
-  select 'choir', choir_part, count(*)::integer from r where choir_part is not null group by choir_part
-  union all
-  select 'service', service, count(*)::integer from r, unnest(r.services) as service group by service
-  union all
-  select 'handbook', null, count(*)::integer from r where printed_handbook
+  select coalesce(jsonb_agg(jsonb_strip_nulls(
+    jsonb_build_object('kind', kind, 'key', key, 'count', count, 'name', name, 'parent', parent, 'position', position)
+  )), '[]'::jsonb)
+  from counts
 $$;
 
 revoke all on function public.registration_counts from public, anon;
