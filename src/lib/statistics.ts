@@ -13,9 +13,17 @@ export type OptionStatistics = {
   count: number;
   /** 容量；null 表示不限。 */
   capacity: number | null;
+  /** 總管理員停止了這個選項的報名（GLOSSARY「停止報名」）。 */
+  stopped: boolean;
 };
 
-export type CourseStatistics = { id: string; title: string; count: number; capacity: number | null };
+export type CourseStatistics = {
+  id: string;
+  title: string;
+  count: number;
+  capacity: number | null;
+  stopped: boolean;
+};
 
 export type VenueStatistics = {
   id: string;
@@ -58,17 +66,17 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
     supabase.from("sessions").select("id, venue_id, name_zh").eq("conference_id", conferenceId).order("position"),
     supabase
       .from("courses")
-      .select("id, session_id, title_zh, capacity")
+      .select("id, session_id, title_zh, capacity, registration_stopped")
       .eq("conference_id", conferenceId)
       .order("position"),
     supabase
       .from("lunch_options")
-      .select("id, venue_id, name_zh, capacity")
+      .select("id, venue_id, name_zh, capacity, registration_stopped")
       .eq("conference_id", conferenceId)
       .order("position"),
     supabase
       .from("afternoon_activities")
-      .select("id, venue_id, title_zh, capacity")
+      .select("id, venue_id, title_zh, capacity, registration_stopped")
       .eq("conference_id", conferenceId)
       .order("position"),
   ]);
@@ -81,11 +89,15 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
   for (const row of rows) tally.set(`${row.kind}:${row.key ?? ""}`, row.count);
   const count = (kind: string, key = "") => tally.get(`${kind}:${key}`) ?? 0;
 
-  const option = (row: { id: string; name: string; capacity: number | null }, kind: string): OptionStatistics => ({
+  const option = (
+    row: { id: string; name: string; capacity: number | null; registration_stopped: boolean },
+    kind: string,
+  ): OptionStatistics => ({
     id: row.id,
     name: row.name,
     count: count(kind, row.id),
     capacity: row.capacity,
+    stopped: row.registration_stopped,
   });
 
   return {
@@ -94,12 +106,10 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
       const venueCount = count("venue", venue.id);
       const venueLunches = lunches
         .data!.filter((lunch) => lunch.venue_id === venue.id)
-        .map((lunch) => option({ id: lunch.id, name: lunch.name_zh, capacity: lunch.capacity }, "lunch"));
+        .map((lunch) => option({ ...lunch, name: lunch.name_zh }, "lunch"));
       const venueActivities = activities
         .data!.filter((activity) => activity.venue_id === venue.id)
-        .map((activity) =>
-          option({ id: activity.id, name: activity.title_zh, capacity: activity.capacity }, "activity"),
-        );
+        .map((activity) => option({ ...activity, name: activity.title_zh }, "activity"));
       return {
         id: venue.id,
         name: venue.name_zh,
@@ -117,6 +127,7 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
                 title: course.title_zh,
                 count: count("course", course.id),
                 capacity: course.capacity,
+                stopped: course.registration_stopped,
               })),
           })),
         lunches: venueLunches,
@@ -172,22 +183,25 @@ export function joiningUsage({ count, capacity }: { count: number; capacity: num
 }
 
 /**
- * 後台超收前的確認提示（#17）：額滿的課程、午餐、午后動態各一句（見 joiningUsage）。
+ * 後台超收前的確認提示（#17）：額滿或已停止報名（#33）的課程、午餐、午后動態各一句（見 joiningUsage），
+ * 已停止的另外寫出來。
  * 依場地、場次內的順序；不認得的 id 略過。成對課程的另一堂也會列出（一堂額滿，兩堂一起確認），
  * 但修改時她原本已佔的選項（heldIds）不列出：加入後人數不變。
  */
 export function describeFullOptions(statistics: Statistics, fullIds: string[], heldIds: string[] = []): string[] {
   // 她原本已佔的不會多一人（成對課程補列的另一堂可能是），不列出。
   const ids = fullIds.filter((id) => !heldIds.includes(id));
+  const line = (noun: string, name: string, option: CourseStatistics | OptionStatistics) =>
+    `${noun}「${name}」：${option.stopped ? "已停止報名，" : ""}${joiningUsage(option)}`;
   return statistics.venues.flatMap((venue) => [
     ...venue.sessions
       .flatMap((session) => session.courses)
       .filter((course) => ids.includes(course.id))
-      .map((course) => `課程「${course.title}」：${joiningUsage(course)}`),
-    ...venue.lunches.filter((lunch) => ids.includes(lunch.id)).map((lunch) => `午餐「${lunch.name}」：${joiningUsage(lunch)}`),
+      .map((course) => line("課程", course.title, course)),
+    ...venue.lunches.filter((lunch) => ids.includes(lunch.id)).map((lunch) => line("午餐", lunch.name, lunch)),
     ...venue.activities
       .filter((activity) => ids.includes(activity.id))
-      .map((activity) => `午后動態「${activity.name}」：${joiningUsage(activity)}`),
+      .map((activity) => line("午后動態", activity.name, activity)),
   ]);
 }
 

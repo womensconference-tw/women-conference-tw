@@ -123,6 +123,7 @@ join (values
 
 -- 每個場地的手冊研習上下兩堂設成成對課程，選了其中一堂就會一起選另一堂。
 alter table public.course_pairs disable trigger course_pairs_checked;
+alter table public.course_pairs disable trigger course_pairs_stopped_together;
 insert into public.course_pairs (conference_id, first_course_id, second_course_id)
 select a.conference_id, a.id, b.id
 from public.courses a
@@ -131,6 +132,7 @@ join public.sessions sb on sb.venue_id = sa.venue_id
 join public.courses b on b.session_id = sb.id
 where a.title_zh = '婦女會手冊研習（上）' and b.title_zh = '婦女會手冊研習（下）';
 alter table public.course_pairs enable trigger course_pairs_checked;
+alter table public.course_pairs enable trigger course_pairs_stopped_together;
 
 -- 教室是內部資料，只有後台看得到。
 insert into public.course_classrooms (course_id, classroom)
