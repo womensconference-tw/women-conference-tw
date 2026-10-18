@@ -23,7 +23,7 @@ import {
   type StaffRegistrationInput,
 } from "@/lib/registration";
 import type { LimitedOption, RegistrationOptions } from "@/lib/registration-options";
-import { useSubmissionKey } from "@/lib/submission-key";
+import { settled, useSubmissionKey } from "@/lib/submission-key";
 import { cn } from "@/lib/utils";
 import { Field } from "../../fields";
 import { alertClass, buttonClass, inputClass } from "../../ui";
@@ -164,7 +164,7 @@ export function RegistrationEditor({
         setErrors({ form: "unknown" });
         return;
       }
-      submission.answered();
+      if (settled(result)) submission.answered();
       if (result.ok) {
         router.push(`/staff/registrations?done=${registration ? "updated" : "added"}`);
         return;

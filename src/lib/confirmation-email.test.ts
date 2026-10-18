@@ -283,6 +283,9 @@ describe("寄確認信", () => {
     expect(await updateAndSend(registration, key, send)).toBe("sent");
 
     expect(sent).toHaveLength(1);
+    // Resend 若其實收下了第一封，同一個編號不會再寄（見 createResendSender）。
+    expect(failing.sent[0].idempotencyKey).toBe(`updated/${key}`);
+    expect(sent[0].idempotencyKey).toBe(`updated/${key}`);
     expect(await emailLogs(registration.id)).toMatchObject([
       { kind: "updated", status: "failed" },
       { kind: "updated", status: "sent" },
@@ -676,6 +679,23 @@ describe("Resend 寄信", () => {
       html: "<p>內容</p>",
       text: "內容",
     });
+  });
+
+  it("帶了重送用的編號時交給 Resend：Resend 已收下、回應才斷掉時，重送不會再寄", async () => {
+    const calls: RequestInit[] = [];
+    const send = createResendSender(
+      { RESEND_API_KEY: "re_test", EMAIL_FROM: "noreply@example.org" },
+      async (_url, init) => {
+        calls.push(init!);
+        return new Response(JSON.stringify({ id: "abc" }), { status: 200 });
+      },
+    );
+
+    await send({ ...message, idempotencyKey: "updated/key-1" });
+    await send(message);
+
+    expect(new Headers(calls[0].headers).get("idempotency-key")).toBe("updated/key-1");
+    expect(new Headers(calls[1].headers).has("idempotency-key")).toBe(false);
   });
 
   it("Resend 回應錯誤時回傳失敗與狀態", async () => {

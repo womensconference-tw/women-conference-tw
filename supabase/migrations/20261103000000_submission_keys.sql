@@ -11,7 +11,9 @@
  *
  * 送出編號不能拿來讀別人的報名：記下的除了編號，還有是哪一種送出、送出內容的雜湊（fingerprint）。
  * 重送時三者都要一樣，才回傳那一筆；內容一樣表示送的人本來就知道這些資料。修改還要是同一筆報名，
- * 而且照常先比對姓名與電話（前台）或確認是總管理員（後台）。不一樣時丟出 submission_key_reused，
+ * 而且照常先比對姓名與電話（前台）或確認是總管理員（後台）。前台新增沒有比對身分，回傳的是送出當下的內容：
+ * 那一筆之後改過或取消了，就不回傳（不然拿著舊電話的送出內容，就能讀到她改過的聯絡資料）。
+ * 不一樣時丟出 submission_key_reused，
  * 什麼都不改（畫面在內容改了時會換新的編號，正常使用不會碰到）。
  * 存雜湊、不存內容：送出內容含個資。姓名、電話猜得到，雜湊仍可能被逐一比對出來，所以紀錄只留一天
  * （重送都在幾分鐘內），之後記下新編號時順手刪掉（claim_submission）。
@@ -173,6 +175,7 @@ drop function public.staff_update_registration(
 );
 
 -- 重送時先回傳上次存下的報名，才看報名期間：截止前一刻存好、重送時剛好截止，她看到的仍是報名成功。
+-- 只回傳之後沒改過、沒取消的（見開頭）；修改、取消都會把 updated_at 改到記下編號之後。
 create function public.submit_registration(
   p_venue_id uuid,
   p_stake_id uuid,
@@ -213,7 +216,13 @@ begin
     null
   );
   if v_saved_id is not null then
-    select * into v_registration from public.registrations where id = v_saved_id;
+    select r.* into v_registration
+    from public.registrations r
+    join public.submissions s on s.registration_id = r.id
+    where s.key = p_submission_key and r.status = 'registered' and r.updated_at <= s.created_at;
+    if v_registration.id is null then
+      raise exception 'submission_key_reused';
+    end if;
     return v_registration;
   end if;
 
@@ -475,6 +484,7 @@ grant execute on function public.staff_update_registration to authenticated;
 /*
  * 確認信依送出編號只寄一封：重送時同一個編號的信已經寄過（或正在寄）就不再寄。
  * 第一次的信沒寄成（寄信失敗，或伺服器中途停了、還沒開始寄），重送時才寄出。
+ * Resend 其實收下了、只是回應斷掉而記成失敗的，重送時 Resend 依同一個編號擋下（見 createResendSender）。
  * 開始寄信多了最後一個參數 p_submission_key，其他和 20261025000000_confirmation_emails.sql 的版本相同。
  */
 alter table public.email_logs add column submission_key uuid;

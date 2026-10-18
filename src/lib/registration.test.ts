@@ -2853,6 +2853,33 @@ describe("回應斷掉後重送", () => {
     expect(stored.email).toBeNull();
   });
 
+  // 拿到她原本的送出內容與編號的人，不能用舊電話繞過查詢，讀到她改過的聯絡資料。
+  it("報名之後改過內容，用原本的送出內容與編號重送，讀不到改過的資料", async () => {
+    const key = crypto.randomUUID();
+    const saved = await submitWithKey(validInput(), key);
+    if (!saved.ok) throw new Error("報名失敗");
+    const changedResult = await updateWithKey(
+      saved.registration.id,
+      { phone: "0922333444", email: "new@example.com" },
+      crypto.randomUUID(),
+    );
+    expect(changedResult.ok).toBe(true);
+
+    const again = await submitWithKey(validInput(), key);
+
+    expect(again).toEqual({ ok: false, errors: { form: "unknown" } });
+    expect(await registrationCount()).toBe(1);
+  });
+
+  it("報名之後取消了，用原本的送出內容與編號重送，也讀不到", async () => {
+    const key = crypto.randomUUID();
+    const saved = await submitWithKey(validInput(), key);
+    if (!saved.ok) throw new Error("報名失敗");
+    expect(await cancelRegistration(serverClient(), { registrationId: saved.registration.id, lookup: credentials })).toEqual({ ok: true });
+
+    expect(await submitWithKey(validInput(), key)).toEqual({ ok: false, errors: { form: "unknown" } });
+  });
+
   it("重送前切換了畫面語言，仍回傳上次存下的報名", async () => {
     const key = crypto.randomUUID();
     await openRegistration();

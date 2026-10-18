@@ -29,7 +29,7 @@ import {
   type RegistrationInput,
 } from "@/lib/registration";
 import { staleSelections } from "@/lib/stale-selections";
-import { useSubmissionKey } from "@/lib/submission-key";
+import { settled, useSubmissionKey } from "@/lib/submission-key";
 import {
   searchWards,
   type CourseOption,
@@ -321,7 +321,7 @@ export function RegistrationForm({
         showErrors({ form: "unknown" });
         return;
       }
-      submission.answered();
+      if (settled(result)) submission.answered();
       if (result.ok) {
         setRegistration(result.registration);
       } else {

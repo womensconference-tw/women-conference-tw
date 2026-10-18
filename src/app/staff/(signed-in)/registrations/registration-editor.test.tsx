@@ -205,6 +205,21 @@ describe("後台修改報名的送出編號", () => {
     expect(keys()[2]).not.toBe(keys()[1]);
   });
 
+  // 「系統出了問題」可能是資料庫已經存好、回應才斷掉，不能確定沒存到。
+  it("回應是系統出了問題時，再按一次也沿用同一個送出編號", async () => {
+    const user = userEvent.setup();
+    editRegistration.mockResolvedValueOnce({ ok: false, errors: { form: "unknown" } });
+    editRegistration.mockResolvedValueOnce({ ok: false, errors: { form: "unknown" } });
+    render(<RegistrationEditor options={options} registration={registration} />);
+
+    await user.selectOptions(screen.getByLabelText("上午"), QUILTING);
+    await user.click(screen.getByRole("button", { name: "儲存修改" }));
+    await user.click(screen.getByRole("button", { name: "儲存修改" }));
+
+    expect(keys()).toHaveLength(2);
+    expect(keys()[1]).toBe(keys()[0]);
+  });
+
   it("內容改了再送，換新的送出編號", async () => {
     const user = userEvent.setup();
     editRegistration.mockRejectedValueOnce(new Error("network"));
