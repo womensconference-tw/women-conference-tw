@@ -8,10 +8,28 @@
  * 只有總管理員改得了：課程、午餐、午后動態的寫入本來就只限總管理員（20261022000000_programme_editing.sql）。
  * 報名開放後的定案規則只擋新增、刪除與換時段，停止、重新開放和調整名額一樣不受影響。
  * 複製到新年度時不帶過去（copy_conference 沒有列這一欄），新年度一律從開放開始。
+ *
+ * 前台訪客讀不到這一欄：前台只說「已額滿」，不透露是總管理員停止的還是名額滿了（full_courses 等函式只回傳哪些額滿）。
+ * 欄位層級的權限要先收回整張表的讀取權限，再一欄一欄給回去，所以之後這三張表新增欄位時，
+ * 前台訪客要讀的話要另外給。工作人員（authenticated）照舊讀得到全部欄位，範圍由權限規則決定。
  */
 alter table public.courses add column registration_stopped boolean not null default false;
 alter table public.lunch_options add column registration_stopped boolean not null default false;
 alter table public.afternoon_activities add column registration_stopped boolean not null default false;
+
+revoke select on public.courses, public.lunch_options, public.afternoon_activities from anon;
+grant select (
+  id, conference_id, session_id, position, title_zh, title_en, description_zh, description_en, capacity,
+  created_at, updated_at
+) on public.courses to anon;
+grant select (
+  id, conference_id, venue_id, position, name_zh, name_en, description_zh, description_en, capacity,
+  created_at, updated_at
+) on public.lunch_options to anon;
+grant select (
+  id, conference_id, venue_id, position, title_zh, title_en, description_zh, description_en, capacity,
+  created_at, updated_at
+) on public.afternoon_activities to anon;
 
 /*
  * 成對課程的兩堂一起停止、一起重新開放（GLOSSARY「成對課程」）。在交易提交時確認兩堂一致：
@@ -21,6 +39,7 @@ alter table public.afternoon_activities add column registration_stopped boolean 
  *
  * 和設定成對課程排同一個隊（course_pairs_valid 的鎖）：同時有人把這門課設成一組、有人停止它時，
  * 後到的等先到的提交，再讀到對方的修改，不會兩邊都通過、留下一堂停止一堂沒停止的一組。
+ * 提交時才排隊，這時交易已經碰過要改的課程；set_registration_stopped 也是先鎖課程再排隊，順序一致。
  */
 create function public.course_pairs_stopped_together()
 returns trigger
@@ -86,10 +105,16 @@ begin
   end if;
 
   if p_kind = 'course' then
-    -- 先排設定成對課程的隊再讀成對的另一堂，同時有人把它設成一組時也讀得到（見 course_pairs_stopped_together）。
-    perform pg_advisory_xact_lock(hashtextextended('course_pairs_valid', 0));
+    -- 先鎖課程、再排設定成對課程的隊，和設定成對課程、直接改課程的交易同一個順序，不會互相卡住：
+    -- 那些交易先碰課程（設定成對課程的外鍵檢查只加 key share，和這裡的 no key update 不衝突），提交時才排隊。
     v_ids := array_remove(array[p_id, public.paired_course(p_id)], null);
-    perform 1 from public.courses where id = any(v_ids) order by id for update;
+    perform 1 from public.courses where id = any(v_ids) order by id for no key update;
+    perform pg_advisory_xact_lock(hashtextextended('course_pairs_valid', 0));
+    -- 排到隊之後再讀一次成對關係：上鎖期間剛好有人把它設成一組或拆開，就不改，請總管理員再試一次。
+    -- 之後才要提交的成對設定會排在這裡後面，看到兩堂不一致而不成立（見 course_pairs_stopped_together）。
+    if array_remove(array[p_id, public.paired_course(p_id)], null) <> v_ids then
+      raise exception 'course_pair_stopped_apart';
+    end if;
     update public.courses c
     set registration_stopped = p_stopped, updated_at = now()
     from public.conferences cf

@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TransactionSql } from "postgres";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { submitWhileHolding } from "../../test/hold-transaction";
-import { adminClient, anonClient, must, serverClient, signedInClient } from "../../test/supabase";
+import { adminClient, anonClient, databaseClient, must, serverClient, signedInClient } from "../../test/supabase";
 import { getRegistrationOptions } from "./registration-options";
 import { describeFullOptions, formatUsage, getStatistics, venuesInView } from "./statistics";
 import { addCoursePair, saveItem, setRegistrationStopped, type StoppableKind } from "./programme";
@@ -470,6 +470,21 @@ describe("成對課程兩堂一起停止", () => {
 });
 
 describe("前台顯示", () => {
+  // 前台只說「已額滿」，不說是總管理員停止的還是名額滿了。
+  it("未登入者直接查 API 也讀不到停止狀態", async () => {
+    await addCourse(null);
+    await addLunch(null);
+    await addActivity(null);
+    await openRegistration();
+
+    for (const table of ["courses", "lunch_options", "afternoon_activities"]) {
+      const { data, error } = await anonClient().from(table).select("id, registration_stopped");
+      expect({ table, data }).toEqual({ table, data: null });
+      expect(error).not.toBeNull();
+    }
+  });
+
+
   it("停止報名的課程、午餐、午后動態在報名表上是「已額滿」，重新開放後恢復", async () => {
     const [course, lunch, activity] = [await addCourse(null), await addLunch(null), await addActivity(null)];
     await openRegistration();
@@ -550,6 +565,58 @@ describe("停止、調整名額和送出報名搶同一把鎖", () => {
     expect(stopped).toEqual({ ok: true });
     expect(await registrationCount("先拿到鎖")).toBe(1);
     expect(await stoppedState(tables[kind], [id])).toEqual({ [id]: true });
+  });
+
+  // 設定成對課程時，資料庫會先對兩門課加上輕的鎖（外鍵檢查），提交時才排成對課程的隊。
+  // 停止報名不能先排隊再等課程的鎖，不然兩邊互等，其中一邊被資料庫中止。
+  it("報名開放前設定成對課程的交易還沒提交時停止其中一堂，不會互相卡住；那組成對課程不成立", async () => {
+    const first = await addCourse(null, 1, "手冊研習（上）");
+    const second = await addCourse(null, 2, "手冊研習（下）");
+    const sql = databaseClient();
+    let release!: () => void;
+    const mayCommit = new Promise<void>((resolve) => (release = resolve));
+    let inserted!: () => void;
+    const pending = new Promise<void>((resolve) => (inserted = resolve));
+    const pairing = sql.begin(async (tx) => {
+      await tx`insert into public.course_pairs (conference_id, first_course_id, second_course_id)
+        values (${conferenceId!}, ${first}, ${second})`;
+      inserted();
+      await mayCommit;
+    });
+    try {
+      await pending;
+      const stopped = await Promise.race([
+        setRegistrationStopped(headAdmin, "course", first, true),
+        new Promise((resolve) => setTimeout(() => resolve("一直在等"), 3000)),
+      ]);
+      expect(stopped).toEqual({ ok: true });
+      release();
+      await expect(pairing).rejects.toMatchObject({ message: "course_pair_stopped_apart" });
+    } finally {
+      release();
+      await pairing.catch(() => {});
+      await sql.end();
+    }
+    expect(await stoppedState("courses", [first, second])).toEqual({ [first]: true, [second]: false });
+  });
+
+  it("總管理員直接改停止狀態的交易還沒提交時，停止函式等它做完，不會互相卡住", async () => {
+    const course = await addCourse(null);
+    await openRegistration();
+
+    const result = await submitWhileHolding(
+      async (tx) => {
+        await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: headAdminId, role: "authenticated" })}, true)`;
+        await tx`set local role authenticated`;
+        await tx`update public.courses set registration_stopped = true where id = ${course}`;
+      },
+      () => setRegistrationStopped(headAdmin, "course", course, false),
+      undefined,
+      "set_registration_stopped",
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(await stoppedState("courses", [course])).toEqual({ [course]: false });
   });
 
   it("調低名額先完成時，等待中的送出被拒", async () => {
