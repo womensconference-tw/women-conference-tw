@@ -7,9 +7,10 @@ import { createServiceClient } from "./supabase/service";
  * 回應送出之後才寄確認信（next/server 的 after），報名者不必等寄信；寄信成敗都不影響報名結果。
  * 信裡「查詢我的報名」的連結用 Vercel 提供的網址：正式環境是正式網址，預覽環境是這次部署的網址
  * （預覽連的是另一個資料庫，連到正式網站會查不到）；本機沒有這些變數，就不附連結。
+ * submissionKey 是新增、修改的送出編號：回應斷掉後重送同一次送出，信只寄一封。
  * 不用請求的 Host 標頭組網址：任何人都能偽造它，再把別人的 Email 填進報名表，讓我們寄出假網站的連結。
  */
-export function queueConfirmationEmail(registrationId: string, kind: EmailKind) {
+export function queueConfirmationEmail(registrationId: string, kind: EmailKind, submissionKey?: string) {
   const host =
     process.env.VERCEL_ENV === "production"
       ? process.env.VERCEL_PROJECT_PRODUCTION_URL
@@ -22,6 +23,7 @@ export function queueConfirmationEmail(registrationId: string, kind: EmailKind) 
         kind,
         createResendSender(),
         host ? `https://${host}` : undefined,
+        submissionKey,
       );
     } catch (error) {
       // sendConfirmationEmail 本身不丟出例外；這裡只會是沒設定 SUPABASE_SECRET_KEY。

@@ -29,6 +29,7 @@ import {
   type RegistrationInput,
 } from "@/lib/registration";
 import { staleSelections } from "@/lib/stale-selections";
+import { useSubmissionKey } from "@/lib/submission-key";
 import {
   searchWards,
   type CourseOption,
@@ -152,6 +153,8 @@ export function RegistrationForm({
   // 按了「再幫一位報名」：第一步說明哪些資料是從上一位帶過來的。
   const [another, setAnother] = useState(false);
   const [pending, startTransition] = useTransition();
+  // 回應斷掉後她再按一次，沿用同一個送出編號，不會多一筆報名、多寄一封信。
+  const submission = useSubmissionKey();
   const selectedVenue = options.venues.find((option) => option.id === input.venueId);
   const sessions = selectedVenue?.sessions ?? [];
   // 修改時她原本已佔的選項：名額仍是她的，就算額滿也照樣可選（ADR 0006）。
@@ -303,19 +306,22 @@ export function RegistrationForm({
       let result;
       try {
         if (edit) {
+          const changes = changesOf(input);
           result = await updateMine({
             registrationId: edit.registration.id,
             lookup: edit.lookup,
-            changes: changesOf(input),
+            changes,
+            submissionKey: submission.keyFor({ registrationId: edit.registration.id, changes }),
           });
         } else {
-          result = await register(input);
+          result = await register(input, submission.keyFor(input));
         }
       } catch {
         // 連線中斷或伺服器出錯：留在這一步、保留已填的資料，請她再按一次。
         showErrors({ form: "unknown" });
         return;
       }
+      submission.answered();
       if (result.ok) {
         setRegistration(result.registration);
       } else {

@@ -23,6 +23,7 @@ import {
   type StaffRegistrationInput,
 } from "@/lib/registration";
 import type { LimitedOption, RegistrationOptions } from "@/lib/registration-options";
+import { useSubmissionKey } from "@/lib/submission-key";
 import { cn } from "@/lib/utils";
 import { Field } from "../../fields";
 import { alertClass, buttonClass, inputClass } from "../../ui";
@@ -115,6 +116,8 @@ export function RegistrationEditor({
     null,
   );
   const [pending, startTransition] = useTransition();
+  // 回應斷掉後再按一次，沿用同一個送出編號，不會多一筆報名、多寄一封信。
+  const submission = useSubmissionKey();
   const dialog = useRef<HTMLDialogElement>(null);
 
   const venue = options.venues.find((option) => option.id === input.venueId);
@@ -153,13 +156,15 @@ export function RegistrationEditor({
     startTransition(async () => {
       let result: StaffFormResult;
       try {
+        const key = submission.keyFor({ registrationId: registration?.id, sent });
         result = registration
-          ? await editRegistration(registration.id, sent, confirmFull)
-          : await addRegistration(sent, confirmFull);
+          ? await editRegistration(registration.id, sent, confirmFull, key)
+          : await addRegistration(sent, confirmFull, key);
       } catch {
         setErrors({ form: "unknown" });
         return;
       }
+      submission.answered();
       if (result.ok) {
         router.push(`/staff/registrations?done=${registration ? "updated" : "added"}`);
         return;

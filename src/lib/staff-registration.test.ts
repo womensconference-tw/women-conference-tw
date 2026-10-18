@@ -564,3 +564,65 @@ describe("身分類別", () => {
     expect(await roleOf(id)).toBe("volunteer");
   });
 });
+
+describe("後台回應斷掉後重送", () => {
+  it("新增報名用同一個送出編號送兩次，只有一筆，第二次回傳相同的報名；確認超收的重送也一樣", async () => {
+    const head = await signedInClient("head@example.com");
+    await publicRegistration();
+    const key = crypto.randomUUID();
+    const input = validInput({ courseIds: [quiltingId] });
+
+    const needsConfirmation = await staffSubmitRegistration(head, input, { confirmFull: false, submissionKey: key });
+    const first = await staffSubmitRegistration(head, input, { confirmFull: true, submissionKey: key });
+    const again = await staffSubmitRegistration(head, input, { confirmFull: true, submissionKey: key });
+
+    expect(needsConfirmation).toMatchObject({ ok: false, needsConfirmation: true });
+    expect(first.ok).toBe(true);
+    expect(again).toEqual(first);
+    expect(await registrationCount()).toBe(2);
+  });
+
+  it("不同的送出編號照常各自新增", async () => {
+    const head = await signedInClient("head@example.com");
+
+    await staffSubmitRegistration(head, validInput(), { confirmFull: false, submissionKey: crypto.randomUUID() });
+    await staffSubmitRegistration(head, validInput(), { confirmFull: false, submissionKey: crypto.randomUUID() });
+
+    expect(await registrationCount()).toBe(2);
+  });
+
+  it("修改報名用同一個送出編號送兩次，只改一次，第二次回傳相同的報名", async () => {
+    const head = await signedInClient("head@example.com");
+    const id = await publicRegistration();
+    const key = crypto.randomUUID();
+    const input = { registrationId: id, changes: changed({ role: "speaker" }), confirmFull: false, submissionKey: key };
+
+    const first = await staffUpdateRegistration(head, input);
+    const before = await stored(id);
+    const again = await staffUpdateRegistration(head, input);
+
+    expect(first.ok).toBe(true);
+    expect(again).toEqual(first);
+    expect(await stored(id)).toEqual(before);
+  });
+
+  it("前台用過的送出編號，後台不能拿來新增或修改", async () => {
+    const head = await signedInClient("head@example.com");
+    const key = crypto.randomUUID();
+    const saved = await submitRegistration(anonClient(), validInput(), "zh", key);
+    if (!saved.ok) throw new Error("報名失敗");
+
+    const added = await staffSubmitRegistration(head, validInput(), { confirmFull: false, submissionKey: key });
+    const updated = await staffUpdateRegistration(head, {
+      registrationId: saved.registration.id,
+      changes: changed({ role: "speaker" }),
+      confirmFull: false,
+      submissionKey: key,
+    });
+
+    expect(added).toEqual({ ok: false, errors: { form: "unknown" } });
+    expect(updated).toEqual({ ok: false, errors: { form: "unknown" } });
+    expect(await registrationCount()).toBe(1);
+    expect(await stored(saved.registration.id)).toMatchObject({ role: "attendee" });
+  });
+});

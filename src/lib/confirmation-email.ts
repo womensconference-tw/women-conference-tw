@@ -35,6 +35,7 @@ const FINISH_RETRY_DELAYS_MS = [500, 2_000];
  * 寄一封確認信，並記在寄信紀錄。不丟出例外：寄信失敗或出錯時記下失敗，報名照樣成功。
  * 回傳 skipped 表示不寄（見 begin_confirmation_email）。
  * siteUrl 有值時，信裡附上「查詢我的報名」的連結。
+ * submissionKey 是這次送出的送出編號：重送同一次送出時，同一個編號只寄一封（取消沒有編號，另外只寄一次）。
  * 伺服器日誌只記寄信紀錄的編號，不記錯誤內容：錯誤可能含收件地址或姓名，清除個資時清不到日誌。
  * 錯誤內容只寫進寄信紀錄，由 finish_email_log 依清除個資的狀態決定要不要留。
  */
@@ -44,12 +45,17 @@ export async function sendConfirmationEmail(
   kind: EmailKind,
   send: SendEmail,
   siteUrl?: string,
+  submissionKey?: string,
 ): Promise<"sent" | "failed" | "skipped"> {
   let logId: string | undefined;
   let result: SendResult;
   try {
     const begun = await supabase
-      .rpc("begin_confirmation_email", { p_registration_id: registrationId, p_kind: kind })
+      .rpc("begin_confirmation_email", {
+        p_registration_id: registrationId,
+        p_kind: kind,
+        p_submission_key: submissionKey ?? null,
+      })
       .abortSignal(AbortSignal.timeout(DATABASE_TIMEOUT_MS));
     if (begun.error) throw begun.error;
     const { log_id, registration } = begun.data as { log_id?: string; registration?: EmailRow };

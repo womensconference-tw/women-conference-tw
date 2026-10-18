@@ -2742,3 +2742,149 @@ describe("直接呼叫查詢、修改、取消函式", () => {
   });
 });
 
+
+describe("回應斷掉後重送", () => {
+  const credentials = { name: "王小美", phoneOrNumber: "0912345678" };
+
+  async function registrationCount() {
+    return must(await admin.from("registrations").select("id").eq("conference_id", conferenceId!)).length;
+  }
+
+  async function submitWithKey(input: RegistrationInput, key: string) {
+    await openRegistration();
+    return submitRegistration(anonClient(), input, "zh", key);
+  }
+
+  function updateWithKey(registrationId: string, overrides: Partial<RegistrationChanges>, key: string, lookup = credentials) {
+    return updateRegistration(serverClient(), {
+      registrationId,
+      lookup,
+      changes: { ...changesOf(validInput()), ...overrides },
+      submissionKey: key,
+    });
+  }
+
+  it("同一個送出編號送兩次，只有一筆報名，第二次回傳和第一次相同的報名", async () => {
+    const key = crypto.randomUUID();
+    const first = await submitWithKey(validInput({ phone: "", noPhone: true }), key);
+    const again = await submitWithKey(validInput({ phone: "", noPhone: true }), key);
+
+    expect(first.ok).toBe(true);
+    expect(again).toEqual(first);
+    expect(await registrationCount()).toBe(1);
+  });
+
+  it("同一個送出編號同時送兩次，也只有一筆報名", async () => {
+    const key = crypto.randomUUID();
+    await openRegistration();
+    const results = await Promise.all([submitWithKey(validInput(), key), submitWithKey(validInput(), key)]);
+
+    expect(results[1]).toEqual(results[0]);
+    expect(results[0].ok).toBe(true);
+    expect(await registrationCount()).toBe(1);
+  });
+
+  // 代報、「再幫一位報名」：每次送出各自有新的送出編號。
+  it("不同的送出編號照常各自新增，內容一樣也是", async () => {
+    const first = await submitWithKey(validInput(), crypto.randomUUID());
+    const second = await submitWithKey(validInput(), crypto.randomUUID());
+
+    expect([first.ok, second.ok]).toEqual([true, true]);
+    expect(first.ok && second.ok && first.registration.id !== second.registration.id).toBe(true);
+    expect(await registrationCount()).toBe(2);
+  });
+
+  it("沒有存下的送出（例如額滿被拒）不佔用送出編號，改好再送照樣成功", async () => {
+    const course = await addCourse(await addSession(1), 1);
+    await submit(validInput({ name: "陳小華", courseIds: [course] }));
+    const key = crypto.randomUUID();
+
+    const rejected = await submitWithKey(validInput({ courseIds: [course] }), key);
+    const retried = await submitWithKey(validInput(), key);
+
+    expect(rejected.ok).toBe(false);
+    expect(retried.ok).toBe(true);
+  });
+
+  it("別人的送出編號拿不到她的報名，也不會新增", async () => {
+    const key = crypto.randomUUID();
+    await submitWithKey(validInput({ phone: "", noPhone: true }), key);
+
+    const other = await submitWithKey(validInput({ name: "陳小華", phone: "", noPhone: true }), key);
+
+    expect(other).toEqual({ ok: false, errors: { form: "unknown" } });
+    expect(await registrationCount()).toBe(1);
+  });
+
+  it("修改報名用同一個送出編號送兩次，只改一次，第二次回傳相同的報名", async () => {
+    const saved = await submit(validInput());
+    if (!saved.ok) throw new Error("報名失敗");
+    const key = crypto.randomUUID();
+
+    const first = await updateWithKey(saved.registration.id, { email: "mei@example.com" }, key);
+    const { updated_at } = must(
+      await admin.from("registrations").select("updated_at").eq("id", saved.registration.id).single(),
+    );
+    const again = await updateWithKey(saved.registration.id, { email: "mei@example.com" }, key);
+
+    expect(first.ok).toBe(true);
+    expect(again).toEqual(first);
+    const after = must(await admin.from("registrations").select("updated_at").eq("id", saved.registration.id).single());
+    expect(after.updated_at).toBe(updated_at);
+  });
+
+  it("新增報名的送出編號不能拿來修改報名，修改另一筆報名的也不行", async () => {
+    const submitKey = crypto.randomUUID();
+    const mine = await submitWithKey(validInput(), submitKey);
+    const sister = await submit(validInput({ name: "王小華" }));
+    if (!mine.ok || !sister.ok) throw new Error("報名失敗");
+    const updateKey = crypto.randomUUID();
+    await updateWithKey(sister.registration.id, { email: "hua@example.com" }, updateKey, {
+      name: "王小華",
+      phoneOrNumber: "0912345678",
+    });
+
+    const withSubmitKey = await updateWithKey(mine.registration.id, { email: "mei@example.com" }, submitKey);
+    const withSistersKey = await updateWithKey(mine.registration.id, { email: "hua@example.com" }, updateKey);
+
+    expect(withSubmitKey).toEqual({ ok: false, errors: { form: "unknown" } });
+    expect(withSistersKey).toEqual({ ok: false, errors: { form: "unknown" } });
+    const stored = must(await admin.from("registrations").select("email").eq("id", mine.registration.id).single());
+    expect(stored.email).toBeNull();
+  });
+
+  it("重送前切換了畫面語言，仍回傳上次存下的報名", async () => {
+    const key = crypto.randomUUID();
+    await openRegistration();
+    const first = await submitRegistration(anonClient(), validInput(), "zh", key);
+    const again = await submitRegistration(anonClient(), validInput(), "en", key);
+
+    expect(again).toEqual(first);
+    expect(await registrationCount()).toBe(1);
+  });
+
+  // 紀錄裡有送出內容的雜湊，不留太久（見 20261103000000_submission_keys.sql）。
+  it("一天以前的送出編號紀錄，之後有人送出時刪掉", async () => {
+    const oldKey = crypto.randomUUID();
+    await submitWithKey(validInput(), oldKey);
+    must(
+      await admin
+        .from("submissions")
+        .update({ created_at: new Date(Date.now() - 2 * DAY).toISOString() })
+        .eq("key", oldKey),
+    );
+
+    await submitWithKey(validInput({ name: "陳小華" }), crypto.randomUUID());
+
+    expect(must(await admin.from("submissions").select("key").eq("key", oldKey))).toEqual([]);
+  });
+
+  it("訪客讀不到送出編號的紀錄", async () => {
+    await submitWithKey(validInput(), crypto.randomUUID());
+
+    const { data, error } = await anonClient().from("submissions").select("*");
+
+    expect(data ?? []).toEqual([]);
+    expect(error === null || error.code === "42501").toBe(true);
+  });
+});

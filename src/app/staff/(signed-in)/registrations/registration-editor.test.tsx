@@ -8,10 +8,12 @@ import type { StaffFormResult } from "./actions";
 import { RegistrationEditor } from "./registration-editor";
 
 // 伺服器動作換成假的，由測試決定什麼時候回應、回應什麼。
-const editRegistration = vi.fn<(id: unknown, input: unknown, confirmFull: unknown) => Promise<StaffFormResult>>();
+const editRegistration =
+  vi.fn<(id: unknown, input: unknown, confirmFull: unknown, submissionKey: unknown) => Promise<StaffFormResult>>();
 vi.mock("./actions", () => ({
   addRegistration: vi.fn(),
-  editRegistration: (id: unknown, input: unknown, confirmFull: unknown) => editRegistration(id, input, confirmFull),
+  editRegistration: (id: unknown, input: unknown, confirmFull: unknown, submissionKey: unknown) =>
+    editRegistration(id, input, confirmFull, submissionKey),
 }));
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
@@ -138,6 +140,7 @@ describe("後台修改報名的超收確認", () => {
       registration.id,
       expect.objectContaining({ courseIds: [QUILTING] }),
       false,
+      expect.any(String),
     );
 
     // 提示開著時改選另一門額滿的課，再按「確定加入」：送出的仍是提示裡的拼布，插花沒有被超收。
@@ -149,6 +152,7 @@ describe("後台修改報名的超收確認", () => {
       registration.id,
       expect.objectContaining({ courseIds: [QUILTING] }),
       true,
+      expect.any(String),
     );
     expect(push).toHaveBeenCalledWith("/staff/registrations?done=updated");
   });
@@ -174,7 +178,45 @@ describe("後台修改報名的超收確認", () => {
       registration.id,
       expect.objectContaining({ courseIds: [QUILTING] }),
       false,
+      expect.any(String),
     );
     expect(dialog.open).toBe(true);
+  });
+});
+
+describe("後台修改報名的送出編號", () => {
+  const keys = () => editRegistration.mock.calls.map((call) => call[3]);
+
+  it("回應斷掉後再按一次，沿用同一個送出編號；收到回應後（例如要確認超收）換新的", async () => {
+    const user = userEvent.setup();
+    editRegistration.mockRejectedValueOnce(new Error("network"));
+    editRegistration.mockResolvedValueOnce(needsConfirmation);
+    editRegistration.mockResolvedValueOnce({ ok: true, registration: { ...registration, courseIds: [QUILTING] } });
+    render(<RegistrationEditor options={options} registration={registration} />);
+
+    await user.selectOptions(screen.getByLabelText("上午"), QUILTING);
+    await user.click(screen.getByRole("button", { name: "儲存修改" }));
+    await user.click(screen.getByRole("button", { name: "儲存修改" }));
+    const dialog = screen.getByRole<HTMLDialogElement>("alertdialog", { hidden: true });
+    await user.click(within(dialog).getByRole("button", { name: "確定加入", hidden: true }));
+
+    expect(keys()).toHaveLength(3);
+    expect(keys()[1]).toBe(keys()[0]);
+    expect(keys()[2]).not.toBe(keys()[1]);
+  });
+
+  it("內容改了再送，換新的送出編號", async () => {
+    const user = userEvent.setup();
+    editRegistration.mockRejectedValueOnce(new Error("network"));
+    editRegistration.mockRejectedValueOnce(new Error("network"));
+    render(<RegistrationEditor options={options} registration={registration} />);
+
+    await user.selectOptions(screen.getByLabelText("上午"), QUILTING);
+    await user.click(screen.getByRole("button", { name: "儲存修改" }));
+    await user.selectOptions(screen.getByLabelText("上午"), FLOWERS);
+    await user.click(screen.getByRole("button", { name: "儲存修改" }));
+
+    expect(keys()).toHaveLength(2);
+    expect(keys()[0]).not.toBe(keys()[1]);
   });
 });

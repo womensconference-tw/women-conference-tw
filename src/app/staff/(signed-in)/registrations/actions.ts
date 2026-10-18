@@ -8,6 +8,7 @@ import {
   staffRegistrationInputFrom,
   staffSubmitRegistration,
   staffUpdateRegistration,
+  submissionKeyOf,
   type StaffSubmitResult,
 } from "@/lib/registration";
 import { getRegistrationForEdit } from "@/lib/registration-list";
@@ -22,30 +23,42 @@ import { createClient } from "@/lib/supabase/server";
 /** 結果；需要確認超收時多附額滿選項的說明（例如「課程「拼布」：名額 30 人，目前已報 30 人，加入後變成 31 人（超過名額 1 人）」）。 */
 export type StaffFormResult = StaffSubmitResult & { fullOptions?: string[] };
 
-/** 新增報名。confirmFull 是總管理員看過額滿提示、確定要超收。 */
-export async function addRegistration(input: unknown, confirmFull: unknown): Promise<StaffFormResult> {
+/**
+ * 新增報名。confirmFull 是總管理員看過額滿提示、確定要超收。
+ * submissionKey 是這次送出的送出編號：回應斷掉後重按沿用同一個，不會多一筆報名、多寄一封信。
+ */
+export async function addRegistration(
+  input: unknown,
+  confirmFull: unknown,
+  submissionKey?: unknown,
+): Promise<StaffFormResult> {
   const supabase = await createClient();
+  const key = submissionKeyOf(submissionKey);
   const result = await staffSubmitRegistration(supabase, staffRegistrationInputFrom(input), {
     confirmFull: confirmFull === true,
+    submissionKey: key,
   });
-  if (result.ok) queueConfirmationEmail(result.registration.id, "registered");
+  if (result.ok) queueConfirmationEmail(result.registration.id, "registered", key);
   return withFullOptions(result);
 }
 
-/** 修改報名：哪一筆、修改後的內容（姓名、支聯會、支會、肖像權同意送來了也不用）。 */
+/** 修改報名：哪一筆、修改後的內容（姓名、支聯會、支會、肖像權同意送來了也不用）。送出編號同新增。 */
 export async function editRegistration(
   registrationId: unknown,
   input: unknown,
   confirmFull: unknown,
+  submissionKey?: unknown,
 ): Promise<StaffFormResult> {
   const supabase = await createClient();
   const staffInput = staffRegistrationInputFrom(input);
+  const key = submissionKeyOf(submissionKey);
   const result = await staffUpdateRegistration(supabase, {
     registrationId: typeof registrationId === "string" ? registrationId : "",
     changes: { ...changesOf(staffInput), role: staffInput.role },
     confirmFull: confirmFull === true,
+    submissionKey: key,
   });
-  if (result.ok) queueConfirmationEmail(result.registration.id, "updated");
+  if (result.ok) queueConfirmationEmail(result.registration.id, "updated", key);
   return withFullOptions(result, typeof registrationId === "string" ? registrationId : undefined);
 }
 

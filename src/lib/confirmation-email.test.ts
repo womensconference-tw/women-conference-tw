@@ -9,7 +9,7 @@ import {
   type SendEmail,
 } from "./confirmation-email";
 import type { Locale } from "./i18n/locale";
-import { submitRegistration, type RegistrationInput } from "./registration";
+import { submitRegistration, updateRegistration, type RegistrationInput } from "./registration";
 
 const admin = adminClient();
 const DAY = 24 * 60 * 60 * 1000;
@@ -233,6 +233,86 @@ describe("寄確認信", () => {
 
     await sendConfirmationEmail(serverClient(), registration.id, "cancelled", send);
     expect(await sendConfirmationEmail(serverClient(), registration.id, "cancelled", send)).toBe("skipped");
+
+    expect(sent).toHaveLength(1);
+  });
+
+  // 和修改報名的動作一樣：存下修改後，用同一個送出編號寄信。回應斷掉後她再按一次，送出編號沿用。
+  async function updateAndSend(registration: { id: string }, key: string, send: SendEmail) {
+    const result = await updateRegistration(serverClient(), {
+      registrationId: registration.id,
+      lookup: { name: "王小美", phoneOrNumber: "0912345678" },
+      changes: {
+        phone: "0912345678",
+        noPhone: false,
+        email: "xiaomei@example.com",
+        lineId: "",
+        venueId,
+        courseIds: [otherCourseId],
+        lunchOptionId: null,
+        afternoonActivityId: null,
+        choirPart: null,
+        services: [],
+        printedHandbook: true,
+      },
+      submissionKey: key,
+    });
+    if (!result.ok) throw new Error(JSON.stringify(result));
+    return sendConfirmationEmail(serverClient(), registration.id, "updated", send, undefined, key);
+  }
+
+  it("修改報名用同一個送出編號送兩次，只寄一封修改信", async () => {
+    const registration = await registered();
+    const { sent, send } = fakeSender();
+    const key = crypto.randomUUID();
+
+    await updateAndSend(registration, key, send);
+    expect(await updateAndSend(registration, key, send)).toBe("skipped");
+
+    expect(sent).toHaveLength(1);
+    expect(await emailLogs(registration.id)).toMatchObject([{ kind: "updated", status: "sent" }]);
+  });
+
+  it("第一次的修改信沒寄成，用同一個送出編號重送時再寄", async () => {
+    const registration = await registered();
+    const failing = fakeSender({ ok: false, error: "Resend 暫時無法使用" });
+    const { sent, send } = fakeSender();
+    const key = crypto.randomUUID();
+
+    await updateAndSend(registration, key, failing.send);
+    expect(await updateAndSend(registration, key, send)).toBe("sent");
+
+    expect(sent).toHaveLength(1);
+    expect(await emailLogs(registration.id)).toMatchObject([
+      { kind: "updated", status: "failed" },
+      { kind: "updated", status: "sent" },
+    ]);
+  });
+
+  it("不同的送出編號各寄一封修改信", async () => {
+    const registration = await registered();
+    const { sent, send } = fakeSender();
+
+    await updateAndSend(registration, crypto.randomUUID(), send);
+    await updateAndSend(registration, crypto.randomUUID(), send);
+
+    expect(sent).toHaveLength(2);
+  });
+
+  it("報名用同一個送出編號送兩次，只寄一封報名信", async () => {
+    const { sent, send } = fakeSender();
+    const key = crypto.randomUUID();
+    const input: RegistrationInput = {
+      name: "王小美", phone: "0912345678", noPhone: false, email: "xiaomei@example.com", lineId: "",
+      stakeId: stakeId!, wardId, venueId, courseIds: [courseId], lunchOptionId: null, afternoonActivityId: null,
+      choirPart: null, services: [], printedHandbook: true, portraitConsent: true,
+    };
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await submitRegistration(anonClient(), input, "zh", key);
+      if (!result.ok) throw new Error(JSON.stringify(result));
+      await sendConfirmationEmail(serverClient(), result.registration.id, "registered", send, undefined, key);
+    }
 
     expect(sent).toHaveLength(1);
   });
