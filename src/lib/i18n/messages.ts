@@ -232,12 +232,15 @@ const zh = {
       registered: "台灣姐妹大會：報名完成",
       updated: "台灣姐妹大會：報名已修改",
       cancelled: "台灣姐妹大會：報名已取消",
+      // 後台重寄的確認信：內容是重寄當下的報名資料。
+      resent: "台灣姐妹大會：您的報名資料",
     },
     greeting: (name: string) => `${name} 姐妹，您好：`,
     intros: {
       registered: "謝謝您報名台灣姐妹大會。以下是您的報名資料，請保存這封信。",
       updated: "您的報名已經修改。以下是修改後的報名資料，請保存這封信。",
       cancelled: "您的報名已經取消，名額已經讓給其他姐妹。以下是取消的報名資料。要參加的話，請重新報名。",
+      resent: "以下是您目前的報名資料，請保存這封信。",
     },
     lookupHint: "要查詢、修改或取消報名，請到大會網站的「查詢我的報名」，輸入姓名和電話（沒有電話的姐妹，請填報名編號）。",
     lookupLink: "查詢我的報名",
@@ -514,6 +517,7 @@ const en = {
       registered: "Taiwan Women's Conference: you're registered",
       updated: "Taiwan Women's Conference: your registration has been changed",
       cancelled: "Taiwan Women's Conference: your registration has been cancelled",
+      resent: "Taiwan Women's Conference: your registration details",
     },
     greeting: (name: string) => `Dear ${name},`,
     intros: {
@@ -522,6 +526,7 @@ const en = {
       updated: "Your registration has been changed. Your updated details are below. Please keep this email.",
       cancelled:
         "Your registration has been cancelled, and your places have gone to other sisters. The cancelled registration is below. To attend, please register again.",
+      resent: "Your current registration details are below. Please keep this email.",
     },
     lookupHint:
       "To look up, change or cancel your registration, go to \"Look up my registration\" on the conference website and enter your name and phone number (or your registration number if you have no phone).",

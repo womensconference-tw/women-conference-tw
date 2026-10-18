@@ -7,7 +7,7 @@ import { createClient } from "@supabase/supabase-js";
  * 訪客不能直接呼叫、對回傳值加篩選或轉型，猜錯次數才擋得住一直猜。
  * 只能用來呼叫報名服務固定的函式，不能拿來讀寫資料表。
  * 另外，後台新增、移除工作人員時用它建立、刪除登入帳號（資料庫裡沒辦法做），
- * 而且要先由資料庫確認操作的人是總管理員（src/lib/staff.ts）。
+ * 而且要先由資料庫確認操作的人是總管理員（src/lib/staff.ts）。後台重寄確認信也一樣（src/lib/email-logs.ts）。
  */
 export function createServiceClient() {
   const key = process.env.SUPABASE_SECRET_KEY;

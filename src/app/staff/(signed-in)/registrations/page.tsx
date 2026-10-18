@@ -126,7 +126,7 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
                 <th className="p-2">身分類別</th>
                 <th className="p-2">狀態</th>
                 <th className="p-2">報名時間</th>
-                {canEdit && <th className="p-2"><span className="sr-only">修改</span></th>}
+                {canEdit && <th className="p-2"><span className="sr-only">修改／查看</span></th>}
               </tr>
             </thead>
             <tbody>
@@ -149,11 +149,10 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
                   <td className="p-2 whitespace-nowrap">{formatTime(item.createdAt)}</td>
                   {canEdit && (
                     <td className="p-2 whitespace-nowrap">
-                      {item.status === "registered" && (
-                        <Link href={`/staff/registrations/${item.id}`} className="font-semibold underline">
-                          修改
-                        </Link>
-                      )}
+                      {/* 已取消的不能修改，但可以看寄信紀錄（例如取消信有沒有寄出）。 */}
+                      <Link href={`/staff/registrations/${item.id}`} className="font-semibold underline">
+                        {item.status === "registered" ? "修改" : "查看"}
+                      </Link>
                     </td>
                   )}
                 </tr>
