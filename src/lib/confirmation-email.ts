@@ -16,8 +16,8 @@ import {
  * 開始寄信、寫回結果都由資料庫函式負責，只開放給網站伺服器（createServiceClient）。
  */
 
-/** 確認信的類型：報名、修改、取消。與資料庫 email_logs_kind_valid 用同一組代碼。 */
-export type EmailKind = "registered" | "updated" | "cancelled";
+/** 確認信的類型：報名、修改、取消，以及後台重寄（#18）。與資料庫 email_logs_kind_valid 用同一組代碼。 */
+export type EmailKind = "registered" | "updated" | "cancelled" | "resent";
 
 /** idempotencyKey：Resend 24 小時內看到同一個編號、同樣內容就不再寄（重送同一次送出時用）。 */
 export type EmailMessage = { to: string; subject: string; html: string; text: string; idempotencyKey?: string };

@@ -11,10 +11,7 @@ import { createServiceClient } from "./supabase/service";
  * 不用請求的 Host 標頭組網址：任何人都能偽造它，再把別人的 Email 填進報名表，讓我們寄出假網站的連結。
  */
 export function queueConfirmationEmail(registrationId: string, kind: EmailKind, submissionKey?: string) {
-  const host =
-    process.env.VERCEL_ENV === "production"
-      ? process.env.VERCEL_PROJECT_PRODUCTION_URL
-      : process.env.VERCEL_URL;
+  const siteUrl = confirmationSiteUrl();
   after(async () => {
     try {
       await sendConfirmationEmail(
@@ -22,7 +19,7 @@ export function queueConfirmationEmail(registrationId: string, kind: EmailKind, 
         registrationId,
         kind,
         createResendSender(),
-        host ? `https://${host}` : undefined,
+        siteUrl,
         submissionKey,
       );
     } catch (error) {
@@ -30,4 +27,13 @@ export function queueConfirmationEmail(registrationId: string, kind: EmailKind, 
       console.error("confirmation email not sent", error);
     }
   });
+}
+
+/** 確認信裡「查詢我的報名」連結用的網址（見 queueConfirmationEmail）；本機沒有就是 undefined。 */
+export function confirmationSiteUrl(): string | undefined {
+  const host =
+    process.env.VERCEL_ENV === "production"
+      ? process.env.VERCEL_PROJECT_PRODUCTION_URL
+      : process.env.VERCEL_URL;
+  return host ? `https://${host}` : undefined;
 }

@@ -52,6 +52,8 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
   const selected = years.find((year) => String(year.year) === yearParam) ?? years.find((year) => year.isCurrent);
   const { items, total } = await listRegistrations(supabase, query, selected?.year, filter);
   const canEdit = me.role === "admin" && Boolean(selected?.isCurrent);
+  // 總管理員每一年度的報名都能打開詳細頁看寄信紀錄（#18）；只有目前年度的有效報名能修改。
+  const canView = me.role === "admin";
 
   return (
     <main className="flex flex-col gap-6">
@@ -126,7 +128,7 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
                 <th className="p-2">身分類別</th>
                 <th className="p-2">狀態</th>
                 <th className="p-2">報名時間</th>
-                {canEdit && <th className="p-2"><span className="sr-only">修改</span></th>}
+                {canView && <th className="p-2"><span className="sr-only">修改／查看</span></th>}
               </tr>
             </thead>
             <tbody>
@@ -147,13 +149,12 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
                   <td className="p-2 whitespace-nowrap">{REGISTRANT_ROLE_LABELS[item.role]}</td>
                   <td className="p-2 whitespace-nowrap">{REGISTRATION_STATUS_LABELS[item.status]}</td>
                   <td className="p-2 whitespace-nowrap">{formatTime(item.createdAt)}</td>
-                  {canEdit && (
+                  {canView && (
                     <td className="p-2 whitespace-nowrap">
-                      {item.status === "registered" && (
-                        <Link href={`/staff/registrations/${item.id}`} className="font-semibold underline">
-                          修改
-                        </Link>
-                      )}
+                      {/* 已取消、舊年度的不能修改，但可以看寄信紀錄（例如取消信有沒有寄出）。 */}
+                      <Link href={`/staff/registrations/${item.id}`} className="font-semibold underline">
+                        {canEdit && item.status === "registered" ? "修改" : "查看"}
+                      </Link>
                     </td>
                   )}
                 </tr>

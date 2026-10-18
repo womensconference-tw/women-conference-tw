@@ -1,7 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { queueConfirmationEmail } from "@/lib/queue-confirmation-email";
+import { createResendSender } from "@/lib/confirmation-email";
+import { resendConfirmationEmail, type ResendResult } from "@/lib/email-logs";
+import { confirmationSiteUrl, queueConfirmationEmail } from "@/lib/queue-confirmation-email";
 import {
   changesOf,
   staffCancelRegistration,
@@ -14,6 +16,7 @@ import {
 import { getRegistrationForEdit } from "@/lib/registration-list";
 import { describeFullOptions, getStatistics } from "@/lib/statistics";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 /*
  * 後台新增、修改、取消報名（#17）。用登入的工作人員身分呼叫報名服務；
@@ -70,6 +73,30 @@ export async function cancelRegistrationByStaff(formData: FormData) {
   // 已經取消的再按一次也成功；取消信只寄一次（見 begin_confirmation_email）。
   queueConfirmationEmail(registrationId, "cancelled");
   redirect("/staff/registrations?done=cancelled");
+}
+
+/**
+ * 重寄確認信（#18），做完回到同一頁顯示結果。是不是總管理員、讀不讀得到這筆報名由 resendConfirmationEmail 用她的登入身分確認。
+ * 等寄完才回應，按鈕在這段時間顯示寄送中。
+ */
+export async function resendConfirmation(formData: FormData) {
+  const registrationId = String(formData.get("registrationId") ?? "");
+  let result: ResendResult | { ok: false; error: "unknown" };
+  try {
+    result = await resendConfirmationEmail(
+      await createClient(),
+      createServiceClient(),
+      registrationId,
+      createResendSender(),
+      confirmationSiteUrl(),
+    );
+  } catch (error) {
+    // 寄信本身不丟出例外；這裡是讀報名時資料庫出錯，或沒設定 SUPABASE_SECRET_KEY。只記錯誤代碼，不記可能含個資的內容。
+    console.error("resend confirmation email failed", { registrationId, name: (error as Error)?.name });
+    result = { ok: false, error: "unknown" };
+  }
+  const page = `/staff/registrations/${encodeURIComponent(registrationId)}`;
+  redirect(result.ok ? `${page}?done=resent` : `${page}?error=resend_${result.error}`);
 }
 
 // 額滿選項的說明只是讓提示比較清楚；讀不到時照樣跳出提示，不讓總管理員卡在「系統出了問題」。
