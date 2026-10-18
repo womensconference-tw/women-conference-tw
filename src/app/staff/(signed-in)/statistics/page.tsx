@@ -100,7 +100,7 @@ export default async function StatisticsPage({ searchParams }: PageProps<"/staff
                   valueHeading="已報／容量"
                   rows={session.courses.map((course) => ({
                     key: course.id,
-                    label: course.title,
+                    label: withStopped(course.title, course.stopped),
                     value: formatUsage(course, venue.partial),
                   }))}
                 />
@@ -112,7 +112,7 @@ export default async function StatisticsPage({ searchParams }: PageProps<"/staff
                   rows={[
                     ...venue.lunches.map((lunch) => ({
                       key: lunch.id,
-                      label: lunch.name,
+                      label: withStopped(lunch.name, lunch.stopped),
                       value: formatUsage(lunch, venue.partial),
                     })),
                     { key: "none", label: "不需要", value: venue.noLunch },
@@ -126,7 +126,7 @@ export default async function StatisticsPage({ searchParams }: PageProps<"/staff
                   rows={[
                     ...venue.activities.map((activity) => ({
                       key: activity.id,
-                      label: activity.name,
+                      label: withStopped(activity.name, activity.stopped),
                       value: formatUsage(activity, venue.partial),
                     })),
                     { key: "none", label: "不參加", value: venue.noActivity },
@@ -158,6 +158,11 @@ export default async function StatisticsPage({ searchParams }: PageProps<"/staff
       )}
     </main>
   );
+}
+
+/** 總管理員停止報名的選項在名稱後面標出來（GLOSSARY「停止報名」）。 */
+function withStopped(name: string, stopped: boolean): string {
+  return stopped ? `${name}（已停止報名）` : name;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

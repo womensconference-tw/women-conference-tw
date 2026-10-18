@@ -4,10 +4,10 @@ import { notFound, redirect } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import {
   getProgramme,
-  type ItemKind,
   type ProgrammeCourse,
   type ProgrammeOption,
   type ProgrammeSession,
+  type StoppableKind,
 } from "@/lib/programme";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -16,7 +16,7 @@ import { getCurrentStaff } from "../../../current-staff";
 import { ResultMessage } from "../../../result-message";
 import { buttonClass, inputClass } from "../../../ui";
 import { addProgrammeCoursePair, removeProgrammeCoursePair } from "../actions";
-import { capacityLabel, DeleteItem, DONE, ERRORS, ItemForm, NumberFields, RegionField } from "../forms";
+import { capacityLabel, DeleteItem, DONE, ERRORS, ItemForm, NumberFields, RegionField, StopToggle } from "../forms";
 import { TextPair } from "../../../text-pair";
 import { SubmitButton } from "../../../submit-button";
 
@@ -63,7 +63,7 @@ export default async function VenueProgrammePage({ params, searchParams }: PageP
       <ResultMessage searchParams={searchParams} done={DONE} errors={ERRORS} />
       {locked && (
         <p className="rounded-lg border-2 border-card-outline p-3">
-          報名已經開放：不能再新增、刪除或換時段，只能修正文字、調整名額、排序與教室。
+          報名已經開放：不能再新增、刪除或換時段，只能修正文字、調整名額、排序與教室，以及停止報名。
         </p>
       )}
 
@@ -247,6 +247,8 @@ function CourseCard({
         名額 {capacityLabel(course.capacity)}・教室 {course.classroom ?? "未定"}
         {partnerLabel && `・與「${partnerLabel}」成對`}
       </span>
+      <StoppedStatus stopped={course.stopped} />
+      <StopToggle kind="course" id={course.id} venueId={venueId} stopped={course.stopped} partnered={!!partnerLabel} />
       <details>
         <summary className="cursor-pointer font-semibold">編輯課程</summary>
         <div className="mt-3 flex flex-col gap-3">
@@ -280,6 +282,16 @@ function CourseCard({
         </div>
       </details>
     </li>
+  );
+}
+
+/** 停止報名時標出來：前台顯示為「已額滿」，不論名額。 */
+function StoppedStatus({ stopped }: { stopped: boolean }) {
+  if (!stopped) return null;
+  return (
+    <span className="self-start rounded border-2 border-destructive px-2 font-semibold text-destructive">
+      已停止報名（前台顯示為「已額滿」）
+    </span>
   );
 }
 
@@ -318,7 +330,7 @@ function OptionSection({
   conferenceId,
   venueId,
 }: {
-  kind: ItemKind;
+  kind: Exclude<StoppableKind, "course">;
   title: string;
   noun: string;
   options: ProgrammeOption[];
@@ -338,6 +350,8 @@ function OptionSection({
           <li key={option.id} className="flex flex-col gap-2 rounded-lg border p-3">
             <span className="font-semibold">{option.nameZh}</span>
             <span className="text-sm text-muted-foreground">名額 {capacityLabel(option.capacity)}</span>
+            <StoppedStatus stopped={option.stopped} />
+            <StopToggle kind={kind} id={option.id} venueId={venueId} stopped={option.stopped} />
             <details>
               <summary className="cursor-pointer font-semibold">編輯{noun}</summary>
               <div className="mt-3 flex flex-col gap-3">

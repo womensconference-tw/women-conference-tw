@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button";
-import type { ItemKind, ProgrammeError } from "@/lib/programme";
+import type { ItemKind, ProgrammeError, StoppableKind } from "@/lib/programme";
 import { REGION_LABELS, REGIONS, type Region } from "@/lib/staff";
 import { cn } from "@/lib/utils";
 import { buttonClass, inputClass } from "../../ui";
-import { deleteProgrammeItem, saveProgrammeItem } from "./actions";
+import { deleteProgrammeItem, saveProgrammeItem, setProgrammeStopped } from "./actions";
 import { SubmitButton } from "../../submit-button";
 
 /* 課程安排兩個頁面共用的表單與訊息。 */
@@ -14,6 +14,8 @@ export const DONE: Record<string, string> = {
   deleted: "已刪除。",
   paired: "已設成成對課程。",
   unpaired: "已拆開成對課程。",
+  stopped: "已停止報名。前台顯示為「已額滿」；已經選了的人保留位子。",
+  reopened: "已重新開放報名。名額已滿的話，仍然不能選。",
 };
 
 export const ERRORS: Record<ProgrammeError, string> = {
@@ -25,9 +27,11 @@ export const ERRORS: Record<ProgrammeError, string> = {
   classroom_invalid: "教室最多 50 個字。",
   in_use:
     "已經有人報名選了這一項（包括已取消的報名），不能刪除，報名紀錄才不會少了它。請先處理這些報名。",
-  programme_locked: "報名已經開放，不能再新增、刪除或換時段；只能修正文字、調整名額、排序與教室。",
+  programme_locked: "報名已經開放，不能再新增、刪除或換時段；只能修正文字、調整名額、排序與教室，以及停止報名。",
   course_pair_invalid:
     "成對課程要是同一場地、連續兩個場次的兩堂課，而且每門課只能屬於一組；已設成對時，兩堂中間不能再加場次。",
+  course_pair_stopped_apart:
+    "成對課程的兩堂要一起停止或一起開放報名。要把兩堂設成一組，請先讓兩堂的停止狀態一樣；剛剛同時有人修改的話，請重新整理後再試一次。",
   not_found: "找不到這一項，可能已經被刪除。",
   unavailable: "系統暫時出了問題，請稍後再試。",
 };
@@ -148,4 +152,37 @@ export function DeleteItem({
 /** 名額的顯示文字。 */
 export function capacityLabel(capacity: number | null) {
   return capacity === null ? "不限" : `${capacity} 人`;
+}
+
+/**
+ * 停止或重新開放報名的按鈕（GLOSSARY「停止報名」），報名開放前後都可以按。
+ * 成對課程（partnered）兩堂一起停止、一起重新開放。
+ */
+export function StopToggle({
+  kind,
+  id,
+  venueId,
+  stopped,
+  partnered = false,
+}: {
+  kind: StoppableKind;
+  id: string;
+  venueId: string;
+  stopped: boolean;
+  partnered?: boolean;
+}) {
+  return (
+    <form action={setProgrammeStopped} className="flex flex-col gap-1">
+      <input type="hidden" name="kind" value={kind} />
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="venueId" value={venueId} />
+      <input type="hidden" name="stopped" value={String(!stopped)} />
+      <SubmitButton
+        className={cn(buttonVariants({ variant: stopped ? "default" : "outline" }), buttonClass, "self-start")}
+      >
+        {stopped ? "重新開放報名" : "停止報名"}
+      </SubmitButton>
+      {partnered && <span className="text-sm text-muted-foreground">成對課程的兩堂會一起{stopped ? "重新開放" : "停止"}。</span>}
+    </form>
+  );
 }

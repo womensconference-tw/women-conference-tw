@@ -7,6 +7,8 @@ import {
   ITEM_KINDS,
   removeCoursePair,
   saveItem,
+  setRegistrationStopped,
+  STOPPABLE_KINDS,
   type ItemKind,
   type ProgrammeResult,
 } from "@/lib/programme";
@@ -65,6 +67,17 @@ export async function removeProgrammeCoursePair(formData: FormData) {
   const field = (name: string) => String(formData.get(name) ?? "");
   const result = await removeCoursePair(await createClient(), field("firstCourseId"));
   done(result, "unpaired", field("venueId"));
+}
+
+/** 停止或重新開放一個課程、午餐、午后動態的報名；成對課程兩堂一起。 */
+export async function setProgrammeStopped(formData: FormData) {
+  const field = (name: string) => String(formData.get(name) ?? "");
+  const kind = STOPPABLE_KINDS.find((candidate) => candidate === field("kind"));
+  // 表單送來不認得的種類，只可能是有人改了網頁，直接當成錯誤。
+  if (!kind) throw new Error(`不能停止報名的項目：${field("kind")}`);
+  const stopped = field("stopped") === "true";
+  const result = await setRegistrationStopped(await createClient(), kind, field("id"), stopped);
+  done(result, stopped ? "stopped" : "reopened", field("venueId"));
 }
 
 // 表單送來不認得的種類，只可能是有人改了網頁，直接當成錯誤。

@@ -490,7 +490,7 @@ export function RegistrationEditor({
         className="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg border-2 border-destructive bg-background p-6 text-foreground backdrop:bg-black/50"
       >
         <h2 id="full-dialog-title" className="text-xl font-bold text-destructive">
-          已額滿
+          已額滿或已停止報名
         </h2>
         <ul className="mt-3 list-disc pl-6 text-lg">
           {(confirming?.fullOptions.length ? confirming.fullOptions : ["所選的選項"]).map((line) => (

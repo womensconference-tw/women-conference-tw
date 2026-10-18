@@ -62,6 +62,7 @@ export type ProgrammeError =
   | "in_use"
   | "programme_locked"
   | "course_pair_invalid"
+  | "course_pair_stopped_apart"
   | "not_found"
   | "unavailable";
 
@@ -168,6 +169,25 @@ export async function deleteItem(supabase: SupabaseClient, kind: ItemKind, id: s
   return data.length === 0 ? { ok: false, error: "not_found" } : { ok: true };
 }
 
+/** 可以停止報名的選項：課程、午餐、午后動態。 */
+export const STOPPABLE_KINDS = ["course", "lunch", "activity"] as const satisfies readonly ItemKind[];
+export type StoppableKind = (typeof STOPPABLE_KINDS)[number];
+
+/**
+ * 停止或重新開放一個選項的報名（GLOSSARY「停止報名」），隨時都可以，報名開放後也行。
+ * 成對課程的兩堂由資料庫一起改。重新開放後新報名仍要通過名額檢查。
+ */
+export async function setRegistrationStopped(
+  supabase: SupabaseClient,
+  kind: StoppableKind,
+  id: string,
+  stopped: boolean,
+): Promise<ProgrammeResult> {
+  if (!id || !validIds(id)) return { ok: false, error: "not_found" };
+  const { error } = await supabase.rpc("set_registration_stopped", { p_kind: kind, p_id: id, p_stopped: stopped });
+  return error ? failure(error) : { ok: true };
+}
+
 /** 把同場地、連續兩個場次的兩堂課設成成對課程。 */
 export async function addCoursePair(
   supabase: SupabaseClient,
@@ -222,6 +242,8 @@ function failure(error: PostgrestError): { ok: false; error: ProgrammeError } {
       return { ok: false, error: "programme_locked" };
     case error.message === "not_found":
       return { ok: false, error: "not_found" };
+    case error.message === "course_pair_stopped_apart":
+      return { ok: false, error: "course_pair_stopped_apart" };
     case error.message === "course_pair_invalid":
     // 同一堂課已經是另一組的第一堂或第二堂。
     case error.code === "23505" && /course_pairs/.test(error.message):
@@ -250,6 +272,8 @@ export type ProgrammeOption = ProgrammeItem & {
   descriptionEn: string;
   /** null 表示不限。 */
   capacity: number | null;
+  /** 停止報名（見 setRegistrationStopped）。 */
+  stopped: boolean;
 };
 
 export type ProgrammeCourse = ProgrammeOption & { classroom: string | null };
@@ -286,7 +310,7 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
   if (conference.error) throw conference.error;
   if (!conference.data) return null;
 
-  const option = "id, position, description_zh, description_en, capacity";
+  const option = "id, position, description_zh, description_en, capacity, registration_stopped";
   let venueQuery = supabase
       .from("venues")
       .select(
@@ -324,6 +348,7 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
     description_zh: string;
     description_en: string;
     capacity: number | null;
+    registration_stopped: boolean;
   };
   const toOption = (row: OptionRow, nameZh: string, nameEn: string): ProgrammeOption => ({
     id: row.id,
@@ -333,6 +358,7 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
     descriptionZh: row.description_zh,
     descriptionEn: row.description_en,
     capacity: row.capacity,
+    stopped: row.registration_stopped,
   });
 
   const opensAt = conference.data.registration_opens_at;

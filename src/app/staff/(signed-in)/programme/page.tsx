@@ -30,7 +30,7 @@ export default async function ProgrammePage({ searchParams }: PageProps<"/staff/
         <>
           {programme.registrationOpened && (
             <p className="rounded-lg border-2 border-card-outline p-3">
-              報名已經開放：場地、場次、課程、成對課程、午餐、午后動態不能再新增、刪除或換時段，只能修正文字、調整名額、排序與教室。
+              報名已經開放：場地、場次、課程、成對課程、午餐、午后動態不能再新增、刪除或換時段，只能修正文字、調整名額、排序與教室，以及停止報名。
             </p>
           )}
 
