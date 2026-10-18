@@ -23,6 +23,7 @@ const KAOHSIUNG = id(3);
 const MORNING = id(11);
 const AFTERNOON = id(12);
 const TAICHUNG_MORNING = id(13);
+const ACTIVITY = id(14);
 const QUILTING = id(21);
 const FLOWERS = id(22);
 const SINGING = id(23);
@@ -31,7 +32,6 @@ const BENTO = id(31);
 const VEGETARIAN = id(32);
 const NOODLES = id(33);
 const HIKING = id(41);
-const CHOIR = id(42);
 const WREATH = id(43);
 const STAKE = id(51);
 const WARD = id(52);
@@ -45,7 +45,7 @@ const course = (courseId: string, name: string) => ({
 });
 const limited = (optionId: string, name: string) => ({ id: optionId, name, description: "", isFull: false });
 
-// 三個場地：金華教堂有上午、下午兩個場次，台中教堂只有一個場次，高雄教堂沒有課程、午餐、午后動態。
+// 三個場地：金華教堂有上午、下午、午后動態三個場次，台中教堂只有一個場次，高雄教堂沒有課程、午餐。
 // 讀取當下都還有名額。
 const options: RegistrationOptions = {
   venues: [
@@ -55,18 +55,17 @@ const options: RegistrationOptions = {
       sessions: [
         { id: MORNING, name: "上午", courses: [course(QUILTING, "拼布"), course(FLOWERS, "插花")] },
         { id: AFTERNOON, name: "下午", courses: [course(SINGING, "唱歌")] },
+        { id: ACTIVITY, name: "午后動態", courses: [course(HIKING, "健行"), course(WREATH, "手作花圈")] },
       ],
       lunchOptions: [limited(BENTO, "便當"), limited(VEGETARIAN, "素食便當")],
-      afternoonActivities: [limited(HIKING, "健行"), limited(WREATH, "手作花圈")],
     },
     {
       id: TAICHUNG,
       name: "台中教堂",
       sessions: [{ id: TAICHUNG_MORNING, name: "台中上午", courses: [course(CALLIGRAPHY, "書法")] }],
       lunchOptions: [limited(NOODLES, "麵食")],
-      afternoonActivities: [limited(CHOIR, "合唱練習")],
     },
-    { id: KAOHSIUNG, name: "高雄教堂", sessions: [], lunchOptions: [], afternoonActivities: [] },
+    { id: KAOHSIUNG, name: "高雄教堂", sessions: [], lunchOptions: [] },
   ],
   stakes: [
     {
@@ -77,7 +76,7 @@ const options: RegistrationOptions = {
   ],
 };
 
-/** 頁面重新讀取後的選項：ids 裡的課程、午餐、午后動態變成已額滿。每次都是新的物件，跟頁面重新讀取一樣。 */
+/** 頁面重新讀取後的選項：ids 裡的課程、午餐變成已額滿。每次都是新的物件，跟頁面重新讀取一樣。 */
 function withFull(...ids: string[]): RegistrationOptions {
   const mark = <T extends { id: string; isFull: boolean }>(option: T): T =>
     ids.includes(option.id) ? { ...option, isFull: true } : option;
@@ -87,12 +86,11 @@ function withFull(...ids: string[]): RegistrationOptions {
       ...venue,
       sessions: venue.sessions.map((session) => ({ ...session, courses: session.courses.map(mark) })),
       lunchOptions: venue.lunchOptions.map(mark),
-      afternoonActivities: venue.afternoonActivities.map(mark),
     })),
   };
 }
 
-// 她原本在金華教堂上午上拼布、下午不選課，午餐吃便當、參加健行。
+// 她原本在金華教堂上午上拼布、下午不選課、午后動態參加健行，午餐吃便當。
 const found: FoundRegistration = {
   id: id(91),
   name: "王小美",
@@ -103,9 +101,8 @@ const found: FoundRegistration = {
   stakeId: STAKE,
   wardId: WARD,
   venueId: JINHUA,
-  courseIds: [QUILTING],
+  courseIds: [QUILTING, HIKING],
   lunchOptionId: BENTO,
-  afternoonActivityId: HIKING,
   choirPart: null,
   services: [],
   printedHandbook: false,
@@ -143,7 +140,7 @@ afterEach(cleanup);
 
 describe("修改報名時換場地", () => {
   // 每一步都會先檢查，沒重選的話「改好了，回到確認頁」「下一步」都會停在要重選的那一步，到不了「確認送出修改」。
-  it("課程、午餐、午后動態被清空，沒重選就回不到確認頁，也不會送出", async () => {
+  it("課程（含午后動態）、午餐被清空，沒重選就回不到確認頁，也不會送出", async () => {
     const user = userEvent.setup();
     render(<RegistrationForm locale="zh" options={options} edit={edit} />);
     const noneChecked = (name: string) =>
@@ -161,24 +158,23 @@ describe("修改報名時換場地", () => {
     expect(screen.getByText("每個場次都要選一門課或「不選課」，請選擇還沒選的場次。")).toBeTruthy();
     expect(noneChecked("上午")).toBe(true);
     expect(noneChecked("下午")).toBe(true);
+    expect(noneChecked("午后動態")).toBe(true);
 
-    // 選了課再回確認頁：午餐與午后動態也要重選。
+    // 選了課再回確認頁：午餐也要重選。
     await user.click(radio("上午", "插花"));
     await user.click(radio("下午", "不選課"));
+    await user.click(radio("午后動態", "不選課"));
     await user.click(button("改好了，回到確認頁"));
 
     expect(step("午餐與服務")).toBeTruthy();
     expect(screen.getByText("請選一份午餐，或選「不需要」。")).toBeTruthy();
-    expect(screen.getByText("請選一個午后動態，或選「不參加」。")).toBeTruthy();
     expect(noneChecked("午餐")).toBe(true);
-    expect(noneChecked("午后動態")).toBe(true);
     // 紙本手冊不屬於場地，照樣是她原本選的。
     expect(radio("紙本手冊", "不需要紙本手冊").checked).toBe(true);
     expect(updateMine).not.toHaveBeenCalled();
 
     // 都重選了才送得出去，送出的只有新選的。
     await user.click(radio("午餐", "不需要"));
-    await user.click(radio("午后動態", "不參加"));
     await user.click(button("改好了，回到確認頁"));
     updateMine.mockResolvedValueOnce({ ok: true, registration: found });
     await user.click(button("確認送出修改"));
@@ -190,7 +186,6 @@ describe("修改報名時換場地", () => {
           venueId: JINHUA,
           courseIds: [FLOWERS],
           lunchOptionId: null,
-          afternoonActivityId: null,
           printedHandbook: false,
         }),
       }),
@@ -198,7 +193,7 @@ describe("修改報名時換場地", () => {
   });
 
   // 新場地沒有要重選的題目時，可以直接回確認頁送出；送出的內容不能還帶著原場地的選擇。
-  it("換到沒有課程、午餐、午后動態的場地，送出的不帶原場地的課程、午餐、午后動態", async () => {
+  it("換到沒有課程、午餐的場地，送出的不帶原場地的課程、午餐", async () => {
     const user = userEvent.setup();
     render(<RegistrationForm locale="zh" options={options} edit={edit} />);
 
@@ -216,7 +211,6 @@ describe("修改報名時換場地", () => {
           venueId: KAOHSIUNG,
           courseIds: [],
           lunchOptionId: null,
-          afternoonActivityId: null,
         }),
       }),
     );
@@ -246,7 +240,7 @@ describe("修改報名時換場地", () => {
 });
 
 describe("頁面重新讀取選項", () => {
-  it("修改時她原本已佔、現在已額滿的課程、午餐、午后動態仍選著、可送出；新選的額滿課程被取消並標出", async () => {
+  it("修改時她原本已佔、現在已額滿的課程（含午后動態）、午餐仍選著、可送出；新選的額滿課程被取消並標出", async () => {
     const user = userEvent.setup();
     const { rerender } = render(<RegistrationForm locale="zh" options={options} edit={edit} />);
 
@@ -269,18 +263,17 @@ describe("頁面重新讀取選項", () => {
     expect(singing.checked).toBe(false);
     expect(singing.disabled).toBe(true);
     expect(within(group("下午")).getByText("已額滿")).toBeTruthy();
+    const hiking = radio("午后動態", /健行/);
+    expect(hiking.checked).toBe(true);
+    expect(hiking.disabled).toBe(false);
+    expect(within(group("午后動態")).queryByText("已額滿")).toBeNull();
 
     await user.click(radio("下午", "不選課"));
     await user.click(button("下一步"));
 
-    for (const [name, option] of [
-      ["午餐", /^便當/],
-      ["午后動態", /健行/],
-    ] as const) {
-      expect(radio(name, option).checked).toBe(true);
-      expect(radio(name, option).disabled).toBe(false);
-      expect(within(group(name)).queryByText("已額滿")).toBeNull();
-    }
+    expect(radio("午餐", /^便當/).checked).toBe(true);
+    expect(radio("午餐", /^便當/).disabled).toBe(false);
+    expect(within(group("午餐")).queryByText("已額滿")).toBeNull();
 
     updateMine.mockResolvedValueOnce({ ok: true, registration: found });
     await user.click(button("下一步"));
@@ -290,49 +283,36 @@ describe("頁面重新讀取選項", () => {
     expect(updateMine).toHaveBeenLastCalledWith(
       expect.objectContaining({
         registrationId: found.id,
-        changes: expect.objectContaining({
-          courseIds: [QUILTING],
-          lunchOptionId: BENTO,
-          afternoonActivityId: HIKING,
-        }),
+        changes: expect.objectContaining({ lunchOptionId: BENTO }),
       }),
     );
+    const { changes } = updateMine.mock.lastCall?.[0] as { changes: RegistrationInput };
+    expect(changes.courseIds.toSorted()).toEqual([QUILTING, HIKING].toSorted());
     expect(screen.getByRole("heading", { name: "修改完成" })).toBeTruthy();
   });
 
-  it("修改時新選的午餐、午后動態剛額滿：被取消並標出，她原本的那一個仍可選", async () => {
+  it("修改時新選的午餐剛額滿：被取消並標出，她原本的那一個仍可選", async () => {
     const user = userEvent.setup();
     const { rerender } = render(<RegistrationForm locale="zh" options={options} edit={edit} />);
 
     await user.click(button("修改午餐與服務"));
     await user.click(radio("午餐", "素食便當"));
-    await user.click(radio("午后動態", "手作花圈"));
     await user.click(button("改好了，回到確認頁"));
     expect(step("確認修改")).toBeTruthy();
-    // 重新讀取時她新選的素食便當、手作花圈額滿了；她原本的便當、健行也額滿，但那是她的位子。
-    rerender(
-      <RegistrationForm locale="zh" options={withFull(BENTO, HIKING, VEGETARIAN, WREATH)} edit={edit} />,
-    );
+    // 重新讀取時她新選的素食便當額滿了；她原本的便當也額滿，但那是她的位子。
+    rerender(<RegistrationForm locale="zh" options={withFull(BENTO, VEGETARIAN)} edit={edit} />);
 
     expect(step("午餐與服務")).toBeTruthy();
     expect(screen.getByText("您選的午餐剛剛被訂完了，請改選其他午餐。其他資料都還在，不用重填。")).toBeTruthy();
-    expect(
-      screen.getByText("您選的午后動態剛剛額滿了，請改選其他活動或「不參加」。其他資料都還在，不用重填。"),
-    ).toBeTruthy();
-    for (const [name, chosen, held] of [
-      ["午餐", /素食便當/, /^便當/],
-      ["午后動態", /手作花圈/, /健行/],
-    ] as const) {
-      expect(radio(name, chosen).checked).toBe(false);
-      expect(radio(name, chosen).disabled).toBe(true);
-      expect(within(group(name)).getAllByText("已額滿")).toHaveLength(1);
-      expect(radio(name, held).checked).toBe(false);
-      expect(radio(name, held).disabled).toBe(false);
-    }
+    expect(radio("午餐", /素食便當/).checked).toBe(false);
+    expect(radio("午餐", /素食便當/).disabled).toBe(true);
+    expect(within(group("午餐")).getAllByText("已額滿")).toHaveLength(1);
+    expect(radio("午餐", /^便當/).checked).toBe(false);
+    expect(radio("午餐", /^便當/).disabled).toBe(false);
     expect(updateMine).not.toHaveBeenCalled();
   });
 
-  it("報名時剛額滿的課程、午餐、午后動態被取消並標出，跳回選課那一步；改選後送出新選的", async () => {
+  it("報名時剛額滿的課程（含午后動態）、午餐被取消並標出，跳回選課那一步；改選後送出新選的", async () => {
     const user = userEvent.setup();
     const { rerender } = render(<RegistrationForm locale="zh" options={options} />);
 
@@ -345,9 +325,9 @@ describe("頁面重新讀取選項", () => {
     await user.click(button("下一步"));
     await user.click(radio("上午", "拼布"));
     await user.click(radio("下午", "唱歌"));
+    await user.click(radio("午后動態", "健行"));
     await user.click(button("下一步"));
     await user.click(radio("午餐", "便當"));
-    await user.click(radio("午后動態", "健行"));
     await user.click(radio("紙本手冊", "需要紙本手冊"));
     await user.click(button("下一步"));
     expect(step("肖像權同意與確認")).toBeTruthy();
@@ -360,28 +340,24 @@ describe("頁面重新讀取選項", () => {
     expect(quilting.checked).toBe(false);
     expect(quilting.disabled).toBe(true);
     expect(within(group("上午")).getByText("已額滿")).toBeTruthy();
+    const hiking = radio("午后動態", /健行/);
+    expect(hiking.checked).toBe(false);
+    expect(hiking.disabled).toBe(true);
+    expect(within(group("午后動態")).getByText("已額滿")).toBeTruthy();
     // 還有名額的唱歌照樣選著。
     expect(radio("下午", "唱歌").checked).toBe(true);
 
     await user.click(radio("上午", "插花"));
+    await user.click(radio("午后動態", "不選課"));
     await user.click(button("下一步"));
 
-    for (const [name, option] of [
-      ["午餐", /^便當/],
-      ["午后動態", /健行/],
-    ] as const) {
-      expect(radio(name, option).checked).toBe(false);
-      expect(radio(name, option).disabled).toBe(true);
-      expect(within(group(name)).getByText("已額滿")).toBeTruthy();
-    }
+    expect(radio("午餐", /^便當/).checked).toBe(false);
+    expect(radio("午餐", /^便當/).disabled).toBe(true);
+    expect(within(group("午餐")).getByText("已額滿")).toBeTruthy();
     expect(screen.getByText("您選的午餐剛剛被訂完了，請改選其他午餐。其他資料都還在，不用重填。")).toBeTruthy();
-    expect(
-      screen.getByText("您選的午后動態剛剛額滿了，請改選其他活動或「不參加」。其他資料都還在，不用重填。"),
-    ).toBeTruthy();
     expect(register).not.toHaveBeenCalled();
 
     await user.click(radio("午餐", "素食便當"));
-    await user.click(radio("午后動態", "不參加"));
     await user.click(button("下一步"));
     await user.click(screen.getByRole("checkbox", { name: "我已閱讀並同意" }));
     register.mockResolvedValueOnce({ ok: true, registration: found });
@@ -392,7 +368,6 @@ describe("頁面重新讀取選項", () => {
       expect.objectContaining({
         venueId: JINHUA,
         lunchOptionId: VEGETARIAN,
-        afternoonActivityId: null,
       }),
       expect.any(String),
     );

@@ -93,7 +93,7 @@ async function switchedTo(conferenceId: string) {
 }
 
 /**
- * 2099 年的完整安排：一個場地、兩個場次、三門課（其中兩門成對、一門有教室）、限量午餐、不限量午后動態、
+ * 2099 年的完整安排：一個場地、兩個場次、三門課（其中兩門成對、一門有教室）、限量午餐、午后動態（第三個場次，裡面一門不限量的課）、
  * 首頁內容、常見問題、自訂區塊，以及一筆報名。建好後把時程移到過去（已截止），像去年一樣。
  */
 async function lastYear() {
@@ -118,10 +118,11 @@ async function lastYear() {
   const genealogy = await insert("courses", { session_id: first, title_zh: "家譜入門", capacity: 20 });
   await insert("courses", { session_id: first, position: 1, title_zh: "自由選課" });
   const genealogyTwo = await insert("courses", { session_id: second, title_zh: "家譜進階", capacity: 20 });
+  const afternoon = await insert("sessions", { venue_id: venue, position: 3, name_zh: "午后動態" });
+  await insert("courses", { session_id: afternoon, title_zh: "手作花圈" });
   must(await admin.from("course_classrooms").insert({ course_id: genealogy, classroom: "201 教室" }));
   must(await admin.from("course_pairs").insert({ conference_id: sourceId, first_course_id: genealogy, second_course_id: genealogyTwo }));
   const lunch = await insert("lunch_options", { venue_id: venue, name_zh: "素食便當", capacity: 30 });
-  await insert("afternoon_activities", { venue_id: venue, title_zh: "手作花圈" });
   await insert("faqs", { question_zh: "要收費嗎？", answer_zh: "不用。" });
   await insert("custom_blocks", { title_zh: "交通資訊", button_label_zh: "查看", button_url: "/lookup" });
 
@@ -169,14 +170,13 @@ function arrangement(programme: Programme) {
         courses: session.courses.map((course) => [course.nameZh, course.capacity, course.classroom]),
       })),
       lunchOptions: venue.lunchOptions.map((lunch) => [lunch.nameZh, lunch.capacity]),
-      afternoonActivities: venue.afternoonActivities.map((activity) => [activity.nameZh, activity.capacity]),
     })),
     coursePairs: programme.coursePairs.map((pair) => [titles.get(pair.firstCourseId), titles.get(pair.secondCourseId)]),
   };
 }
 
 describe("複製去年建立新年度", () => {
-  it("場地、場次、課程、名額、教室、成對課程、午餐、午后動態都複製過去", async () => {
+  it("場地、場次（含午后動態）、課程、名額、教室、成對課程、午餐都複製過去", async () => {
     await lastYear();
 
     await switchedTo(await copied());
@@ -198,9 +198,9 @@ describe("複製去年建立新年度", () => {
               ],
             },
             { nameZh: "第二場", courses: [["家譜進階", 20, null]] },
+            { nameZh: "午后動態", courses: [["手作花圈", null, null]] },
           ],
           lunchOptions: [["素食便當", 30]],
-          afternoonActivities: [["手作花圈", null]],
         },
       ],
       coursePairs: [["家譜入門", "家譜進階"]],
@@ -532,7 +532,6 @@ describe("切換目前年度時有人正在報名", () => {
     venueId,
     courseIds: [],
     lunchOptionId: lunchId,
-    afternoonActivityId: null,
     choirPart: null,
     services: [],
     printedHandbook: false,

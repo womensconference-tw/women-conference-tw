@@ -141,7 +141,7 @@ describe("名額", () => {
 });
 
 describe("總管理員編輯課程安排", () => {
-  it("新增的場地、場次、課程、午餐、午后動態出現在報名表上，中英兩欄都存下", async () => {
+  it("新增的場地、場次、課程、午餐出現在報名表上，中英兩欄都存下", async () => {
     const venue = await saved({
       kind: "venue",
       region: "north",
@@ -161,7 +161,6 @@ describe("總管理員編輯課程安排", () => {
       capacity: "",
     });
     await saved({ kind: "lunch", parentId: venue, nameZh: "素食便當", nameEn: "Vegetarian", capacity: "30" });
-    await saved({ kind: "activity", parentId: venue, nameZh: "手作花圈", nameEn: "Wreath making" });
 
     const options = await getRegistrationOptions(anonClient(), "en");
 
@@ -185,7 +184,6 @@ describe("總管理員編輯課程安排", () => {
           },
         ],
         lunchOptions: [{ id: expect.any(String), name: "Vegetarian", description: "", isFull: false }],
-        afternoonActivities: [{ id: expect.any(String), name: "Wreath making", description: "", isFull: false }],
       },
     ]);
     const stored = must(await admin.from("venues").select("address_zh, address_en").eq("id", venue).single());
@@ -300,7 +298,6 @@ describe("報名開放後", () => {
     ["刪除課程", ({ course }) => deleteItem(headAdmin, "course", course)],
     ["新增場次", ({ venue }) => save({ kind: "session", parentId: venue, nameZh: "新場次" })],
     ["新增午餐", ({ venue }) => save({ kind: "lunch", parentId: venue, nameZh: "便當" })],
-    ["新增午后動態", ({ venue }) => save({ kind: "activity", parentId: venue, nameZh: "花圈" })],
   ])("不能%s", async (_, change) => {
     const ids = await venueWithCourse();
     await openRegistration();
@@ -322,14 +319,12 @@ describe("報名開放後", () => {
     expect([inserted.error?.message, deleted.error?.message]).toEqual(["programme_locked", "programme_locked"]);
   });
 
-  it("不能刪除午餐與午后動態", async () => {
+  it("不能刪除午餐", async () => {
     const venue = await saved({ kind: "venue", region: "north", nameZh: "台北金華教堂" });
     const lunch = await saved({ kind: "lunch", parentId: venue, nameZh: "便當" });
-    const activity = await saved({ kind: "activity", parentId: venue, nameZh: "花圈" });
     await openRegistration();
 
     expect(await deleteItem(headAdmin, "lunch", lunch)).toEqual({ ok: false, error: "programme_locked" });
-    expect(await deleteItem(headAdmin, "activity", activity)).toEqual({ ok: false, error: "programme_locked" });
   });
 
   it("仍可修正文字、調整名額、換教室", async () => {
@@ -578,7 +573,6 @@ describe("只有總管理員能編輯", () => {
       db.from("sessions").insert({ conference_id: conferenceId, venue_id: venue, name_zh: "新場次" }),
       db.from("courses").insert({ conference_id: conferenceId, session_id: session, title_zh: "新課" }),
       db.from("lunch_options").insert({ conference_id: conferenceId, venue_id: venue, name_zh: "新便當" }),
-      db.from("afternoon_activities").insert({ conference_id: conferenceId, venue_id: venue, title_zh: "新活動" }),
       db.from("course_classrooms").insert({ course_id: course, classroom: "301" }),
     ]);
     for (const { error } of inserts) expect(error).not.toBeNull();

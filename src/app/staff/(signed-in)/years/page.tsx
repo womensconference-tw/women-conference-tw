@@ -60,7 +60,7 @@ export default async function YearsPage({ searchParams }: PageProps<"/staff/year
       <section className={cardClass}>
         <h2 className="text-xl font-bold">複製去年建立新年度</h2>
         <p>
-          複製場地、場次、課程（含名額與教室）、成對課程、午后動態、午餐、首頁內容、常見問題與自訂區塊；
+          複製場地、場次、課程（含名額與教室）、成對課程、午餐、首頁內容、常見問題與自訂區塊；
           不複製報名。新年度的公告上線、報名開放、報名截止三個時間空著，設為目前年度時再填。
         </p>
         {newest ? (

@@ -82,9 +82,6 @@ const zh = {
     lunchLabel: "午餐",
     lunchHint: "請選一份午餐；不在大會用餐請選「不需要」。標示「已額滿」的不能選。",
     noLunch: "不需要",
-    afternoonActivityLabel: "午后動態",
-    afternoonActivityHint: "這個場地下午另有活動，名額有限。想參加請選一個；不參加請選「不參加」。",
-    noAfternoonActivity: "不參加",
     servicesLabel: "服務意願（選填）",
     servicesShortLabel: "服務意願",
     servicesHint: "願意幫忙的服務請勾選，可以選好幾項；沒有也沒關係。",
@@ -143,9 +140,6 @@ const zh = {
       lunchRequired: "請選一份午餐，或選「不需要」。",
       lunchUnavailable: "您選的午餐已經不能選了，請重新選擇。",
       lunchFull: "您選的午餐剛剛被訂完了，請改選其他午餐。其他資料都還在，不用重填。",
-      afternoonActivityRequired: "請選一個午后動態，或選「不參加」。",
-      afternoonActivityUnavailable: "您選的午后動態已經不能選了，請重新選擇。",
-      afternoonActivityFull: "您選的午后動態剛剛額滿了，請改選其他活動或「不參加」。其他資料都還在，不用重填。",
       servicesInvalid: "服務意願有無法辨識的選項，請重新勾選。",
       printedHandbookRequired: "請選擇是否需要紙本手冊。",
       portraitConsentRequired: "需要同意肖像權才能報名。如有疑問，請先聯絡大會管理員。",
@@ -348,10 +342,6 @@ const en = {
     lunchHint:
       "Please choose a lunch, or \"No lunch\" if you won't eat at the conference. Lunches marked \"Full\" can't be chosen.",
     noLunch: "No lunch",
-    afternoonActivityLabel: "Afternoon activity",
-    afternoonActivityHint:
-      "This venue has an afternoon activity with limited places. Choose one to join, or \"Not joining\".",
-    noAfternoonActivity: "Not joining",
     servicesLabel: "Willing to serve (optional)",
     servicesShortLabel: "Serving",
     servicesHint: "Tick any ways you are willing to help. You can tick several, or none.",
@@ -417,11 +407,6 @@ const en = {
       lunchUnavailable: "The lunch you chose is no longer available. Please choose again.",
       lunchFull:
         "The lunch you chose has just sold out. Please choose another lunch. Everything else you entered is still here.",
-      afternoonActivityRequired: "Please choose an afternoon activity, or \"Not joining\".",
-      afternoonActivityUnavailable:
-        "The afternoon activity you chose is no longer available. Please choose again.",
-      afternoonActivityFull:
-        "The afternoon activity you chose has just filled up. Please choose another, or \"Not joining\". Everything else you entered is still here.",
       servicesInvalid: "Some of your service choices weren't recognised. Please tick them again.",
       printedHandbookRequired: "Please choose whether you need a printed handbook.",
       portraitConsentRequired:

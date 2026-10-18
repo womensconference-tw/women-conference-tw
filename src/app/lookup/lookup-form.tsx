@@ -14,6 +14,7 @@ import type {
   LookupInput,
   Registration,
 } from "@/lib/registration";
+import { LOOKUP_PAGE_VERSION } from "@/lib/registration";
 import type { RegistrationOptions } from "@/lib/registration-options";
 import { cn } from "@/lib/utils";
 import { RegistrationForm } from "../register/registration-form";
@@ -83,7 +84,7 @@ export function LookupForm({
     startTransition(async () => {
       let result;
       try {
-        result = await lookUp(input);
+        result = await lookUp({ ...input, pageVersion: LOOKUP_PAGE_VERSION });
       } catch {
         if (edits.current !== editsAtSubmit) return;
         setFound([]);

@@ -25,7 +25,7 @@ export const metadata: Metadata = { title: "編輯場地" };
 const cardClass = "flex flex-col gap-3 rounded-lg border-2 border-card-outline p-4";
 
 /**
- * 編輯一個場地（只有總管理員）：場地資料、場次與課程（含教室）、成對課程、午餐、午后動態。
+ * 編輯一個場地（只有總管理員）：場地資料、場次與課程（含教室）、成對課程、午餐。午后動態就是一個場次，用新增場次、課程的方式設定。
  * 報名開放後不顯示新增、刪除與換時段；資料庫也會擋下。
  */
 export default async function VenueProgrammePage({ params, searchParams }: PageProps<"/staff/programme/[venueId]">) {
@@ -82,7 +82,7 @@ export default async function VenueProgrammePage({ params, searchParams }: PageP
             id={venue.id}
             venueId={venueId}
             label="場地"
-            warning="刪除場地會連同它的場次、課程、午餐、午后動態一起刪除，不能復原。已經有人報名這個場地時不能刪除。"
+            warning="刪除場地會連同它的場次、課程、午餐一起刪除，不能復原。已經有人報名這個場地時不能刪除。"
           />
         )}
       </section>
@@ -210,15 +210,6 @@ export default async function VenueProgrammePage({ params, searchParams }: PageP
         locked={locked}
         {...shared}
       />
-      <OptionSection
-        kind="activity"
-        title="午后動態"
-        noun="午后動態"
-        options={venue.afternoonActivities}
-        locked={locked}
-        hint="只有設定了午后動態的場地，報名表才會出現這一題。"
-        {...shared}
-      />
     </main>
   );
 }
@@ -319,7 +310,7 @@ function CourseFields({ course, position }: { course?: ProgrammeCourse; position
   );
 }
 
-/** 午餐或午后動態：列表、編輯、刪除、新增。 */
+/** 午餐：列表、編輯、刪除、新增。 */
 function OptionSection({
   kind,
   title,

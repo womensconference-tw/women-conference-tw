@@ -39,8 +39,6 @@ export type RegistrationInput = {
   courseIds: string[];
   /** 所選場地的午餐；null 表示「不需要」。 */
   lunchOptionId: string | null;
-  /** 所選場地的午后動態；null 表示不參加。 */
-  afternoonActivityId: string | null;
   /** 即席唱詩班的聲部（CHOIR_PARTS）；null 表示不參加唱詩班。 */
   choirPart: string | null;
   /** 其他服務意願（SERVICES）。 */
@@ -74,7 +72,6 @@ export type RegistrationField =
   | "venue"
   | "courses"
   | "lunch"
-  | "afternoonActivity"
   | "services"
   | "printedHandbook"
   | "portraitConsent"
@@ -100,9 +97,6 @@ export type RegistrationError =
   | "lunchRequired"
   | "lunchUnavailable"
   | "lunchFull"
-  | "afternoonActivityRequired"
-  | "afternoonActivityUnavailable"
-  | "afternoonActivityFull"
   | "servicesInvalid"
   | "printedHandbookRequired"
   | "portraitConsentRequired"
@@ -132,7 +126,6 @@ export type Registration = {
   venueId: string;
   courseIds: string[];
   lunchOptionId: string | null;
-  afternoonActivityId: string | null;
   choirPart: ChoirPart | null;
   services: Service[];
   printedHandbook: boolean;
@@ -140,7 +133,7 @@ export type Registration = {
 
 export type SubmitResult =
   | { ok: true; registration: Registration }
-  /** 送出時有課程、午餐或午后動態額滿，fullIds 列出是哪幾項。 */
+  /** 送出時有課程或午餐額滿，fullIds 列出是哪幾項。 */
   | { ok: false; errors: RegistrationErrors; fullIds?: string[] };
 
 /** 成對課程的另一堂：在哪個場次、是哪門課。 */
@@ -186,6 +179,30 @@ export function normalizePhone(raw: string): string {
 }
 
 /**
+ * 部署 #65 之前打開的報名表（午后動態還是另外一題）送來的內容都帶著 afternoonActivityId。
+ * 它送來的課程不含轉換後的午后動態課程，照收會把她的午后動態選擇刪掉、名額釋出，所以一律擋下，
+ * 回傳舊頁面也認得的錯誤（unknown）；她重新整理就是新的頁面。
+ */
+export function fromOutdatedPage(input: unknown): boolean {
+  return typeof input === "object" && input !== null && "afternoonActivityId" in input;
+}
+
+/** 舊版頁面送來時回傳的結果（見 fromOutdatedPage）。 */
+export const OUTDATED_PAGE_RESULT = { ok: false, errors: { form: "unknown" } } as const satisfies SubmitResult;
+
+/** 查詢頁送出時帶的版本。查詢頁和伺服器的資料格式不相容時加一。 */
+export const LOOKUP_PAGE_VERSION = 2;
+
+/**
+ * 部署 #65 之前打開的查詢頁沒帶版本：它的場次選項沒有午后動態場次，又只認得舊的午后動態欄位，
+ * 查到的結果會把她選的午后動態顯示成「不參加」。這種頁面一律擋下，回傳舊頁面也認得的錯誤（unknown），
+ * 她重新整理就是新的頁面。
+ */
+export function fromOutdatedLookupPage(input: unknown): boolean {
+  return (input as { pageVersion?: unknown } | null | undefined)?.pageVersion !== LOOKUP_PAGE_VERSION;
+}
+
+/**
  * 把送來的報名表內容整理成 RegistrationInput。報名、修改的伺服器動作任何人都能直接打，
  * 送來的不一定是報名表的形狀；型別不對的一律當成空白，交給欄位檢查擋下。
  */
@@ -208,7 +225,6 @@ export function registrationInputFrom(input: unknown): RegistrationInput {
     venueId: text("venueId"),
     courseIds: Array.isArray(raw.courseIds) ? items("courseIds") : [],
     lunchOptionId: choice("lunchOptionId"),
-    afternoonActivityId: choice("afternoonActivityId"),
     choirPart: choice("choirPart"),
     // 服務意願不是清單時，換成一個空字串，交給欄位檢查擋下，不默默當成沒有服務意願。
     services: Array.isArray(raw.services) ? items("services") : [""],
@@ -220,14 +236,14 @@ export function registrationInputFrom(input: unknown): RegistrationInput {
 
 /**
  * 送出或修改之後，頁面上的選項是否要重新讀取。已填的資料留在瀏覽器裡，不受影響。
- * 失敗時：她選的場地、支聯會、支會、午餐、午后動態已不能選，或課程、午餐、午后動態剛額滿、有變動，
+ * 失敗時：她選的場地、支聯會、支會、午餐已不能選，或課程、午餐剛額滿、有變動，
  * 回到那一步時才會顯示最新的名單。
  * 成功時：課程可能剛被移到別的場次，完成頁才會用最新的場次顯示她的課；名額也變了。
  */
 export function optionsMayHaveChanged(result: SubmitResult): boolean {
   return (
     result.ok ||
-    (["venue", "stake", "ward", "courses", "lunch", "afternoonActivity"] as const).some(
+    (["venue", "stake", "ward", "courses", "lunch"] as const).some(
       (field) => result.errors[field],
     )
   );
@@ -274,9 +290,6 @@ function validateChanges(input: RegistrationChanges): RegistrationErrors {
 
   if (input.lunchOptionId !== null && !UUID_PATTERN.test(input.lunchOptionId)) {
     errors.lunch = "lunchUnavailable";
-  }
-  if (input.afternoonActivityId !== null && !UUID_PATTERN.test(input.afternoonActivityId)) {
-    errors.afternoonActivity = "afternoonActivityUnavailable";
   }
 
   if (
@@ -359,32 +372,28 @@ export function chooseCourse(
 }
 
 /**
- * 報名表上午餐、午后動態、紙本手冊的選擇；沒有這個鍵表示還沒選。
- * 午餐、午后動態的 null 是明確選了「不需要」「不參加」。送出的值由 extraInputOf 算出。
+ * 報名表上午餐、紙本手冊的選擇；沒有這個鍵表示還沒選。
+ * 午餐的 null 是明確選了「不需要」。送出的值由 extraInputOf 算出。
  */
 export type ExtraChoices = {
   lunch?: string | null;
-  afternoonActivity?: string | null;
   printedHandbook?: boolean;
 };
 
-/** 檢查午餐等選擇需要的場地資料：這個場地有哪些午餐與午后動態。 */
-export type VenueExtras = { lunchOptions: { id: string }[]; afternoonActivities: { id: string }[] };
+/** 檢查午餐等選擇需要的場地資料：這個場地有哪些午餐。 */
+export type VenueExtras = { lunchOptions: { id: string }[] };
 
-/** 送出用的午餐、午后動態、紙本手冊。還沒選的午餐、午后動態當成不需要；手冊沒選是 null，送出時會被擋下。 */
-export function extraInputOf(
-  choices: ExtraChoices,
-): Pick<RegistrationInput, "lunchOptionId" | "afternoonActivityId" | "printedHandbook"> {
+/** 送出用的午餐、紙本手冊。還沒選的午餐當成不需要；手冊沒選是 null，送出時會被擋下。 */
+export function extraInputOf(choices: ExtraChoices): Pick<RegistrationInput, "lunchOptionId" | "printedHandbook"> {
   return {
     lunchOptionId: choices.lunch ?? null,
-    afternoonActivityId: choices.afternoonActivity ?? null,
     printedHandbook: choices.printedHandbook ?? null,
   };
 }
 
 /**
- * 午餐與服務步驟的檢查：場地有午餐時要選一份或「不需要」，有午后動態時要選一個或「不參加」，
- * 紙本手冊要選要或不要，免得她漏看。選的午餐、午后動態已不在這個場地（換了場地或被刪除）時，也要重選。
+ * 午餐與服務步驟的檢查：場地有午餐時要選一份或「不需要」，紙本手冊要選要或不要，免得她漏看。
+ * 選的午餐已不在這個場地（換了場地或被刪除）時，也要重選。
  */
 export function validateExtraChoices(choices: ExtraChoices, venue: VenueExtras): RegistrationErrors {
   const errors: RegistrationErrors = {};
@@ -393,9 +402,6 @@ export function validateExtraChoices(choices: ExtraChoices, venue: VenueExtras):
     choice === null ||
     (choice !== undefined && options.some((option) => option.id === choice));
   if (!answered(choices.lunch, venue.lunchOptions)) errors.lunch = "lunchRequired";
-  if (!answered(choices.afternoonActivity, venue.afternoonActivities)) {
-    errors.afternoonActivity = "afternoonActivityRequired";
-  }
   if (choices.printedHandbook === undefined) errors.printedHandbook = "printedHandbookRequired";
   return errors;
 }
@@ -405,10 +411,10 @@ export type FormChoices = { courses: CourseChoices; extras: ExtraChoices };
 
 /**
  * 修改報名時，報名表一開始的選擇：每個有開課的場次是她選的課，沒存課程的場次是「不選課」；
- * 午餐、午后動態、紙本手冊照她存下的（null 是「不需要」「不參加」）。
+ * 午餐、紙本手冊照她存下的（null 是「不需要」）。
  */
 export function choicesOf(
-  registration: Pick<Registration, "courseIds" | "lunchOptionId" | "afternoonActivityId" | "printedHandbook">,
+  registration: Pick<Registration, "courseIds" | "lunchOptionId" | "printedHandbook">,
   venue: { sessions: SessionCourses[] } | undefined,
 ): FormChoices {
   const courses: CourseChoices = {};
@@ -421,13 +427,12 @@ export function choicesOf(
     courses,
     extras: {
       lunch: registration.lunchOptionId,
-      afternoonActivity: registration.afternoonActivityId,
       printedHandbook: registration.printedHandbook,
     },
   };
 }
 
-/** 換場地後的選擇：課程、午餐、午后動態屬於場地，全部清空要她重選；紙本手冊不受影響。 */
+/** 換場地後的選擇：課程、午餐屬於場地，全部清空要她重選；紙本手冊不受影響。 */
 export function choicesAfterVenueChange(choices: FormChoices): FormChoices {
   return { courses: {}, extras: { printedHandbook: choices.extras.printedHandbook } };
 }
@@ -448,7 +453,6 @@ export function nextRegistrationInput(previous: RegistrationInput): Registration
     venueId: previous.venueId,
     courseIds: [],
     lunchOptionId: null,
-    afternoonActivityId: null,
     choirPart: null,
     services: [],
     printedHandbook: null,
@@ -468,9 +472,8 @@ const databaseErrors: Record<string, RegistrationErrors> = {
   courses_invalid: { courses: "courseRequired" },
   // 成對課程只選了其中一堂。
   course_pair_incomplete: { courses: "coursePairRequired" },
-  // 午餐、午后動態不在所選場地（例如她填表時剛被刪除）：請她重新選。
+  // 午餐不在所選場地（例如她填表時剛被刪除）：請她重新選。
   lunch_invalid: { lunch: "lunchUnavailable" },
-  afternoon_activity_invalid: { afternoonActivity: "afternoonActivityUnavailable" },
   // 以下只有修改時會出現：同一個姓名猜錯太多次，或想改掉有沒有電話。
   // 找不到她的報名（姓名、電話不符或已取消）時，修改函式回傳空值，不丟出代碼（見 saved）。
   too_many_attempts: { form: "tooManyAttempts" },
@@ -542,7 +545,6 @@ function newRegistrationParams(input: RegistrationInput) {
     p_line_id: trimBlank(input.lineId) || null,
     p_course_ids: input.courseIds,
     p_lunch_option_id: input.lunchOptionId,
-    p_afternoon_activity_id: input.afternoonActivityId,
     p_choir_part: input.choirPart,
     p_services: input.services,
     p_printed_handbook: input.printedHandbook,
@@ -560,7 +562,7 @@ export type UpdateInput = {
 
 /**
  * 修改報名：在報名中、姓名與電話（或報名編號）仍符合這一筆時，整筆換成修改後的內容。
- * 和送出同一套名額檢查；她原本已佔的課程、午餐、午后動態不再檢查名額，新選的才檢查。
+ * 和送出同一套名額檢查；她原本已佔的課程、午餐不再檢查名額，新選的才檢查。
  * 任何一項不通過，整筆都不寫入，原本的報名完整保留。
  */
 export async function updateRegistration(
@@ -594,7 +596,6 @@ function changeParams(changes: RegistrationChanges) {
     p_venue_id: changes.venueId,
     p_course_ids: changes.courseIds,
     p_lunch_option_id: changes.lunchOptionId,
-    p_afternoon_activity_id: changes.afternoonActivityId,
     p_choir_part: changes.choirPart,
     p_services: changes.services,
     p_printed_handbook: changes.printedHandbook,
@@ -832,7 +833,7 @@ async function saved(
     response.error ??
     (data?.error ? { message: data.error, details: data.detail ?? "" } : null);
   if (error) {
-    // 有課程額滿時是 course_full，只有午餐、午后動態額滿時是 choice_full，兩者都列出所有額滿的選項。
+    // 有課程額滿時是 course_full，只有午餐額滿時是 choice_full，兩者都列出所有額滿的選項。
     if (error.message === "course_full" || error.message === "choice_full") {
       const fullIds = error.details ? error.details.split(",") : [];
       return { ok: false, errors: fullErrors(input, fullIds), fullIds };
@@ -860,7 +861,6 @@ async function saved(
       // 資料庫在同一個交易裡存下了所選的每一門課，成功就是送出的這些。
       courseIds: input.courseIds,
       lunchOptionId: data.lunch_option_id,
-      afternoonActivityId: data.afternoon_activity_id,
       choirPart: data.choir_part,
       services: data.services,
       printedHandbook: data.printed_handbook,
@@ -875,7 +875,6 @@ function fullErrors(input: RegistrationChanges, fullIds: string[]): Registration
     id !== null && (fullIds.length === 0 || fullIds.includes(id));
   if (input.courseIds.some(isFull)) errors.courses = "courseFull";
   if (isFull(input.lunchOptionId)) errors.lunch = "lunchFull";
-  if (isFull(input.afternoonActivityId)) errors.afternoonActivity = "afternoonActivityFull";
   return errors;
 }
 
@@ -893,7 +892,6 @@ type RegistrationRow = {
   ward_id: string;
   venue_id: string;
   lunch_option_id: string | null;
-  afternoon_activity_id: string | null;
   choir_part: ChoirPart | null;
   services: Service[];
   printed_handbook: boolean;
@@ -972,7 +970,6 @@ export async function lookupRegistration(
       venueId: row.venue_id,
       courseIds: row.course_ids,
       lunchOptionId: row.lunch_option_id,
-      afternoonActivityId: row.afternoon_activity_id,
       choirPart: row.choir_part,
       services: row.services,
       printedHandbook: row.printed_handbook,

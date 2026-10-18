@@ -98,11 +98,14 @@ export default async function StatisticsPage({ searchParams }: PageProps<"/staff
                   key={session.id}
                   heading={session.name}
                   valueHeading="已報／容量"
-                  rows={session.courses.map((course) => ({
-                    key: course.id,
-                    label: withStopped(course.title, course.stopped),
-                    value: formatUsage(course, venue.partial),
-                  }))}
+                  rows={[
+                    ...session.courses.map((course) => ({
+                      key: course.id,
+                      label: withStopped(course.title, course.stopped),
+                      value: formatUsage(course, venue.partial),
+                    })),
+                    { key: "none", label: "不選課", value: session.noCourse },
+                  ]}
                 />
               ))}
               {venue.lunches.length > 0 && (
@@ -116,20 +119,6 @@ export default async function StatisticsPage({ searchParams }: PageProps<"/staff
                       value: formatUsage(lunch, venue.partial),
                     })),
                     { key: "none", label: "不需要", value: venue.noLunch },
-                  ]}
-                />
-              )}
-              {venue.activities.length > 0 && (
-                <CountTable
-                  heading="午后動態"
-                  valueHeading="已報／容量"
-                  rows={[
-                    ...venue.activities.map((activity) => ({
-                      key: activity.id,
-                      label: withStopped(activity.name, activity.stopped),
-                      value: formatUsage(activity, venue.partial),
-                    })),
-                    { key: "none", label: "不參加", value: venue.noActivity },
                   ]}
                 />
               )}

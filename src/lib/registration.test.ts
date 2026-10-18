@@ -4,6 +4,9 @@ import type { Locale } from "./i18n/locale";
 import { submitWhileHolding } from "../../test/hold-transaction";
 import { adminClient, anonClient, databaseClient, must, serverClient } from "../../test/supabase";
 import {
+  fromOutdatedLookupPage,
+  fromOutdatedPage,
+  LOOKUP_PAGE_VERSION,
   cancelRegistration,
   changesOf,
   choicesAfterVenueChange,
@@ -22,6 +25,41 @@ import {
   type RegistrationInput,
   type SubmitResult,
 } from "./registration";
+
+// 部署 #65 之前打開的報名表還會送來 afternoonActivityId；照收的話，她轉換好的午后動態課程會被刪掉。
+// 部署 #65 之前打開的查詢頁沒有午后動態的場次，查到的結果會把她選的午后動態顯示成「不參加」。
+describe("舊版查詢頁送來的查詢", () => {
+  it.each([
+    { what: "沒帶版本", input: { name: "王小美", phoneOrNumber: "0912345678" } },
+    { what: "版本不對", input: { name: "王小美", phoneOrNumber: "0912345678", pageVersion: 1 } },
+    { what: "不是物件", input: undefined },
+  ])("$what：認得出是舊版頁面", ({ input }) => {
+    expect(fromOutdatedLookupPage(input)).toBe(true);
+  });
+
+  it("現在的查詢頁帶著目前的版本", () => {
+    expect(
+      fromOutdatedLookupPage({ name: "王小美", phoneOrNumber: "0912345678", pageVersion: LOOKUP_PAGE_VERSION }),
+    ).toBe(false);
+  });
+});
+
+describe("舊版頁面送來的報名表", () => {
+  it.each([
+    { what: "選了午后動態", input: { name: "王小美", afternoonActivityId: "00000000-0000-4000-8000-00000000000a" } },
+    { what: "不參加午后動態", input: { name: "王小美", afternoonActivityId: null } },
+  ])("$what：認得出是舊版頁面", ({ input }) => {
+    expect(fromOutdatedPage(input)).toBe(true);
+  });
+
+  it.each([
+    { what: "現在的報名表", input: { name: "王小美", courseIds: [] } },
+    { what: "不是物件", input: "abc" },
+    { what: "空的", input: undefined },
+  ])("$what：不是舊版頁面", ({ input }) => {
+    expect(fromOutdatedPage(input)).toBe(false);
+  });
+});
 
 const admin = adminClient();
 const DAY = 24 * 60 * 60 * 1000;
@@ -145,7 +183,6 @@ function validInput(overrides: Partial<RegistrationInput> = {}): RegistrationInp
     venueId,
     courseIds: [],
     lunchOptionId: null,
-    afternoonActivityId: null,
     choirPart: null,
     services: [],
     printedHandbook: false,
@@ -174,8 +211,7 @@ describe("送出報名", () => {
         venueId,
         courseIds: [],
         lunchOptionId: null,
-        afternoonActivityId: null,
-        choirPart: null,
+            choirPart: null,
         services: [],
         printedHandbook: false,
       },
@@ -925,22 +961,12 @@ describe("成對課程", () => {
   });
 });
 
-// 午餐、午后動態屬於場地；和場次、課程一樣只能在開放報名前建立（ADR 0004），所以每個測試先建好，送出時才開放報名。
+// 午餐屬於場地；和場次、課程一樣只能在開放報名前建立（ADR 0004），所以每個測試先建好，送出時才開放報名。
 async function addLunch(capacity: number | null, venue = venueId, name = "葷食便當") {
   return must(
     await admin
       .from("lunch_options")
       .insert({ conference_id: conferenceId, venue_id: venue, name_zh: name, capacity })
-      .select("id")
-      .single(),
-  ).id;
-}
-
-async function addActivity(capacity: number | null, venue = venueId, title = "手作花圈") {
-  return must(
-    await admin
-      .from("afternoon_activities")
-      .insert({ conference_id: conferenceId, venue_id: venue, title_zh: title, capacity })
       .select("id")
       .single(),
   ).id;
@@ -952,26 +978,24 @@ async function addVenue(name = "台中大雅教堂") {
   ).id;
 }
 
-describe("午餐、午后動態、服務意願與紙本手冊", () => {
+describe("午餐、服務意願與紙本手冊", () => {
   async function savedRegistration(name: string) {
     return must(
       await admin
         .from("registrations")
-        .select("lunch_option_id, afternoon_activity_id, choir_part, services, printed_handbook")
+        .select("lunch_option_id, choir_part, services, printed_handbook")
         .eq("conference_id", conferenceId!)
         .eq("name", name),
     );
   }
 
-  it("存下所選的午餐、午后動態、服務意願與紙本手冊，並回傳", async () => {
+  it("存下所選的午餐、服務意願與紙本手冊，並回傳", async () => {
     const lunch = await addLunch(30);
-    const activity = await addActivity(10);
 
     const result = await submit(
       validInput({
         name: "全部都選",
         lunchOptionId: lunch,
-        afternoonActivityId: activity,
         choirPart: "alto",
         services: ["reception", "setup", "reception"],
         printedHandbook: true,
@@ -980,7 +1004,6 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
 
     expect(result.ok && result.registration).toMatchObject({
       lunchOptionId: lunch,
-      afternoonActivityId: activity,
       choirPart: "alto",
       services: ["setup", "reception"],
       printedHandbook: true,
@@ -988,7 +1011,6 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
     expect(await savedRegistration("全部都選")).toEqual([
       {
         lunch_option_id: lunch,
-        afternoon_activity_id: activity,
         choir_part: "alto",
         services: ["setup", "reception"],
         printed_handbook: true,
@@ -996,9 +1018,8 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
     ]);
   });
 
-  it("午餐不需要、不參加午后動態、沒有服務意願也能報名", async () => {
+  it("午餐不需要、沒有服務意願也能報名", async () => {
     await addLunch(30);
-    await addActivity(10);
 
     const result = await submit(validInput({ name: "都不需要" }));
 
@@ -1006,7 +1027,6 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
     expect(await savedRegistration("都不需要")).toEqual([
       {
         lunch_option_id: null,
-        afternoon_activity_id: null,
         choir_part: null,
         services: [],
         printed_handbook: false,
@@ -1024,37 +1044,18 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
     expect(await savedRegistration("後訂的")).toEqual([]);
   });
 
-  it("限量午后動態額滿時送出被拒絕，資料不寫入", async () => {
-    const activity = await addActivity(1);
-    expect((await submit(validInput({ name: "先報的", afternoonActivityId: activity }))).ok).toBe(true);
-
-    const result = await submit(validInput({ name: "後報的", afternoonActivityId: activity }));
-
-    expect(result).toEqual({
-      ok: false,
-      errors: { afternoonActivity: "afternoonActivityFull" },
-      fullIds: [activity],
-    });
-    expect(await savedRegistration("後報的")).toEqual([]);
-  });
-
-  it("課程、午餐、午后動態同時額滿時，一次列出全部", async () => {
+  it("課程、午餐同時額滿時，一次列出全部", async () => {
     const course = await addCourse(await addSession(1), 1);
     const lunch = await addLunch(1);
-    const activity = await addActivity(1);
-    const everything = { courseIds: [course], lunchOptionId: lunch, afternoonActivityId: activity };
+    const everything = { courseIds: [course], lunchOptionId: lunch };
     expect((await submit(validInput({ name: "先報的", ...everything }))).ok).toBe(true);
 
     const result = await submit(validInput({ name: "後報的", ...everything }));
 
     expect(result).toEqual({
       ok: false,
-      errors: {
-        courses: "courseFull",
-        lunch: "lunchFull",
-        afternoonActivity: "afternoonActivityFull",
-      },
-      fullIds: expect.arrayContaining([course, lunch, activity]),
+      errors: { courses: "courseFull", lunch: "lunchFull" },
+      fullIds: expect.arrayContaining([course, lunch]),
     });
     expect(await savedRegistration("後報的")).toEqual([]);
   });
@@ -1078,27 +1079,6 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
     expect(await savedRegistration("搶午餐乙")).toEqual([]);
   });
 
-  it("最後一個午后動態名額兩人同時送出，只有一人成功", async () => {
-    const activity = await addActivity(1);
-    await openRegistration();
-
-    const second = await submitWhileHolding(
-      (tx) => tx`
-        select id from public.submit_registration(
-          ${venueId}, ${taipeiStakeId}, ${xindianWardId}, '搶動態甲', '0912345678', null, null, true, 'zh',
-          '{}'::uuid[], null, ${activity}::uuid
-        )`,
-      () => submit(validInput({ name: "搶動態乙", afternoonActivityId: activity })),
-    );
-
-    expect(second).toEqual({
-      ok: false,
-      errors: { afternoonActivity: "afternoonActivityFull" },
-      fullIds: [activity],
-    });
-    expect(await savedRegistration("搶動態乙")).toEqual([]);
-  });
-
   it("不限數量的午餐不會額滿", async () => {
     const lunch = await addLunch(null);
 
@@ -1110,10 +1090,9 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
     expect(results.map((result) => result.ok)).toEqual([true, true, true]);
   });
 
-  it("已取消的報名不佔午餐與午后動態", async () => {
+  it("已取消的報名不佔午餐", async () => {
     const lunch = await addLunch(1);
-    const activity = await addActivity(1);
-    const first = await submit(validInput({ lunchOptionId: lunch, afternoonActivityId: activity }));
+    const first = await submit(validInput({ lunchOptionId: lunch }));
     if (!first.ok) throw new Error("報名失敗");
     must(
       await admin
@@ -1122,26 +1101,18 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
         .eq("id", first.registration.id),
     );
 
-    const result = await submit(validInput({ lunchOptionId: lunch, afternoonActivityId: activity }));
+    const result = await submit(validInput({ lunchOptionId: lunch }));
 
     expect(result.ok).toBe(true);
   });
 
-  // 每個場地有各自的午餐；午后動態只在設定了它的場地。
+  // 每個場地有各自的午餐。
   it("其他場地的午餐不能選", async () => {
     const otherLunch = await addLunch(null, await addVenue());
 
     const result = await submit(validInput({ lunchOptionId: otherLunch }));
 
     expect(result).toEqual({ ok: false, errors: { lunch: "lunchUnavailable" } });
-  });
-
-  it("其他場地的午后動態不能選", async () => {
-    const otherActivity = await addActivity(null, await addVenue());
-
-    const result = await submit(validInput({ afternoonActivityId: otherActivity }));
-
-    expect(result).toEqual({ ok: false, errors: { afternoonActivity: "afternoonActivityUnavailable" } });
   });
 
   it("A 場地的午餐額滿不影響 B 場地", async () => {
@@ -1174,17 +1145,10 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
     expect(result).toEqual({ ok: false, errors: { printedHandbook: "printedHandbookRequired" } });
   });
 
-  it.each([
-    { what: "午餐", input: { lunchOptionId: "abc" }, errors: { lunch: "lunchUnavailable" } },
-    {
-      what: "午后動態",
-      input: { afternoonActivityId: "abc" },
-      errors: { afternoonActivity: "afternoonActivityUnavailable" },
-    },
-  ])("$what編號格式不對時標在旁邊", async ({ input, errors }) => {
-    const result = await submit(validInput(input));
+  it("午餐編號格式不對時標在旁邊", async () => {
+    const result = await submit(validInput({ lunchOptionId: "abc" }));
 
-    expect(result).toEqual({ ok: false, errors });
+    expect(result).toEqual({ ok: false, errors: { lunch: "lunchUnavailable" } });
   });
 
   it("有人選過的午餐不能直接刪除", async () => {
@@ -1198,23 +1162,22 @@ describe("午餐、午后動態、服務意願與紙本手冊", () => {
   });
 });
 
-// 午餐、午后動態、紙本手冊在報名表上要明確選一個（包括「不需要」），免得漏看。
+// 午餐、紙本手冊在報名表上要明確選一個（包括「不需要」），免得漏看。
 describe("午餐與服務步驟的檢查", () => {
   const lunchA = "00000000-0000-4000-8000-00000000000a";
-  const activityB = "00000000-0000-4000-8000-00000000000b";
-  const venue = { lunchOptions: [{ id: lunchA }], afternoonActivities: [{ id: activityB }] };
-  const bare = { lunchOptions: [], afternoonActivities: [] };
+  const venue = { lunchOptions: [{ id: lunchA }] };
+  const bare = { lunchOptions: [] };
 
   it.each<{ what: string; choices: ExtraChoices; venue: typeof venue; errors: object }>([
     {
       what: "都選了",
-      choices: { lunch: lunchA, afternoonActivity: activityB, printedHandbook: true },
+      choices: { lunch: lunchA, printedHandbook: true },
       venue,
       errors: {},
     },
     {
-      what: "選了不需要、不參加、不要手冊",
-      choices: { lunch: null, afternoonActivity: null, printedHandbook: false },
+      what: "選了不需要、不要手冊",
+      choices: { lunch: null, printedHandbook: false },
       venue,
       errors: {},
     },
@@ -1222,20 +1185,16 @@ describe("午餐與服務步驟的檢查", () => {
       what: "都還沒選",
       choices: {},
       venue,
-      errors: {
-        lunch: "lunchRequired",
-        afternoonActivity: "afternoonActivityRequired",
-        printedHandbook: "printedHandbookRequired",
-      },
+      errors: { lunch: "lunchRequired", printedHandbook: "printedHandbookRequired" },
     },
-    // 場地沒有午餐或午后動態時，不問這兩題。
-    { what: "場地沒有午餐和午后動態", choices: { printedHandbook: false }, venue: bare, errors: {} },
+    // 場地沒有午餐時，不問午餐。
+    { what: "場地沒有午餐", choices: { printedHandbook: false }, venue: bare, errors: {} },
     // 換了場地，或選項被刪掉之後，原本的選擇不算數。
     {
-      what: "選的午餐和午后動態已不在這個場地",
-      choices: { lunch: "other", afternoonActivity: "other", printedHandbook: true },
+      what: "選的午餐已不在這個場地",
+      choices: { lunch: "other", printedHandbook: true },
       venue,
-      errors: { lunch: "lunchRequired", afternoonActivity: "afternoonActivityRequired" },
+      errors: { lunch: "lunchRequired" },
     },
   ])("$what", ({ choices, venue, errors }) => {
     expect(validateExtraChoices(choices, venue)).toEqual(errors);
@@ -1653,7 +1612,6 @@ describe("代報", () => {
       lineId: "mama123",
       courseIds: ["00000000-0000-4000-8000-00000000000a"],
       lunchOptionId: "00000000-0000-4000-8000-00000000000b",
-      afternoonActivityId: "00000000-0000-4000-8000-00000000000c",
       choirPart: "alto",
       services: ["reception"],
       printedHandbook: true,
@@ -1670,8 +1628,7 @@ describe("代報", () => {
       venueId,
       courseIds: [],
       lunchOptionId: null,
-      afternoonActivityId: null,
-      choirPart: null,
+        choirPart: null,
       services: [],
       printedHandbook: null,
       portraitConsent: false,
@@ -1860,7 +1817,7 @@ describe("查詢報名", () => {
     expect(result.ok && result.registrations.map((found) => found.id)).toEqual([saved.registration.id]);
   });
 
-  it("查得到所選的課程、午餐與午后動態", async () => {
+  it("查得到所選的課程與午餐", async () => {
     const course = await addCourse(await addSession(1), null);
     const lunch = must(
       await admin
@@ -2014,7 +1971,7 @@ describe("修改報名", () => {
     const row = must(
       await admin
         .from("registrations")
-        .select("venue_id, phone, email, line_id, lunch_option_id, afternoon_activity_id, choir_part, services, printed_handbook, updated_at")
+        .select("venue_id, phone, email, line_id, lunch_option_id, choir_part, services, printed_handbook, updated_at")
         .eq("id", id)
         .single(),
     );
@@ -2056,24 +2013,17 @@ describe("修改報名", () => {
     expect(found.ok && found.registrations.map((registration) => registration.id)).toEqual([before.id]);
   });
 
-  it("修改其他欄位時，保有原本已額滿的課程、午餐與午后動態", async () => {
+  it("修改其他欄位時，保有原本已額滿的課程與午餐", async () => {
     const course = await addCourse(await addSession(1), 1);
     const lunch = await addLunch(1);
-    const activity = await addActivity(1);
-    const before = await registered({ courseIds: [course], lunchOptionId: lunch, afternoonActivityId: activity });
+    const before = await registered({ courseIds: [course], lunchOptionId: lunch });
 
-    const result = await update(before.id, {
-      courseIds: [course],
-      lunchOptionId: lunch,
-      afternoonActivityId: activity,
-      services: ["setup"],
-    });
+    const result = await update(before.id, { courseIds: [course], lunchOptionId: lunch, services: ["setup"] });
 
     expect(result.ok).toBe(true);
     expect(await stored(before.id)).toMatchObject({
       courseIds: [course],
       lunch_option_id: lunch,
-      afternoon_activity_id: activity,
       services: ["setup"],
     });
     // 名額仍是她的：別人報不進來。
@@ -2124,15 +2074,12 @@ describe("修改報名", () => {
     expect(await stored(before.id)).toEqual(saved);
   });
 
-  it("換場地時課程、午餐、午后動態被清空，沒重選不能送出", () => {
+  it("換場地時課程、午餐被清空，沒重選不能送出", () => {
     const [a, b, lunchA, lunchB] = [1, 2, 3, 4].map((n) => `00000000-0000-4000-8000-00000000000${n}`);
-    const venueA = { sessions: [{ id: "a1", courses: [{ id: a }] }], lunchOptions: [{ id: lunchA }], afternoonActivities: [] };
-    const venueB = { sessions: [{ id: "b1", courses: [{ id: b }] }], lunchOptions: [{ id: lunchB }], afternoonActivities: [] };
-    const before = choicesOf(
-      { courseIds: [a], lunchOptionId: lunchA, afternoonActivityId: null, printedHandbook: true },
-      venueA,
-    );
-    expect(before).toEqual({ courses: { a1: a }, extras: { lunch: lunchA, afternoonActivity: null, printedHandbook: true } });
+    const venueA = { sessions: [{ id: "a1", courses: [{ id: a }] }], lunchOptions: [{ id: lunchA }] };
+    const venueB = { sessions: [{ id: "b1", courses: [{ id: b }] }], lunchOptions: [{ id: lunchB }] };
+    const before = choicesOf({ courseIds: [a], lunchOptionId: lunchA, printedHandbook: true }, venueA);
+    expect(before).toEqual({ courses: { a1: a }, extras: { lunch: lunchA, printedHandbook: true } });
 
     const after = choicesAfterVenueChange(before);
 
@@ -2151,10 +2098,7 @@ describe("修改報名", () => {
       ],
     };
 
-    const { courses } = choicesOf(
-      { courseIds: [a], lunchOptionId: null, afternoonActivityId: null, printedHandbook: false },
-      venue,
-    );
+    const { courses } = choicesOf({ courseIds: [a], lunchOptionId: null, printedHandbook: false }, venue);
 
     expect(courses).toEqual({ s1: a, s2: null });
     expect(validateCourseChoices(courses, venue.sessions)).toEqual({});
@@ -2175,20 +2119,15 @@ describe("修改報名", () => {
     expect(await stored(before.id)).toEqual(saved);
   });
 
-  it("新選的午餐、午后動態額滿時整筆不寫入，原報名不變", async () => {
+  it("新選的午餐額滿時整筆不寫入，原報名不變", async () => {
     const lunch = await addLunch(1);
-    const activity = await addActivity(1);
-    expect((await submit(validInput({ name: "先報的", lunchOptionId: lunch, afternoonActivityId: activity }))).ok).toBe(true);
+    expect((await submit(validInput({ name: "先報的", lunchOptionId: lunch }))).ok).toBe(true);
     const before = await registered();
     const saved = await stored(before.id);
 
-    const result = await update(before.id, { lunchOptionId: lunch, afternoonActivityId: activity, services: ["setup"] });
+    const result = await update(before.id, { lunchOptionId: lunch, services: ["setup"] });
 
-    expect(result).toEqual({
-      ok: false,
-      errors: { lunch: "lunchFull", afternoonActivity: "afternoonActivityFull" },
-      fullIds: expect.arrayContaining([lunch, activity]),
-    });
+    expect(result).toEqual({ ok: false, errors: { lunch: "lunchFull" }, fullIds: [lunch] });
     expect(await stored(before.id)).toEqual(saved);
   });
 
@@ -2416,8 +2355,7 @@ describe("取消報名", () => {
   it("取消後狀態為已取消、有取消時間、紀錄仍在，名額釋出", async () => {
     const course = await addCourse(await addSession(1), 1);
     const lunch = await addLunch(1);
-    const activity = await addActivity(1);
-    const before = await registered({ courseIds: [course], lunchOptionId: lunch, afternoonActivityId: activity });
+    const before = await registered({ courseIds: [course], lunchOptionId: lunch });
 
     const result = await cancel(before.id);
 
@@ -2429,7 +2367,6 @@ describe("取消報名", () => {
         status: "cancelled",
         courseIds: [course],
         lunchOptionId: lunch,
-        afternoonActivityId: activity,
       }),
     ]);
     const { cancelled_at } = must(
@@ -2438,11 +2375,10 @@ describe("取消報名", () => {
     expect(Math.abs(Date.parse(cancelled_at!) - Date.now())).toBeLessThan(60_000);
   });
 
-  it("已取消的報名不佔名額，之後別人可以報到課程、午餐與午后動態", async () => {
+  it("已取消的報名不佔名額，之後別人可以報到課程與午餐", async () => {
     const course = await addCourse(await addSession(1), 1);
     const lunch = await addLunch(1);
-    const activity = await addActivity(1);
-    const choices = { courseIds: [course], lunchOptionId: lunch, afternoonActivityId: activity };
+    const choices = { courseIds: [course], lunchOptionId: lunch };
     const before = await registered(choices);
     expect(await submit(validInput({ name: "後報的", ...choices }))).toMatchObject({ ok: false });
 

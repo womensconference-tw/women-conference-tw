@@ -11,7 +11,7 @@ import { TextPair } from "../../text-pair";
 
 export const metadata: Metadata = { title: "場地與課程" };
 
-/** 場地與課程（只有總管理員）：目前年度的場地列表，可新增場地，點進去編輯場次、課程、午餐、午后動態。 */
+/** 場地與課程（只有總管理員）：目前年度的場地列表，可新增場地，點進去編輯場次、課程、午餐（午后動態就是一個場次）。 */
 export default async function ProgrammePage({ searchParams }: PageProps<"/staff/programme">) {
   const me = await getCurrentStaff();
   // 版面和頁面同時執行，版面的導向擋不住這裡，自己也要檢查。
@@ -30,7 +30,7 @@ export default async function ProgrammePage({ searchParams }: PageProps<"/staff/
         <>
           {programme.registrationOpened && (
             <p className="rounded-lg border-2 border-card-outline p-3">
-              報名已經開放：場地、場次、課程、成對課程、午餐、午后動態不能再新增、刪除或換時段，只能修正文字、調整名額、排序與教室，以及停止報名。
+              報名已經開放：場地、場次、課程、成對課程、午餐不能再新增、刪除或換時段，只能修正文字、調整名額、排序與教室，以及停止報名。
             </p>
           )}
 
@@ -48,8 +48,7 @@ export default async function ProgrammePage({ searchParams }: PageProps<"/staff/
                     >
                       <span className="text-lg font-bold underline">{venue.nameZh}</span>
                       <span className="text-sm text-muted-foreground">
-                        {REGION_LABELS[venue.region]}・{venue.sessions.length} 個場次、{courses} 門課程、{venue.lunchOptions.length} 種午餐、
-                        {venue.afternoonActivities.length} 個午后動態
+                        {REGION_LABELS[venue.region]}・{venue.sessions.length} 個場次、{courses} 門課程、{venue.lunchOptions.length} 種午餐
                       </span>
                     </Link>
                   </li>

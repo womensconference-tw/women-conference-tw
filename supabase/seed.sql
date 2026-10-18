@@ -92,6 +92,7 @@ join (values
 ) as w(stake_name, position, name_zh, name_en, is_active) on w.stake_name = s.name_zh;
 
 -- 每個場地三個場次，各有幾門課。有的限量、有的不限人數（容量空白）。
+-- 金華教堂另有第四個場次「午后動態」，活動就是這個場次的課程，其他場地的報名表不會出現這個場次。
 -- 正式環境的場次與課程在開放報名前建好；假資料的年度已在報名中，所以建立時暫時關掉這條限制。
 alter table public.sessions disable trigger sessions_locked_after_opening;
 alter table public.sessions disable trigger course_pairs_valid_after_session_change;
@@ -121,6 +122,20 @@ join (values
 ) as c(session_position, position, title_zh, title_en, description_zh, description_en, capacity)
   on c.session_position = s.position;
 
+with afternoon as (
+  insert into public.sessions (conference_id, venue_id, position, name_zh, name_en)
+  select conference_id, id, 4, '午后動態 14:30–16:00', 'Afternoon activity, 14:30–16:00'
+  from public.venues
+  where name_zh = '台北金華教堂'
+  returning id, conference_id
+)
+insert into public.courses (conference_id, session_id, position, title_zh, title_en, description_zh, description_en, capacity)
+select s.conference_id, s.id, c.position, c.title_zh, c.title_en, c.description_zh, c.description_en, c.capacity
+from afternoon s, (values
+  (1, '手作花圈', 'Wreath making', '材料由大會提供', 'Materials provided', 20),
+  (2, '聖殿巡禮', 'Temple grounds walk', '步行約 20 分鐘', 'About a 20-minute walk', 30)
+) as c(position, title_zh, title_en, description_zh, description_en, capacity);
+
 -- 每個場地的手冊研習上下兩堂設成成對課程，選了其中一堂就會一起選另一堂。
 alter table public.course_pairs disable trigger course_pairs_checked;
 alter table public.course_pairs disable trigger course_pairs_stopped_together;
@@ -144,9 +159,8 @@ alter table public.sessions enable trigger sessions_locked_after_opening;
 alter table public.sessions enable trigger course_pairs_valid_after_session_change;
 alter table public.courses enable trigger courses_locked_after_opening;
 
--- 午餐、午后動態也在開放報名前定案，建立時同樣暫時關掉限制。
+-- 午餐也在開放報名前定案，建立時同樣暫時關掉限制。
 alter table public.lunch_options disable trigger lunch_options_locked_after_opening;
-alter table public.afternoon_activities disable trigger afternoon_activities_locked_after_opening;
 
 -- 每個場地各自的午餐，有的限量、有的不限。金華教堂的素食便當只有 1 份，下面的假報名會訂走。
 insert into public.lunch_options (conference_id, venue_id, position, name_zh, name_en, description_zh, description_en, capacity)
@@ -158,17 +172,7 @@ from public.venues v, (values
   (3, '自備午餐', 'Bringing my own lunch', '', '', null)
 ) as l(position, name_zh, name_en, description_zh, description_en, capacity);
 
--- 只有金華教堂有午后動態，其他場地的報名表不會出現這一題。
-insert into public.afternoon_activities (conference_id, venue_id, position, title_zh, title_en, description_zh, description_en, capacity)
-select v.conference_id, v.id, a.position, a.title_zh, a.title_en, a.description_zh, a.description_en, a.capacity
-from public.venues v, (values
-  (1, '手作花圈', 'Wreath making', '14:30–16:00，材料由大會提供', '14:30–16:00, materials provided', 20),
-  (2, '聖殿巡禮', 'Temple grounds walk', '14:30–16:00，步行約 20 分鐘', '14:30–16:00, about a 20-minute walk', 30)
-) as a(position, title_zh, title_en, description_zh, description_en, capacity)
-where v.name_zh = '台北金華教堂';
-
 alter table public.lunch_options enable trigger lunch_options_locked_after_opening;
-alter table public.afternoon_activities enable trigger afternoon_activities_locked_after_opening;
 
 -- 一筆假報名，佔掉金華教堂「家譜入門」（容量 1）唯一的名額，選課畫面會顯示「已額滿」；
 -- 也訂走唯一一份素食便當。
@@ -190,5 +194,5 @@ select r.id, r.venue_id, c.session_id, c.id
 from registration r
 join public.sessions s on s.venue_id = r.venue_id
 join public.courses c on c.session_id = s.id
--- 第一場選家譜入門，其他場次選第一門課。
-where case when s.position = 1 then c.title_zh = '家譜入門' else c.position = 1 end;
+-- 第一場選家譜入門，第二、三場選第一門課，午后動態不參加。
+where s.position <= 3 and case when s.position = 1 then c.title_zh = '家譜入門' else c.position = 1 end;

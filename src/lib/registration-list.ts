@@ -143,7 +143,7 @@ export async function getRegistrationForEdit(
   const { data, error } = await supabase
     .from("registrations")
     .select(
-      "id, name, phone, registration_number, email, line_id, stake_id, ward_id, venue_id, lunch_option_id, afternoon_activity_id, choir_part, services, printed_handbook, role, status, stakes(name_zh), wards(name_zh), conferences(is_current), registration_courses(course_id)",
+      "id, name, phone, registration_number, email, line_id, stake_id, ward_id, venue_id, lunch_option_id, choir_part, services, printed_handbook, role, status, stakes(name_zh), wards(name_zh), conferences(is_current), registration_courses(course_id)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -162,7 +162,6 @@ export async function getRegistrationForEdit(
     venueId: row.venue_id,
     courseIds: row.registration_courses.map((course) => course.course_id).toSorted(),
     lunchOptionId: row.lunch_option_id,
-    afternoonActivityId: row.afternoon_activity_id,
     choirPart: row.choir_part,
     services: row.services,
     printedHandbook: row.printed_handbook,
@@ -185,7 +184,6 @@ type EditRow = {
   ward_id: string;
   venue_id: string;
   lunch_option_id: string | null;
-  afternoon_activity_id: string | null;
   choir_part: ChoirPart | null;
   services: Service[];
   printed_handbook: boolean;

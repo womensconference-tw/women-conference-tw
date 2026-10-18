@@ -192,7 +192,6 @@ type EmailRow = {
   venue_id: string;
   course_ids: string[];
   lunch_option_id: string | null;
-  afternoon_activity_id: string | null;
   choir_part: string | null;
   services: string[];
   printed_handbook: boolean;
@@ -211,7 +210,6 @@ type EmailRow = {
       courses: { id: string; title_zh: string; title_en: string }[];
     }[];
     lunch_options: { id: string; name_zh: string; name_en: string }[];
-    afternoon_activities: { id: string; title_zh: string; title_en: string }[];
   };
 };
 
@@ -228,10 +226,6 @@ function optionsOf(row: EmailRow, locale: Locale): SummaryOptions {
           courses: session.courses.map((course) => ({ id: course.id, name: localized(course, "title", locale) })),
         })),
         lunchOptions: venue.lunch_options.map((lunch) => ({ id: lunch.id, name: localized(lunch, "name", locale) })),
-        afternoonActivities: venue.afternoon_activities.map((activity) => ({
-          id: activity.id,
-          name: localized(activity, "title", locale),
-        })),
       },
     ],
     stakes: [],
@@ -250,7 +244,6 @@ function detailsOf(row: EmailRow, locale: Locale): Details {
     venueId: row.venue_id,
     courseIds: row.course_ids,
     lunchOptionId: row.lunch_option_id,
-    afternoonActivityId: row.afternoon_activity_id,
     choirPart: row.choir_part,
     services: row.services,
     printedHandbook: row.printed_handbook,

@@ -18,38 +18,26 @@ describe("重新讀取選項後的選擇", () => {
         name: "台北金華教堂",
         sessions: [{ id: "s1", name: "第一場", courses: [course("full-course", true), course("open-course")] }],
         lunchOptions: [option("full-lunch", true), option("open-lunch")],
-        afternoonActivities: [option("full-activity", true)],
       },
     ],
   };
   const input = { stakeId: "stake", wardId: "ward", venueId: "venue" } as RegistrationInput;
   const choices = { s1: "full-course" };
-  const extras = { lunch: "full-lunch", afternoonActivity: "full-activity", printedHandbook: true };
+  const extras = { lunch: "full-lunch", printedHandbook: true };
 
-  it("報名時剛額滿的課程、午餐、午后動態取消選取並標出", () => {
+  it("報名時剛額滿的課程、午餐取消選取並標出", () => {
     const stale = staleSelections({ ...input, stakeId: "", wardId: "" }, choices, extras, options, [], false);
 
     expect(stale.choices).toEqual({});
     expect(stale.extras).toEqual({ printedHandbook: true });
-    expect(stale.errors).toEqual({
-      courses: "courseFull",
-      lunch: "lunchFull",
-      afternoonActivity: "afternoonActivityFull",
-    });
+    expect(stale.errors).toEqual({ courses: "courseFull", lunch: "lunchFull" });
   });
 
   it("修改時她原本已佔的額滿選項照樣保留，新選的額滿選項取消選取", () => {
-    const stale = staleSelections(
-      input,
-      choices,
-      extras,
-      options,
-      ["full-course", "full-activity"],
-      true,
-    );
+    const stale = staleSelections(input, choices, extras, options, ["full-course"], true);
 
     expect(stale.choices).toEqual({ s1: "full-course" });
-    expect(stale.extras).toEqual({ afternoonActivity: "full-activity", printedHandbook: true });
+    expect(stale.extras).toEqual({ printedHandbook: true });
     expect(stale.errors).toEqual({ lunch: "lunchFull" });
   });
 

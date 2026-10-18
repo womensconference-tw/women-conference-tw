@@ -24,11 +24,10 @@ let dayaCourseId: string;
 let bentoId: string;
 let veganId: string;
 let dayaLunchId: string;
-let walkId: string;
 
 /*
  * 每個測試都有一個報名中的 2099 年度大會：
- * - 北區金華：上午場次有拼布（容量 40）、唱歌（不限人數）兩門課；午餐便當（限量 30）、素食（不限）；午后動態散步。
+ * - 北區金華：上午場次有拼布（容量 40）、唱歌（不限人數）兩門課；午餐便當（限量 30）、素食（不限）。
  * - 中區大雅：上午場次一門課（容量 20）、一種午餐。
  * 支聯會北區台北（新店、板橋支會）、中區台中（大雅支會），以及總管理員、北區課務組、北區報報組、全區報報組。
  * 測完全部刪掉、復原原本的目前年度。
@@ -112,14 +111,6 @@ beforeEach(async () => {
       .select("id")
       .single(),
   ).id;
-  walkId = must(
-    await admin
-      .from("afternoon_activities")
-      .insert({ conference_id: conferenceId, venue_id: jinhuaId, position: 1, title_zh: "散步", capacity: 10 })
-      .select("id")
-      .single(),
-  ).id;
-
   must(
     await admin
       .from("conferences")
@@ -182,7 +173,6 @@ type Seed = {
   ward: "xindian" | "banqiao" | "daya";
   course?: "quilting" | "singing" | "daya";
   lunch?: "bento" | "vegan" | "daya";
-  walk?: boolean;
   choir?: "soprano" | "alto";
   services?: string[];
   handbook?: boolean;
@@ -210,7 +200,6 @@ async function seed(registration: Seed) {
         lunch_option_id: registration.lunch
           ? { bento: bentoId, vegan: veganId, daya: dayaLunchId }[registration.lunch]
           : null,
-        afternoon_activity_id: registration.walk ? walkId : null,
         choir_part: registration.choir ?? null,
         services: registration.services ?? [],
         printed_handbook: registration.handbook ?? false,
@@ -239,7 +228,6 @@ async function seedMix() {
     ward: "xindian",
     course: "quilting",
     lunch: "bento",
-    walk: true,
     choir: "soprano",
     services: ["setup", "reception"],
     handbook: true,
@@ -259,7 +247,6 @@ async function seedMix() {
     ward: "banqiao",
     course: "quilting",
     lunch: "bento",
-    walk: true,
     choir: "soprano",
     services: ["cleanup"],
     handbook: true,
@@ -278,7 +265,7 @@ const stakeCounts = (statistics: Statistics) =>
   statistics.stakes.map((stake) => [stake.name, stake.count, stake.wards.map((ward) => [ward.name, ward.count])]);
 
 describe("後台統計", () => {
-  it("只計有效報名：全體、各場地、各支聯會、各支會、課程、午餐、午后動態、服務意願、紙本手冊", async () => {
+  it("只計有效報名：全體、各場地、各支聯會、各支會、課程、午餐、服務意願、紙本手冊", async () => {
     await seedMix();
     const statistics = await getStatistics(await signedInClient("head@example.com"), conferenceId);
 
@@ -299,15 +286,13 @@ describe("後台統計", () => {
     expect(course(statistics, quiltingId).count).toBe(2);
     expect(course(statistics, singingId).count).toBe(1);
     expect(course(statistics, dayaCourseId).count).toBe(2);
+    // 場次（包括午后動態）選「不選課」的人數：金華 4 人中 3 人有選上午場次的課。
+    expect(venue(statistics, jinhuaId).sessions.map((session) => session.noCourse)).toEqual([1]);
     expect(venue(statistics, jinhuaId).lunches.map((lunch) => [lunch.name, lunch.count, lunch.capacity])).toEqual([
       ["便當", 2, 30],
       ["素食", 1, null],
     ]);
     expect(venue(statistics, jinhuaId).noLunch).toBe(1);
-    expect(venue(statistics, jinhuaId).activities.map((activity) => [activity.name, activity.count])).toEqual([
-      ["散步", 1],
-    ]);
-    expect(venue(statistics, jinhuaId).noActivity).toBe(3);
     expect(statistics.choir).toEqual({ soprano: 1, alto: 2 });
     expect(statistics.services).toEqual({ setup: 2, translation: 1, reception: 2, cleanup: 0 });
     expect(statistics.printedHandbook).toBe(3);
@@ -530,14 +515,13 @@ describe("課程、午餐的「已報／容量」", () => {
 });
 
 describe("後台超收前的確認提示", () => {
-  it("列出額滿的課程、午餐、午后動態加入前後的人數，依場地內的順序", async () => {
-    await seed({ venue: "jinhua", ward: "xindian", course: "quilting", lunch: "bento", walk: true });
+  it("列出額滿的課程、午餐加入前後的人數，依場地內的順序", async () => {
+    await seed({ venue: "jinhua", ward: "xindian", course: "quilting", lunch: "bento" });
     const statistics = await getStatistics(await signedInClient("head@example.com"), conferenceId);
 
-    expect(describeFullOptions(statistics, [walkId, bentoId, quiltingId])).toEqual([
+    expect(describeFullOptions(statistics, [bentoId, quiltingId])).toEqual([
       "課程「拼布」：名額 40 人，目前已報 1 人，加入後變成 2 人",
       "午餐「便當」：名額 30 人，目前已報 1 人，加入後變成 2 人",
-      "午后動態「散步」：名額 10 人，目前已報 1 人，加入後變成 2 人",
     ]);
   });
 
