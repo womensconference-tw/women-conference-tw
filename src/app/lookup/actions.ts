@@ -9,6 +9,7 @@ import {
   lookupRegistration,
   optionsMayHaveChanged,
   registrationInputFrom,
+  submissionKeyOf,
   updateRegistration,
   type CancelResult,
   type LookupResult,
@@ -27,18 +28,21 @@ export async function lookUp(input: unknown): Promise<LookupResult> {
 }
 
 /**
- * 修改報名送出：哪一筆、查詢時用的姓名與電話（或報名編號），以及修改後的報名表內容。
+ * 修改報名送出：哪一筆、查詢時用的姓名與電話（或報名編號）、修改後的報名表內容，以及送出編號
+ * （回應斷掉後重按沿用同一個，不會多改一次、多寄一封信）。
  * 是否報名中、姓名與電話是否符合、名額等由資料庫判斷。成功後寄確認信。
  */
 export async function updateMine(input: unknown): Promise<SubmitResult> {
   const raw = (input ?? {}) as Record<string, unknown>;
+  const submissionKey = submissionKeyOf(raw.submissionKey);
   const result = await updateRegistration(createServiceClient(), {
     registrationId: typeof raw.registrationId === "string" ? raw.registrationId : "",
     lookup: lookupInputFrom(raw.lookup),
     // 姓名、支聯會、支會、肖像權同意不能改，送來了也不用。
     changes: changesOf(registrationInputFrom(raw.changes)),
+    submissionKey,
   });
-  if (result.ok) queueConfirmationEmail(result.registration.id, "updated");
+  if (result.ok) queueConfirmationEmail(result.registration.id, "updated", submissionKey);
   if (optionsMayHaveChanged(result)) refresh();
   return result;
 }

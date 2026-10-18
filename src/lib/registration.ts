@@ -492,11 +492,15 @@ function violatedConstraint(message: string): string {
   return /violates check constraint "([^"]+)"/.exec(message)?.[1] ?? "";
 }
 
-/** 送出報名：檢查欄位，在報名中時寫入一筆與會姐妹的報名。locale 是送出當下的畫面語言，記為報名語言。 */
+/**
+ * 送出報名：檢查欄位，在報名中時寫入一筆與會姐妹的報名。locale 是送出當下的畫面語言，記為報名語言。
+ * submissionKey 是這次送出的送出編號（見 submissionKeyOf）：同一個編號再送一次，回傳上次存下的報名，不再新增。
+ */
 export async function submitRegistration(
   supabase: SupabaseClient,
   input: RegistrationInput,
   locale: Locale,
+  submissionKey?: string,
 ): Promise<SubmitResult> {
   const errors = validateRegistration(input);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
@@ -506,10 +510,24 @@ export async function submitRegistration(
     "submit_registration",
     () =>
       supabase
-        .rpc("submit_registration", { ...newRegistrationParams(input), p_locale: locale })
+        .rpc("submit_registration", {
+          ...newRegistrationParams(input),
+          p_locale: locale,
+          p_submission_key: submissionKeyOf(submissionKey),
+        })
         .single<RegistrationRow>(),
     input,
   ) as Promise<SubmitResult>;
+}
+
+/**
+ * 送出編號：畫面每次送出帶一個 uuid，回應斷掉後重按時沿用同一個，資料庫看到用過的編號就回傳上次存下的結果，
+ * 不再新增一筆、不再寄信（見 20261103000000_submission_keys.sql）。
+ * 沒帶或格式不對時（例如還沒更新的舊畫面）換一個新的，照常存下，和之前一樣。
+ * 確認信也要帶同一個編號（見 queueConfirmationEmail），所以呼叫的動作先用這裡整理好，再傳給報名服務與寄信。
+ */
+export function submissionKeyOf(submissionKey: unknown): string {
+  return typeof submissionKey === "string" && UUID_PATTERN.test(submissionKey) ? submissionKey : crypto.randomUUID();
 }
 
 /** 送出新報名的資料庫函式共用的參數（前台、後台）。 */
@@ -532,8 +550,13 @@ function newRegistrationParams(input: RegistrationInput) {
   };
 }
 
-/** 修改報名的輸入：哪一筆、查詢時用的姓名與電話（或報名編號），以及修改後的內容。 */
-export type UpdateInput = { registrationId: string; lookup: LookupInput; changes: RegistrationChanges };
+/** 修改報名的輸入：哪一筆、查詢時用的姓名與電話（或報名編號）、修改後的內容，以及送出編號（見 submissionKeyOf）。 */
+export type UpdateInput = {
+  registrationId: string;
+  lookup: LookupInput;
+  changes: RegistrationChanges;
+  submissionKey?: string;
+};
 
 /**
  * 修改報名：在報名中、姓名與電話（或報名編號）仍符合這一筆時，整筆換成修改後的內容。
@@ -542,7 +565,7 @@ export type UpdateInput = { registrationId: string; lookup: LookupInput; changes
  */
 export async function updateRegistration(
   supabase: SupabaseClient,
-  { registrationId, lookup, changes }: UpdateInput,
+  { registrationId, lookup, changes, submissionKey }: UpdateInput,
 ): Promise<SubmitResult> {
   const errors = validateChanges(changes);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
@@ -551,7 +574,12 @@ export async function updateRegistration(
 
   return saved(
     "update_registration",
-    () => supabase.rpc("update_registration", { ...identity, ...changeParams(changes) }),
+    () =>
+      supabase.rpc("update_registration", {
+        ...identity,
+        ...changeParams(changes),
+        p_submission_key: submissionKeyOf(submissionKey),
+      }),
     changes,
   ) as Promise<SubmitResult>;
 }
@@ -702,7 +730,7 @@ export function staffRegistrationInputFrom(input: unknown): StaffRegistrationInp
 export async function staffSubmitRegistration(
   supabase: SupabaseClient,
   input: StaffRegistrationInput,
-  { confirmFull, locale = "zh" }: { confirmFull: boolean; locale?: Locale },
+  { confirmFull, locale = "zh", submissionKey }: { confirmFull: boolean; locale?: Locale; submissionKey?: string },
 ): Promise<StaffSubmitResult> {
   const errors = { ...validateRegistration(input), ...validateRole(input.role) };
   if (Object.keys(errors).length > 0) return { ok: false, errors };
@@ -716,6 +744,7 @@ export async function staffSubmitRegistration(
           p_locale: locale,
           p_role: input.role,
           p_confirm_full: confirmFull,
+          p_submission_key: submissionKeyOf(submissionKey),
         })
         .single<RegistrationRow>(),
     input,
@@ -725,8 +754,13 @@ export async function staffSubmitRegistration(
   return withConfirmation(result, confirmFull);
 }
 
-/** 後台修改報名的輸入：哪一筆、修改後的內容，以及是否已確認超收。 */
-export type StaffUpdateInput = { registrationId: string; changes: StaffRegistrationChanges; confirmFull: boolean };
+/** 後台修改報名的輸入：哪一筆、修改後的內容、是否已確認超收，以及送出編號（見 submissionKeyOf）。 */
+export type StaffUpdateInput = {
+  registrationId: string;
+  changes: StaffRegistrationChanges;
+  confirmFull: boolean;
+  submissionKey?: string;
+};
 
 /**
  * 後台修改報名（只限總管理員）：和前台修改同一套規則，她原本已佔的選項仍算她的；
@@ -734,7 +768,7 @@ export type StaffUpdateInput = { registrationId: string; changes: StaffRegistrat
  */
 export async function staffUpdateRegistration(
   supabase: SupabaseClient,
-  { registrationId, changes, confirmFull }: StaffUpdateInput,
+  { registrationId, changes, confirmFull, submissionKey }: StaffUpdateInput,
 ): Promise<StaffSubmitResult> {
   const errors = { ...validateChanges(changes), ...validateRole(changes.role) };
   if (Object.keys(errors).length > 0) return { ok: false, errors };
@@ -749,6 +783,7 @@ export async function staffUpdateRegistration(
           ...changeParams(changes),
           p_role: changes.role,
           p_confirm_full: confirmFull,
+          p_submission_key: submissionKeyOf(submissionKey),
         })
         .single<RegistrationRow>(),
     changes,

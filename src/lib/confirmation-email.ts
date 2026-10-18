@@ -19,7 +19,8 @@ import {
 /** 確認信的類型：報名、修改、取消。與資料庫 email_logs_kind_valid 用同一組代碼。 */
 export type EmailKind = "registered" | "updated" | "cancelled";
 
-export type EmailMessage = { to: string; subject: string; html: string; text: string };
+/** idempotencyKey：Resend 24 小時內看到同一個編號、同樣內容就不再寄（重送同一次送出時用）。 */
+export type EmailMessage = { to: string; subject: string; html: string; text: string; idempotencyKey?: string };
 
 export type SendResult = { ok: true; id: string | null } | { ok: false; error: string };
 
@@ -35,6 +36,7 @@ const FINISH_RETRY_DELAYS_MS = [500, 2_000];
  * 寄一封確認信，並記在寄信紀錄。不丟出例外：寄信失敗或出錯時記下失敗，報名照樣成功。
  * 回傳 skipped 表示不寄（見 begin_confirmation_email）。
  * siteUrl 有值時，信裡附上「查詢我的報名」的連結。
+ * submissionKey 是這次送出的送出編號：重送同一次送出時，同一個編號只寄一封（取消沒有編號，另外只寄一次）。
  * 伺服器日誌只記寄信紀錄的編號，不記錯誤內容：錯誤可能含收件地址或姓名，清除個資時清不到日誌。
  * 錯誤內容只寫進寄信紀錄，由 finish_email_log 依清除個資的狀態決定要不要留。
  */
@@ -44,12 +46,17 @@ export async function sendConfirmationEmail(
   kind: EmailKind,
   send: SendEmail,
   siteUrl?: string,
+  submissionKey?: string,
 ): Promise<"sent" | "failed" | "skipped"> {
   let logId: string | undefined;
   let result: SendResult;
   try {
     const begun = await supabase
-      .rpc("begin_confirmation_email", { p_registration_id: registrationId, p_kind: kind })
+      .rpc("begin_confirmation_email", {
+        p_registration_id: registrationId,
+        p_kind: kind,
+        p_submission_key: submissionKey ?? null,
+      })
       .abortSignal(AbortSignal.timeout(DATABASE_TIMEOUT_MS));
     if (begun.error) throw begun.error;
     const { log_id, registration } = begun.data as { log_id?: string; registration?: EmailRow };
@@ -66,7 +73,12 @@ export async function sendConfirmationEmail(
     });
     const lookupUrl = siteUrl ? new URL("/lookup", siteUrl).toString() : undefined;
     const content = confirmationEmail(kind, details.name, registrationNumber, summary, t, lookupUrl);
-    result = await send({ to: registration.email, ...content });
+    result = await send({
+      to: registration.email,
+      ...content,
+      // 寄信紀錄記成失敗、其實 Resend 已收下（回應斷掉）時，重送同一次送出不會再寄一封。
+      ...(submissionKey ? { idempotencyKey: `${kind}/${submissionKey}` } : {}),
+    });
   } catch (error) {
     if (!logId) {
       // 還沒開始寄信、也沒有寄信紀錄。資料庫的錯誤訊息可能帶出報名資料，所以只記錯誤代碼。
@@ -258,13 +270,17 @@ export function createResendSender(
   env: Record<string, string | undefined> = process.env,
   fetchImpl: typeof fetch = fetch,
 ): SendEmail {
-  return async ({ to, subject, html, text }) => {
+  return async ({ to, subject, html, text, idempotencyKey }) => {
     const apiKey = env.RESEND_API_KEY;
     const from = env.EMAIL_FROM;
     if (!apiKey || !from) return { ok: false, error: "RESEND_API_KEY or EMAIL_FROM not set" };
     const response = await fetchImpl("https://api.resend.com/emails", {
       method: "POST",
-      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+        ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+      },
       body: JSON.stringify({ from, to: [to], subject, html, text }),
       // Resend 卡住時不能一直等：寄信的工作被平台停掉，寄信紀錄就會停在寄送中，看不出失敗。
       signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
