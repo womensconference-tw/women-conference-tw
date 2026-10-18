@@ -6,9 +6,10 @@ import { queueConfirmationEmail } from "@/lib/queue-confirmation-email";
 import {
   cancelRegistration,
   changesOf,
+  fromOutdatedLookupPage,
+  fromOutdatedPage,
   lookupRegistration,
   optionsMayHaveChanged,
-  fromOutdatedPage,
   OUTDATED_PAGE_RESULT,
   registrationInputFrom,
   submissionKeyOf,
@@ -26,6 +27,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 
 /** 查詢表單送出。比對由資料庫函式負責。 */
 export async function lookUp(input: unknown): Promise<LookupResult> {
+  if (fromOutdatedLookupPage(input)) return { ok: false, errors: { form: "unknown" } };
   return lookupRegistration(createServiceClient(), lookupInputFrom(input), await getLocale());
 }
 

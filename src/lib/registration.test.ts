@@ -4,7 +4,9 @@ import type { Locale } from "./i18n/locale";
 import { submitWhileHolding } from "../../test/hold-transaction";
 import { adminClient, anonClient, databaseClient, must, serverClient } from "../../test/supabase";
 import {
+  fromOutdatedLookupPage,
   fromOutdatedPage,
+  LOOKUP_PAGE_VERSION,
   cancelRegistration,
   changesOf,
   choicesAfterVenueChange,
@@ -25,6 +27,23 @@ import {
 } from "./registration";
 
 // 部署 #65 之前打開的報名表還會送來 afternoonActivityId；照收的話，她轉換好的午后動態課程會被刪掉。
+// 部署 #65 之前打開的查詢頁沒有午后動態的場次，查到的結果會把她選的午后動態顯示成「不參加」。
+describe("舊版查詢頁送來的查詢", () => {
+  it.each([
+    { what: "沒帶版本", input: { name: "王小美", phoneOrNumber: "0912345678" } },
+    { what: "版本不對", input: { name: "王小美", phoneOrNumber: "0912345678", pageVersion: 1 } },
+    { what: "不是物件", input: undefined },
+  ])("$what：認得出是舊版頁面", ({ input }) => {
+    expect(fromOutdatedLookupPage(input)).toBe(true);
+  });
+
+  it("現在的查詢頁帶著目前的版本", () => {
+    expect(
+      fromOutdatedLookupPage({ name: "王小美", phoneOrNumber: "0912345678", pageVersion: LOOKUP_PAGE_VERSION }),
+    ).toBe(false);
+  });
+});
+
 describe("舊版頁面送來的報名表", () => {
   it.each([
     { what: "選了午后動態", input: { name: "王小美", afternoonActivityId: "00000000-0000-4000-8000-00000000000a" } },

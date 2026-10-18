@@ -5,10 +5,12 @@
 
 -- 先擋下報名的寫入（送出、修改、取消）與午后動態的修改，直到轉換完成：不然下面複製選擇之後、
 -- 刪掉欄位之前才寫入的報名，她選的午后動態會遺失。讀取照常。鎖到整個 migration 結束才放開。
+-- 報名的寫入第一步都先鎖住目前年度（for key share），之後才碰午后動態與報名，兩者的先後還不一樣；
+-- 所以先鎖年度大會：正在寫的做完、新的卡在第一步，再鎖午后動態與報名就不會和它們互相等待。
 -- migration 整個檔案是一個隱含的交易，最外層不能直接 lock table，所以放在 do 區塊裡。
 do $$
 begin
-  lock table public.registrations, public.afternoon_activities in exclusive mode;
+  lock table public.conferences, public.afternoon_activities, public.registrations in exclusive mode;
 end
 $$;
 

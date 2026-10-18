@@ -190,6 +190,18 @@ export function fromOutdatedPage(input: unknown): boolean {
 /** 舊版頁面送來時回傳的結果（見 fromOutdatedPage）。 */
 export const OUTDATED_PAGE_RESULT = { ok: false, errors: { form: "unknown" } } as const satisfies SubmitResult;
 
+/** 查詢頁送出時帶的版本。查詢頁和伺服器的資料格式不相容時加一。 */
+export const LOOKUP_PAGE_VERSION = 2;
+
+/**
+ * 部署 #65 之前打開的查詢頁沒帶版本：它的場次選項沒有午后動態場次，又只認得舊的午后動態欄位，
+ * 查到的結果會把她選的午后動態顯示成「不參加」。這種頁面一律擋下，回傳舊頁面也認得的錯誤（unknown），
+ * 她重新整理就是新的頁面。
+ */
+export function fromOutdatedLookupPage(input: unknown): boolean {
+  return (input as { pageVersion?: unknown } | null | undefined)?.pageVersion !== LOOKUP_PAGE_VERSION;
+}
+
 /**
  * 把送來的報名表內容整理成 RegistrationInput。報名、修改的伺服器動作任何人都能直接打，
  * 送來的不一定是報名表的形狀；型別不對的一律當成空白，交給欄位檢查擋下。
