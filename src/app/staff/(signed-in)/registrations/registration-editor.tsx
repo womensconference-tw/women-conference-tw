@@ -57,7 +57,6 @@ const emptyInput: StaffRegistrationInput = {
   venueId: "",
   courseIds: [],
   lunchOptionId: null,
-  afternoonActivityId: null,
   choirPart: null,
   services: [],
   printedHandbook: null,
@@ -79,7 +78,6 @@ function inputOf(registration: RegistrationForEdit): StaffRegistrationInput {
     venueId: registration.venueId,
     courseIds: registration.courseIds,
     lunchOptionId: registration.lunchOptionId,
-    afternoonActivityId: registration.afternoonActivityId,
     choirPart: registration.choirPart,
     services: registration.services,
     printedHandbook: registration.printedHandbook,
@@ -126,7 +124,7 @@ export function RegistrationEditor({
   // 她原本已佔的選項不算額滿（ADR 0006）。
   const held = new Set(
     registration
-      ? [...registration.courseIds, registration.lunchOptionId, registration.afternoonActivityId].filter(
+      ? [...registration.courseIds, registration.lunchOptionId].filter(
           (id): id is string => id !== null,
         )
       : [],
@@ -138,11 +136,11 @@ export function RegistrationEditor({
     setInput((prev) => ({ ...prev, ...changes }));
   }
 
-  // 換場地時課程、午餐、午后動態都屬於舊場地，清空（和前台相同）。
+  // 換場地時課程、午餐都屬於舊場地，清空（和前台相同）。
   // 後台的場次選單沒選就顯示「不選課」，所以清空的場次就是不選課，不必像前台一樣要求每個場次都回答。
   function chooseVenue(venueId: string) {
     setChoices(choicesAfterVenueChange({ courses: choices, extras: {} }).courses);
-    update({ venueId, courseIds: [], lunchOptionId: null, afternoonActivityId: null });
+    update({ venueId, courseIds: [], lunchOptionId: null });
   }
 
   // 成對課程一起選、一起取消（見 chooseCourse）；換掉一堂時另一堂的場次清空，也就是不選課。
@@ -380,23 +378,6 @@ export function RegistrationEditor({
             >
               <option value="">不需要</option>
               {venue.lunchOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {label(option)}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-        {venue && venue.afternoonActivities.length > 0 && (
-          <Field label="午后動態">
-            <select
-              value={input.afternoonActivityId ?? ""}
-              onChange={(event) => update({ afternoonActivityId: event.target.value || null })}
-              aria-invalid={errors.afternoonActivity ? true : undefined}
-              className={inputClass}
-            >
-              <option value="">不參加</option>
-              {venue.afternoonActivities.map((option) => (
                 <option key={option.id} value={option.id}>
                   {label(option)}
                 </option>

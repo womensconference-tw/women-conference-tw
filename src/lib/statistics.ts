@@ -30,13 +30,16 @@ export type VenueStatistics = {
   name: string;
   region: Region;
   count: number;
-  sessions: { id: string; name: string; courses: CourseStatistics[] }[];
+  sessions: {
+    id: string;
+    name: string;
+    courses: CourseStatistics[];
+    /** 這個場次選「不選課」的人數（例如午后動態不參加的人）。 */
+    noCourse: number;
+  }[];
   lunches: OptionStatistics[];
   /** 選「不需要」午餐的人數。 */
   noLunch: number;
-  activities: OptionStatistics[];
-  /** 午后動態選「不參加」的人數；沒有午后動態的場地是 0。 */
-  noActivity: number;
 };
 
 export type StakeStatistics = {
@@ -60,7 +63,7 @@ export type Statistics = {
 
 /** 某個年度大會、自己範圍內的統計。 */
 export async function getStatistics(supabase: SupabaseClient, conferenceId: string): Promise<Statistics> {
-  const [counts, venues, sessions, courses, lunches, activities] = await Promise.all([
+  const [counts, venues, sessions, courses, lunches] = await Promise.all([
     supabase.rpc("registration_counts", { p_conference_id: conferenceId }),
     supabase.from("venues").select("id, name_zh, region").eq("conference_id", conferenceId).order("position"),
     supabase.from("sessions").select("id, venue_id, name_zh").eq("conference_id", conferenceId).order("position"),
@@ -74,13 +77,8 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
       .select("id, venue_id, name_zh, capacity, registration_stopped")
       .eq("conference_id", conferenceId)
       .order("position"),
-    supabase
-      .from("afternoon_activities")
-      .select("id, venue_id, title_zh, capacity, registration_stopped")
-      .eq("conference_id", conferenceId)
-      .order("position"),
   ]);
-  for (const result of [counts, venues, sessions, courses, lunches, activities]) {
+  for (const result of [counts, venues, sessions, courses, lunches]) {
     if (result.error) throw result.error;
   }
 
@@ -107,9 +105,6 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
       const venueLunches = lunches
         .data!.filter((lunch) => lunch.venue_id === venue.id)
         .map((lunch) => option({ ...lunch, name: lunch.name_zh }, "lunch"));
-      const venueActivities = activities
-        .data!.filter((activity) => activity.venue_id === venue.id)
-        .map((activity) => option({ ...activity, name: activity.title_zh }, "activity"));
       return {
         id: venue.id,
         name: venue.name_zh,
@@ -117,10 +112,8 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
         count: venueCount,
         sessions: sessions
           .data!.filter((session) => session.venue_id === venue.id)
-          .map((session) => ({
-            id: session.id,
-            name: session.name_zh,
-            courses: courses
+          .map((session) => {
+            const sessionCourses = courses
               .data!.filter((course) => course.session_id === session.id)
               .map((course) => ({
                 id: course.id,
@@ -128,12 +121,16 @@ export async function getStatistics(supabase: SupabaseClient, conferenceId: stri
                 count: count("course", course.id),
                 capacity: course.capacity,
                 stopped: course.registration_stopped,
-              })),
-          })),
+              }));
+            return {
+              id: session.id,
+              name: session.name_zh,
+              courses: sessionCourses,
+              noCourse: venueCount - sum(sessionCourses),
+            };
+          }),
         lunches: venueLunches,
         noLunch: venueCount - sum(venueLunches),
-        activities: venueActivities,
-        noActivity: venueActivities.length > 0 ? venueCount - sum(venueActivities) : 0,
       };
     }),
     stakes: inOrder(rows.filter((row) => row.kind === "stake")).map((stake) => ({
@@ -164,7 +161,7 @@ function inOrder(rows: CountRow[]): CountRow[] {
 }
 
 /**
- * 課程、午餐、午后動態的「已報／容量」；不限人數的只顯示已報人數。
+ * 課程、午餐的「已報／容量」；不限人數的只顯示已報人數。
  * 只計得到部分報名（`partial`，見 venuesInView）時不列容量，免得額滿的課看起來還有很多名額。
  */
 export function formatUsage(option: Pick<OptionStatistics, "count" | "capacity">, partial: boolean): string {
@@ -183,7 +180,7 @@ export function joiningUsage({ count, capacity }: { count: number; capacity: num
 }
 
 /**
- * 後台超收前的確認提示（#17）：額滿或已停止報名（#33）的課程、午餐、午后動態各一句（見 joiningUsage），
+ * 後台超收前的確認提示（#17）：額滿或已停止報名（#33）的課程、午餐各一句（見 joiningUsage），
  * 已停止的另外寫出來。
  * 依場地、場次內的順序；不認得的 id 略過。成對課程的另一堂也會列出（一堂額滿，兩堂一起確認），
  * 但修改時她原本已佔的選項（heldIds）不列出：加入後人數不變。
@@ -199,9 +196,6 @@ export function describeFullOptions(statistics: Statistics, fullIds: string[], h
       .filter((course) => ids.includes(course.id))
       .map((course) => line("課程", course.title, course)),
     ...venue.lunches.filter((lunch) => ids.includes(lunch.id)).map((lunch) => line("午餐", lunch.name, lunch)),
-    ...venue.activities
-      .filter((activity) => ids.includes(activity.id))
-      .map((activity) => line("午后動態", activity.name, activity)),
   ]);
 }
 

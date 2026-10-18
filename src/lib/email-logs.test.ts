@@ -115,7 +115,6 @@ async function registered(overrides: Partial<RegistrationInput> = {}, locale: "z
     venueId,
     courseIds: [courseId],
     lunchOptionId: null,
-    afternoonActivityId: null,
     choirPart: null,
     services: [],
     printedHandbook: true,

@@ -3,16 +3,16 @@ import { trimBlank, UUID_PATTERN } from "./registration";
 import { REGIONS, type Region } from "./staff";
 
 /*
- * 後台編輯目前年度的場地、場次、課程、成對課程、午餐與午后動態（#22）。
+ * 後台編輯目前年度的場地、場次、課程、成對課程與午餐（#22）。午后動態就是某個場地下午的一個場次（#65）。
  * 只有總管理員能寫入，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
  * 報名開放後不能新增、刪除、換時段，有人選過的選項不能刪除，都由資料庫擋下，這裡把錯誤轉成代碼。
  */
 
-/** 可以新增、修改、刪除的項目：場地、場次、課程、午餐、午后動態。 */
-export const ITEM_KINDS = ["venue", "session", "course", "lunch", "activity"] as const;
+/** 可以新增、修改、刪除的項目：場地、場次、課程、午餐。 */
+export const ITEM_KINDS = ["venue", "session", "course", "lunch"] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
 
-/** 每種項目存在哪張表、名稱與上層欄位叫什麼。上層：場次屬於場地、課程屬於場次、午餐與午后動態屬於場地。 */
+/** 每種項目存在哪張表、名稱與上層欄位叫什麼。上層：場次屬於場地、課程屬於場次、午餐屬於場地。 */
 const ITEMS: Record<
   ItemKind,
   { table: string; name: "name" | "title"; parent: "venue_id" | "session_id" | null; capacity: boolean }
@@ -21,7 +21,6 @@ const ITEMS: Record<
   session: { table: "sessions", name: "name", parent: "venue_id", capacity: false },
   course: { table: "courses", name: "title", parent: "session_id", capacity: true },
   lunch: { table: "lunch_options", name: "name", parent: "venue_id", capacity: true },
-  activity: { table: "afternoon_activities", name: "title", parent: "venue_id", capacity: true },
 };
 
 /** 新增或修改一個項目時填的欄位，都是表單上的原始文字。用不到的欄位不填。 */
@@ -36,7 +35,7 @@ export type ItemInput = {
   position?: string;
   nameZh: string;
   nameEn?: string;
-  /** 課程、午餐、午后動態的說明。 */
+  /** 課程、午餐的說明。 */
   descriptionZh?: string;
   descriptionEn?: string;
   /** 場地所在的區。 */
@@ -46,7 +45,7 @@ export type ItemInput = {
   addressEn?: string;
   featuresZh?: string;
   featuresEn?: string;
-  /** 課程、午餐、午后動態的名額；空白表示不限。 */
+  /** 課程、午餐的名額；空白表示不限。 */
   capacity?: string;
   /** 課程的教室；空白表示還沒排。 */
   classroom?: string;
@@ -137,7 +136,7 @@ export async function saveItem(
       features_zh: text(input.featuresZh),
       features_en: text(input.featuresEn),
     });
-  } else if (input.kind === "lunch" || input.kind === "activity") {
+  } else if (input.kind === "lunch") {
     Object.assign(values, {
       description_zh: text(input.descriptionZh),
       description_en: text(input.descriptionEn),
@@ -158,7 +157,7 @@ export async function saveItem(
   return { ok: true, id: data[0].id as string };
 }
 
-/** 刪除一個項目。場地連同它的場次、課程、午餐、午后動態；場次連同它的課程。 */
+/** 刪除一個項目。場地連同它的場次、課程、午餐；場次連同它的課程。 */
 export async function deleteItem(supabase: SupabaseClient, kind: ItemKind, id: string): Promise<ProgrammeResult> {
   if (!validIds(id)) return { ok: false, error: "not_found" };
   const admin = await ensureAdmin(supabase);
@@ -169,8 +168,8 @@ export async function deleteItem(supabase: SupabaseClient, kind: ItemKind, id: s
   return data.length === 0 ? { ok: false, error: "not_found" } : { ok: true };
 }
 
-/** 可以停止報名的選項：課程、午餐、午后動態。 */
-export const STOPPABLE_KINDS = ["course", "lunch", "activity"] as const satisfies readonly ItemKind[];
+/** 可以停止報名的選項：課程、午餐。 */
+export const STOPPABLE_KINDS = ["course", "lunch"] as const satisfies readonly ItemKind[];
 export type StoppableKind = (typeof STOPPABLE_KINDS)[number];
 
 /**
@@ -288,7 +287,6 @@ export type ProgrammeVenue = ProgrammeItem & {
   featuresEn: string;
   sessions: ProgrammeSession[];
   lunchOptions: ProgrammeOption[];
-  afternoonActivities: ProgrammeOption[];
 };
 
 export type Programme = {
@@ -316,8 +314,7 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
       .select(
         `id, position, region, name_zh, name_en, address_zh, address_en, features_zh, features_en,
         sessions(id, position, name_zh, name_en, courses(${option}, title_zh, title_en, course_classrooms(classroom))),
-        lunch_options(${option}, name_zh, name_en),
-        afternoon_activities(${option}, title_zh, title_en)`,
+        lunch_options(${option}, name_zh, name_en)`,
       )
       .eq("conference_id", conference.data.id);
   if (venueId) venueQuery = venueQuery.eq("id", venueId);
@@ -330,9 +327,7 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
       .order("position", { referencedTable: "sessions.courses" })
       .order("id", { referencedTable: "sessions.courses" })
       .order("position", { referencedTable: "lunch_options" })
-      .order("id", { referencedTable: "lunch_options" })
-      .order("position", { referencedTable: "afternoon_activities" })
-      .order("id", { referencedTable: "afternoon_activities" }),
+      .order("id", { referencedTable: "lunch_options" }),
     supabase
       .from("course_pairs")
       .select("first_course_id, second_course_id")
@@ -388,9 +383,6 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
         })),
       })),
       lunchOptions: venue.lunch_options.map((lunch) => toOption(lunch, lunch.name_zh, lunch.name_en)),
-      afternoonActivities: venue.afternoon_activities.map((activity) =>
-        toOption(activity, activity.title_zh, activity.title_en),
-      ),
     })),
     coursePairs: pairs.data.map((pair) => ({
       firstCourseId: pair.first_course_id,

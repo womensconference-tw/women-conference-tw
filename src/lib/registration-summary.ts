@@ -9,7 +9,6 @@ export type Details = Pick<
   | "venueId"
   | "courseIds"
   | "lunchOptionId"
-  | "afternoonActivityId"
   | "services"
   | "printedHandbook"
 > & {
@@ -32,7 +31,6 @@ export type SummaryOptions = {
   venues: (Named & {
     sessions: { name: string; courses: Named[] }[];
     lunchOptions: Named[];
-    afternoonActivities: Named[];
   })[];
   stakes: (Named & { wards: Named[] })[];
 };
@@ -41,7 +39,7 @@ export type SummaryOptions = {
  * 報名資料清單的內容，依報名表的步驟排列：聯絡資料與場地、每個場次的課程、午餐與服務。
  * 確認步驟、完成頁、查詢頁與確認信共用，列出的內容才會一致。
  * done（送出以後）時有報名編號就不列電話（編號另外顯示），沒填的 Email、LINE ID 不列。
- * 場地沒有午餐、午后動態時不列那一列。
+ * 場地沒有午餐時不列那一列。
  */
 export function summarizeRegistration(
   registration: Details,
@@ -86,17 +84,6 @@ export function summarizeRegistration(
             value:
               venue.lunchOptions.find((lunch) => lunch.id === registration.lunchOptionId)?.name ??
               t.register.noLunch,
-          },
-        ]
-      : []),
-    ...(venue && venue.afternoonActivities.length > 0
-      ? [
-          {
-            label: t.register.afternoonActivityLabel,
-            value:
-              venue.afternoonActivities.find(
-                (activity) => activity.id === registration.afternoonActivityId,
-              )?.name ?? t.register.noAfternoonActivity,
           },
         ]
       : []),

@@ -18,7 +18,7 @@ import {
 } from "./registration";
 
 /*
- * 停止報名（#33，GLOSSARY「停止報名」、ADR 0006）：總管理員單獨關閉某門課程、某個午餐或午后動態。
+ * 停止報名（#33，GLOSSARY「停止報名」、ADR 0006）：總管理員單獨關閉某門課程或某個午餐（午后動態就是課程）。
  * 停止的選項在送出時視同額滿；她原本已佔的位子保留。
  */
 
@@ -94,7 +94,7 @@ async function addVenue(name: string) {
   ).id;
 }
 
-// 場次、課程、午餐、午后動態只能在開放報名前建立，所以先建好，再開放報名。
+// 場次、課程、午餐只能在開放報名前建立，所以先建好，再開放報名。
 async function addCourse(capacity: number | null, position = 1, title = "家譜入門") {
   const session = must(
     await admin
@@ -122,16 +122,6 @@ async function addLunch(capacity: number | null, venue = venueId, name = "葷食
   ).id;
 }
 
-async function addActivity(capacity: number | null) {
-  return must(
-    await admin
-      .from("afternoon_activities")
-      .insert({ conference_id: conferenceId, venue_id: venueId, title_zh: "手作花圈", capacity })
-      .select("id")
-      .single(),
-  ).id;
-}
-
 async function openRegistration() {
   must(
     await admin
@@ -153,7 +143,6 @@ function validInput(overrides: Partial<RegistrationInput> = {}): RegistrationInp
     venueId,
     courseIds: [],
     lunchOptionId: null,
-    afternoonActivityId: null,
     choirPart: null,
     services: [],
     printedHandbook: false,
@@ -208,33 +197,16 @@ describe("停止報名的選項，新報名送出被拒", () => {
     expect(await registrationCount("停止後報名")).toBe(0);
   });
 
-  it("午后動態停止後，新報名被拒並回傳額滿，資料不寫入", async () => {
-    const activity = await addActivity(30);
-    await openRegistration();
-    await stop("activity", activity);
-
-    const result = await submit({ name: "停止後報名", afternoonActivityId: activity });
-
-    expect(result).toEqual({ ok: false, errors: { afternoonActivity: "afternoonActivityFull" }, fullIds: [activity] });
-    expect(await registrationCount("停止後報名")).toBe(0);
-  });
-
-  it("「不限」名額的課程、午餐、午后動態停止後同樣被拒", async () => {
-    const [course, lunch, activity] = [await addCourse(null), await addLunch(null), await addActivity(null)];
+  it("「不限」名額的課程、午餐停止後同樣被拒", async () => {
+    const [course, lunch] = [await addCourse(null), await addLunch(null)];
     await openRegistration();
     await stop("course", course);
     await stop("lunch", lunch);
-    await stop("activity", activity);
 
-    const result = await submit({
-      name: "不限也停止",
-      courseIds: [course],
-      lunchOptionId: lunch,
-      afternoonActivityId: activity,
-    });
+    const result = await submit({ name: "不限也停止", courseIds: [course], lunchOptionId: lunch });
 
     expect(result).toMatchObject({ ok: false, errors: { courses: "courseFull", lunch: "lunchFull" } });
-    expect(!result.ok && result.fullIds?.toSorted()).toEqual([course, lunch, activity].toSorted());
+    expect(!result.ok && result.fullIds?.toSorted()).toEqual([course, lunch].toSorted());
     expect(await registrationCount("不限也停止")).toBe(0);
   });
 
@@ -329,7 +301,6 @@ describe("修改報名時保留原位子", () => {
         ...changesOf(validInput()),
         courseIds: registration.courseIds,
         lunchOptionId: registration.lunchOptionId,
-        afternoonActivityId: registration.afternoonActivityId,
         ...changes,
       },
     });
@@ -340,7 +311,7 @@ describe("修改報名時保留原位子", () => {
     const row = must(
       await admin
         .from("registrations")
-        .select("lunch_option_id, afternoon_activity_id, services, updated_at")
+        .select("lunch_option_id, services, updated_at")
         .eq("id", id)
         .single(),
     );
@@ -348,13 +319,12 @@ describe("修改報名時保留原位子", () => {
     return { ...row, courseIds: courses.map((course) => course.course_id).toSorted() };
   }
 
-  it("已選了停止的課程、午餐、午后動態的人，修改其他欄位成功，位子保留", async () => {
-    const [course, lunch, activity] = [await addCourse(30), await addLunch(30), await addActivity(30)];
+  it("已選了停止的課程、午餐的人，修改其他欄位成功，位子保留", async () => {
+    const [course, lunch] = [await addCourse(30), await addLunch(30)];
     await openRegistration();
-    const before = await registered({ courseIds: [course], lunchOptionId: lunch, afternoonActivityId: activity });
+    const before = await registered({ courseIds: [course], lunchOptionId: lunch });
     await stop("course", course);
     await stop("lunch", lunch);
-    await stop("activity", activity);
 
     const result = await update(before, { services: ["setup"] });
 
@@ -362,7 +332,6 @@ describe("修改報名時保留原位子", () => {
     expect(await stored(before.id)).toMatchObject({
       courseIds: [course],
       lunch_option_id: lunch,
-      afternoon_activity_id: activity,
       services: ["setup"],
     });
   });
@@ -474,10 +443,9 @@ describe("前台顯示", () => {
   it("未登入者直接查 API 也讀不到停止狀態", async () => {
     await addCourse(null);
     await addLunch(null);
-    await addActivity(null);
     await openRegistration();
 
-    for (const table of ["courses", "lunch_options", "afternoon_activities"]) {
+    for (const table of ["courses", "lunch_options"]) {
       const { data, error } = await anonClient().from(table).select("id, registration_stopped");
       expect({ table, data }).toEqual({ table, data: null });
       expect(error).not.toBeNull();
@@ -485,25 +453,21 @@ describe("前台顯示", () => {
   });
 
 
-  it("停止報名的課程、午餐、午后動態在報名表上是「已額滿」，重新開放後恢復", async () => {
-    const [course, lunch, activity] = [await addCourse(null), await addLunch(null), await addActivity(null)];
+  it("停止報名的課程、午餐在報名表上是「已額滿」，重新開放後恢復", async () => {
+    const [course, lunch] = [await addCourse(null), await addLunch(null)];
     await openRegistration();
     await stop("course", course);
     await stop("lunch", lunch);
-    await stop("activity", activity);
 
     const fullness = async () => {
       const [venue] = (await getRegistrationOptions(anonClient(), "zh")).venues;
-      return [venue.sessions[0].courses[0], venue.lunchOptions[0], venue.afternoonActivities[0]].map(
-        (option) => option.isFull,
-      );
+      return [venue.sessions[0].courses[0], venue.lunchOptions[0]].map((option) => option.isFull);
     };
 
-    expect(await fullness()).toEqual([true, true, true]);
+    expect(await fullness()).toEqual([true, true]);
     await reopen("course", course);
     await reopen("lunch", lunch);
-    await reopen("activity", activity);
-    expect(await fullness()).toEqual([false, false, false]);
+    expect(await fullness()).toEqual([false, false]);
   });
 });
 
@@ -512,12 +476,10 @@ describe("停止、調整名額和送出報名搶同一把鎖", () => {
   const kinds: [string, Kind][] = [
     ["課程", { kind: "course", add: () => addCourse(30), choice: (id) => ({ courseIds: [id] }) }],
     ["午餐", { kind: "lunch", add: () => addLunch(30), choice: (id) => ({ lunchOptionId: id }) }],
-    ["午后動態", { kind: "activity", add: () => addActivity(30), choice: (id) => ({ afternoonActivityId: id }) }],
   ];
   const tables: Record<StoppableKind, string> = {
     course: "courses",
     lunch: "lunch_options",
-    activity: "afternoon_activities",
   };
 
   /** 在直接連線的交易裡以總管理員的身分停止報名（和後台呼叫的是同一個函式）。 */
@@ -534,8 +496,7 @@ describe("停止、調整名額和送出報名搶同一把鎖", () => {
       select id from public.submit_registration(
         ${venueId}, ${stakeId}, ${wardId}, ${name}, '0912345678', null, null, true, 'zh',
         p_course_ids => ${choice.courseIds ?? []}::uuid[],
-        p_lunch_option_id => ${choice.lunchOptionId ?? null}::uuid,
-        p_afternoon_activity_id => ${choice.afternoonActivityId ?? null}::uuid
+        p_lunch_option_id => ${choice.lunchOptionId ?? null}::uuid
       )`;
   }
 
@@ -711,25 +672,23 @@ describe("只有總管理員能停止、重新開放、調名額、換教室", (
   ];
 
   it.each(viewers)("%s透過後台服務停止、重新開放不了", async (_, client) => {
-    const [course, lunch, activity] = [await addCourse(30), await addLunch(30), await addActivity(30)];
+    const [course, lunch] = [await addCourse(30), await addLunch(30)];
     await openRegistration();
     await stop("lunch", lunch);
 
     for (const [kind, id, stopped] of [
       ["course", course, true],
       ["lunch", lunch, false],
-      ["activity", activity, true],
     ] as const) {
       expect(await setRegistrationStopped(client(), kind, id, stopped)).toEqual({ ok: false, error: "not_admin" });
     }
     expect(await stoppedState("courses", [course])).toEqual({ [course]: false });
     expect(await stoppedState("lunch_options", [lunch])).toEqual({ [lunch]: true });
-    expect(await stoppedState("afternoon_activities", [activity])).toEqual({ [activity]: false });
   });
 
   // 權限由資料庫強制（ADR 0004），直接呼叫 API 也一樣。
   it.each(viewers)("%s直接呼叫 API 也停止、調名額、換教室不了", async (_, client) => {
-    const [course, lunch, activity] = [await addCourse(30), await addLunch(30), await addActivity(30)];
+    const [course, lunch] = [await addCourse(30), await addLunch(30)];
     must(await admin.from("course_classrooms").insert({ course_id: course, classroom: "101" }));
     await openRegistration();
     const db = client();
@@ -739,7 +698,6 @@ describe("只有總管理員能停止、重新開放、調名額、換教室", (
     await Promise.all([
       db.from("courses").update({ registration_stopped: true, capacity: 999 }).eq("id", course),
       db.from("lunch_options").update({ registration_stopped: true, capacity: 999 }).eq("id", lunch),
-      db.from("afternoon_activities").update({ registration_stopped: true, capacity: 999 }).eq("id", activity),
       db.from("course_classrooms").update({ classroom: "大教室" }).eq("course_id", course),
       db.rpc("save_course", {
         p_id: course,
@@ -758,7 +716,6 @@ describe("只有總管理員能停止、重新開放、調名額、換教室", (
     for (const [table, id] of [
       ["courses", course],
       ["lunch_options", lunch],
-      ["afternoon_activities", activity],
     ]) {
       expect(must(await admin.from(table).select("registration_stopped, capacity").eq("id", id).single())).toEqual({
         registration_stopped: false,

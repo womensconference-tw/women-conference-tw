@@ -123,7 +123,6 @@ async function registered(overrides: Partial<RegistrationInput> = {}, locale: Lo
       venueId,
       courseIds: [courseId],
       lunchOptionId: null,
-      afternoonActivityId: null,
       choirPart: null,
       services: [],
       printedHandbook: true,
@@ -250,7 +249,6 @@ describe("寄確認信", () => {
         venueId,
         courseIds: [otherCourseId],
         lunchOptionId: null,
-        afternoonActivityId: null,
         choirPart: null,
         services: [],
         printedHandbook: true,
@@ -307,7 +305,7 @@ describe("寄確認信", () => {
     const key = crypto.randomUUID();
     const input: RegistrationInput = {
       name: "王小美", phone: "0912345678", noPhone: false, email: "xiaomei@example.com", lineId: "",
-      stakeId: stakeId!, wardId, venueId, courseIds: [courseId], lunchOptionId: null, afternoonActivityId: null,
+      stakeId: stakeId!, wardId, venueId, courseIds: [courseId], lunchOptionId: null,
       choirPart: null, services: [], printedHandbook: true, portraitConsent: true,
     };
 

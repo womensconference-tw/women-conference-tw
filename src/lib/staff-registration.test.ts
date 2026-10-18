@@ -27,11 +27,10 @@ let xindianWardId: string;
 let quiltingId: string;
 let singingId: string;
 let bentoId: string;
-let walkId: string;
 
 /*
  * 每個測試都有一個報名中的 2099 年度大會：
- * - 北區金華：上午場次有拼布（容量 1）、唱歌（不限人數）；午餐便當（限量 1）；午后動態散步（限量 1）。
+ * - 北區金華：上午場次有拼布（容量 1）、唱歌（不限人數）；午餐便當（限量 1）。
  * - 中區大雅：沒有課程。
  * 支聯會北區台北（新店支會），以及總管理員、北區課務組、北區報報組、全區報報組。
  * 測完全部刪掉、復原原本的目前年度。
@@ -93,14 +92,6 @@ beforeEach(async () => {
       .select("id")
       .single(),
   ).id;
-  walkId = must(
-    await admin
-      .from("afternoon_activities")
-      .insert({ conference_id: conferenceId, venue_id: venueId, position: 1, title_zh: "散步", capacity: 1 })
-      .select("id")
-      .single(),
-  ).id;
-
   must(
     await admin
       .from("conferences")
@@ -152,7 +143,6 @@ function validInput(overrides: Partial<StaffRegistrationInput> = {}): StaffRegis
     venueId,
     courseIds: [],
     lunchOptionId: null,
-    afternoonActivityId: null,
     choirPart: null,
     services: [],
     printedHandbook: false,
@@ -176,10 +166,10 @@ async function closeRegistration() {
   );
 }
 
-/** 以前台訪客的身分報一筆，佔掉拼布、便當、散步各一個名額；回傳 id。 */
+/** 以前台訪客的身分報一筆，佔掉拼布、便當各一個名額；回傳 id。 */
 async function publicRegistration(overrides: Partial<RegistrationInput> = {}) {
   const input: RegistrationInput = {
-    ...validInput({ name: "李大華", courseIds: [quiltingId], lunchOptionId: bentoId, afternoonActivityId: walkId }),
+    ...validInput({ name: "李大華", courseIds: [quiltingId], lunchOptionId: bentoId }),
     ...overrides,
   };
   const result = await submitRegistration(anonClient(), input, "zh");
@@ -192,7 +182,7 @@ async function stored(id: string) {
   const row = must(
     await admin
       .from("registrations")
-      .select("venue_id, role, status, email, lunch_option_id, afternoon_activity_id, printed_handbook, updated_at")
+      .select("venue_id, role, status, email, lunch_option_id, printed_handbook, updated_at")
       .eq("id", id)
       .single(),
   );
@@ -265,14 +255,14 @@ describe("後台新增報名", () => {
 
     const result = await staffSubmitRegistration(
       head,
-      validInput({ courseIds: [quiltingId], lunchOptionId: bentoId, afternoonActivityId: walkId }),
+      validInput({ courseIds: [quiltingId], lunchOptionId: bentoId }),
       { confirmFull: false },
     );
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.needsConfirmation).toBe(true);
-    expect(result.fullIds?.toSorted()).toEqual([quiltingId, bentoId, walkId].toSorted());
+    expect(result.fullIds?.toSorted()).toEqual([quiltingId, bentoId].toSorted());
     expect(await registrationCount()).toBe(1);
   });
 
@@ -281,7 +271,7 @@ describe("後台新增報名", () => {
 
     const result = await staffSubmitRegistration(
       await signedInClient("head@example.com"),
-      validInput({ courseIds: [quiltingId], lunchOptionId: bentoId, afternoonActivityId: walkId }),
+      validInput({ courseIds: [quiltingId], lunchOptionId: bentoId }),
       { confirmFull: true },
     );
 
@@ -316,16 +306,16 @@ describe("後台新增報名", () => {
 
 describe("後台修改報名", () => {
   // 修改畫面一開始照讀到的課程填好；讀不到課程的話，存檔時會把她的課全部拿掉。
-  it("修改畫面讀得到她選的課程、午餐、午后動態", async () => {
+  it("修改畫面讀得到她選的課程、午餐", async () => {
     const id = await publicRegistration();
 
     const registration = await getRegistrationForEdit(await signedInClient("head@example.com"), id);
 
-    expect(registration).toMatchObject({ courseIds: [quiltingId], lunchOptionId: bentoId, afternoonActivityId: walkId });
+    expect(registration).toMatchObject({ courseIds: [quiltingId], lunchOptionId: bentoId });
   });
 
   it("總管理員可以修改選擇、聯絡資料與身分類別，報名截止後也可以", async () => {
-    const id = await publicRegistration({ courseIds: [], lunchOptionId: null, afternoonActivityId: null });
+    const id = await publicRegistration({ courseIds: [], lunchOptionId: null });
     await closeRegistration();
 
     const result = await staffUpdateRegistration(await signedInClient("head@example.com"), {
@@ -352,7 +342,6 @@ describe("後台修改報名", () => {
         role: "team",
         courseIds: [quiltingId],
         lunchOptionId: bentoId,
-        afternoonActivityId: walkId,
       }),
       confirmFull: false,
     });
@@ -366,7 +355,6 @@ describe("後台修改報名", () => {
       name: "陳小玉",
       courseIds: [singingId],
       lunchOptionId: null,
-      afternoonActivityId: null,
     });
     const before = await stored(id);
     const head = await signedInClient("head@example.com");
@@ -415,7 +403,7 @@ describe("後台修改報名", () => {
 
     const result = await staffUpdateRegistration(await signedInClient("head@example.com"), {
       registrationId: id,
-      changes: changed({ courseIds: [quiltingId], lunchOptionId: bentoId, afternoonActivityId: walkId }),
+      changes: changed({ courseIds: [quiltingId], lunchOptionId: bentoId }),
       confirmFull: false,
     });
 
@@ -437,7 +425,7 @@ describe("後台取消報名", () => {
     expect(row.cancelled_at).not.toBeNull();
     const result = await staffSubmitRegistration(
       head,
-      validInput({ courseIds: [quiltingId], lunchOptionId: bentoId, afternoonActivityId: walkId }),
+      validInput({ courseIds: [quiltingId], lunchOptionId: bentoId }),
       { confirmFull: false },
     );
     expect(result.ok).toBe(true);
@@ -545,7 +533,7 @@ describe("身分類別", () => {
   });
 
   it("前台修改報名不會改掉總管理員設定的身分類別", async () => {
-    const id = await publicRegistration({ courseIds: [], lunchOptionId: null, afternoonActivityId: null });
+    const id = await publicRegistration({ courseIds: [], lunchOptionId: null });
     const head: SupabaseClient = await signedInClient("head@example.com");
     const staffResult = await staffUpdateRegistration(head, {
       registrationId: id,

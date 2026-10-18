@@ -2,7 +2,6 @@ import {
   partnerOf,
   type CourseChoices,
   type ExtraChoices,
-  type RegistrationError,
   type RegistrationErrors,
   type RegistrationField,
   type RegistrationInput,
@@ -11,7 +10,7 @@ import type { LimitedOption, RegistrationOptions } from "./registration-options"
 
 /**
  * 已經不在名單裡或剛額滿的選擇：要清掉的值、整理後的選課與午餐等選擇、要顯示的錯誤，
- * 以及已經不用回答、錯誤要收起的題目（場地的午餐或午后動態全被刪掉時）。
+ * 以及已經不用回答、錯誤要收起的題目（場地的午餐全被刪掉時）。
  * 剛額滿的選擇也取消選取並標出來，不必等再次送出才被拒絕。
  * 選的課已經不在原本那個場次（被刪除，或被管理員移到別的場次）時，清掉那個場次的選擇請她重選，
  * 不會不知不覺換到別的時段。成對課程其中一堂被取消選取時，另一堂也一起取消。
@@ -59,32 +58,17 @@ export function staleSelections(
   // 她原本已佔的選項就算額滿也照樣是她的。
   const isFull = (option: LimitedOption) => option.isFull && !heldIds.includes(option.id);
   const keptExtras = { ...extras };
-  const checkExtra = (
-    key: "lunch" | "afternoonActivity",
-    options: LimitedOption[],
-    unavailable: RegistrationError,
-    full: RegistrationError,
-  ) => {
-    const choice = extras[key];
-    if (venue && options.length === 0) {
-      delete keptExtras[key];
-      dropped.push(key);
-      return;
+  const lunchOptions = venue?.lunchOptions ?? [];
+  if (venue && lunchOptions.length === 0) {
+    delete keptExtras.lunch;
+    dropped.push("lunch");
+  } else if (extras.lunch) {
+    const lunch = lunchOptions.find((candidate) => candidate.id === extras.lunch);
+    if (!lunch || isFull(lunch)) {
+      delete keptExtras.lunch;
+      errors.lunch = lunch ? "lunchFull" : "lunchUnavailable";
     }
-    if (!choice) return;
-    const option = options.find((candidate) => candidate.id === choice);
-    if (!option || isFull(option)) {
-      delete keptExtras[key];
-      errors[key] = option ? full : unavailable;
-    }
-  };
-  checkExtra("lunch", venue?.lunchOptions ?? [], "lunchUnavailable", "lunchFull");
-  checkExtra(
-    "afternoonActivity",
-    venue?.afternoonActivities ?? [],
-    "afternoonActivityUnavailable",
-    "afternoonActivityFull",
-  );
+  }
   const sessions = venue?.sessions ?? [];
   const kept: CourseChoices = {};
   for (const [sessionId, courseId] of Object.entries(choices)) {

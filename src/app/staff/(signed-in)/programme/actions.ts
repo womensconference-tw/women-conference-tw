@@ -69,7 +69,7 @@ export async function removeProgrammeCoursePair(formData: FormData) {
   done(result, "unpaired", field("venueId"));
 }
 
-/** 停止或重新開放一個課程、午餐、午后動態的報名；成對課程兩堂一起。 */
+/** 停止或重新開放一個課程、午餐的報名；成對課程兩堂一起。 */
 export async function setProgrammeStopped(formData: FormData) {
   const field = (name: string) => String(formData.get(name) ?? "");
   const kind = STOPPABLE_KINDS.find((candidate) => candidate === field("kind"));

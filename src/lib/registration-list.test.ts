@@ -411,7 +411,6 @@ describe("後台修改報名時讀出的報名", () => {
       venueId: jinhuaId,
       courseIds: [],
       lunchOptionId: null,
-      afternoonActivityId: null,
       choirPart: null,
       services: [],
       printedHandbook: true,

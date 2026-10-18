@@ -110,7 +110,7 @@ async function withFullOptions(result: StaffSubmitResult, registrationId?: strin
     if (!data) return result;
     const registration = registrationId ? await getRegistrationForEdit(supabase, registrationId) : null;
     const heldIds = registration
-      ? [...registration.courseIds, registration.lunchOptionId, registration.afternoonActivityId].filter(
+      ? [...registration.courseIds, registration.lunchOptionId].filter(
           (id): id is string => id !== null,
         )
       : [];

@@ -3,7 +3,7 @@ import type { Locale } from "./i18n/locale";
 import { localized } from "./i18n/localized";
 import type { PairedCourse } from "./registration";
 
-/** 課程、午餐、午后動態這類可能限量的選項。 */
+/** 課程、午餐這類可能限量的選項。 */
 export type LimitedOption = {
   id: string;
   name: string;
@@ -25,8 +25,6 @@ export type VenueOption = {
   sessions: SessionOption[];
   /** 這個場地的午餐；沒有的話不問午餐。 */
   lunchOptions: LimitedOption[];
-  /** 這個場地的午后動態；只有設定了它的場地才有。 */
-  afternoonActivities: LimitedOption[];
 };
 
 export type WardOption = {
@@ -44,7 +42,7 @@ export type StakeOption = { id: string; name: string; wards: WardOption[] };
 export type RegistrationOptions = { venues: VenueOption[]; stakes: StakeOption[] };
 
 /**
- * 讀取報名表的選項：目前年度的場地與各場地的場次、課程、午餐、午后動態（標出已額滿），
+ * 讀取報名表的選項：目前年度的場地與各場地的場次、課程、午餐（標出已額滿），
  * 以及啟用中的支聯會、支會。訪客讀不到停用的，但工作人員讀得到（後台名單要顯示），所以這裡自己篩。
  * 沒有任何啟用中支會的支聯會不列出，免得選了之後沒有支會可選。
  * 都依排序列出，排序相同時依 id，讓順序每次都一樣。
@@ -53,11 +51,11 @@ export async function getRegistrationOptions(
   supabase: SupabaseClient,
   locale: Locale,
 ): Promise<RegistrationOptions> {
-  const [venues, stakes, pairs, fullCourses, fullLunches, fullActivities] = await Promise.all([
+  const [venues, stakes, pairs, fullCourses, fullLunches] = await Promise.all([
     supabase
       .from("venues")
       .select(
-        "id, name_zh, name_en, conferences!inner(is_current), sessions(id, name_zh, name_en, courses(id, title_zh, title_en, description_zh, description_en)), lunch_options(id, name_zh, name_en, description_zh, description_en), afternoon_activities(id, title_zh, title_en, description_zh, description_en)",
+        "id, name_zh, name_en, conferences!inner(is_current), sessions(id, name_zh, name_en, courses(id, title_zh, title_en, description_zh, description_en)), lunch_options(id, name_zh, name_en, description_zh, description_en)",
       )
       .eq("conferences.is_current", true)
       .order("position")
@@ -67,9 +65,7 @@ export async function getRegistrationOptions(
       .order("position", { referencedTable: "sessions.courses" })
       .order("id", { referencedTable: "sessions.courses" })
       .order("position", { referencedTable: "lunch_options" })
-      .order("id", { referencedTable: "lunch_options" })
-      .order("position", { referencedTable: "afternoon_activities" })
-      .order("id", { referencedTable: "afternoon_activities" }),
+      .order("id", { referencedTable: "lunch_options" }),
     supabase
       .from("stakes")
       .select("id, name_zh, name_en, wards(id, name_zh, name_en)")
@@ -83,14 +79,13 @@ export async function getRegistrationOptions(
     supabase.from("course_pairs").select("first_course_id, second_course_id"),
     supabase.rpc("full_courses"),
     supabase.rpc("full_lunch_options"),
-    supabase.rpc("full_afternoon_activities"),
   ]);
   if (venues.error) throw venues.error;
   if (stakes.error) throw stakes.error;
-  for (const result of [pairs, fullCourses, fullLunches, fullActivities]) {
+  for (const result of [pairs, fullCourses, fullLunches]) {
     if (result.error) throw result.error;
   }
-  const full = new Set<string>([...fullCourses.data, ...fullLunches.data, ...fullActivities.data]);
+  const full = new Set<string>([...fullCourses.data, ...fullLunches.data]);
   const option = <F extends "name" | "title">(
     row: { id: string } & Record<`${F}_zh` | `${F}_en` | "description_zh" | "description_en", string>,
     nameField: F,
@@ -125,7 +120,6 @@ export async function getRegistrationOptions(
         })),
       })),
       lunchOptions: venue.lunch_options.map((lunch) => option(lunch, "name")),
-      afternoonActivities: venue.afternoon_activities.map((activity) => option(activity, "title")),
     })),
     stakes: stakes.data
       .filter((stake) => stake.wards.length > 0)

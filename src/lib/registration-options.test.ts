@@ -88,8 +88,8 @@ async function takeSeat(venueId: string, sessionId: string, courseId: string) {
   );
 }
 
-/** 不經過報名服務，直接佔一份午餐與一個午后動態名額。 */
-async function takeLunchAndActivity(venueId: string, lunchId: string, activityId: string) {
+/** 不經過報名服務，直接佔一份午餐。 */
+async function takeLunch(venueId: string, lunchId: string) {
   const stake = await addStake({ position: 99, name_zh: "測試佔位支聯會" });
   const ward = must(
     await admin.from("wards").insert({ stake_id: stake, name_zh: "測試佔位支會" }).select("id").single(),
@@ -105,7 +105,6 @@ async function takeLunchAndActivity(venueId: string, lunchId: string, activityId
       portrait_consented_at: new Date().toISOString(),
       locale: "zh",
       lunch_option_id: lunchId,
-      afternoon_activity_id: activityId,
     }),
   );
 }
@@ -235,7 +234,7 @@ describe("報名表的選項", () => {
     ]);
   });
 
-  it("每個場地帶著自己的午餐與午后動態，依排序，標出已額滿", async () => {
+  it("每個場地帶著自己的午餐，依排序，標出已額滿", async () => {
     const [jinhua, daya] = must(
       await admin
         .from("venues")
@@ -256,32 +255,19 @@ describe("報名表的選項", () => {
         ], { defaultToNull: false })
         .select("id"),
     );
-    const activity = must(
-      await admin
-        .from("afternoon_activities")
-        .insert({ conference_id: conferenceId, venue_id: jinhua.id, title_zh: "手作花圈", title_en: "Wreath making", capacity: 1 })
-        .select("id")
-        .single(),
-    );
-    await takeLunchAndActivity(jinhua.id, vegetarian.id, activity.id);
+    await takeLunch(jinhua.id, vegetarian.id);
 
     const options = await getRegistrationOptions(anonClient(), "en");
 
-    expect(
-      options.venues.map(({ lunchOptions, afternoonActivities }) => ({ lunchOptions, afternoonActivities })),
-    ).toEqual([
+    expect(options.venues.map(({ lunchOptions }) => ({ lunchOptions }))).toEqual([
       {
         lunchOptions: [
           { id: meat.id, name: "葷食便當", description: "附飲料", isFull: false },
           { id: vegetarian.id, name: "Vegetarian", description: "", isFull: true },
         ],
-        afternoonActivities: [{ id: activity.id, name: "Wreath making", description: "", isFull: true }],
       },
-      // 沒有設定午后動態的場地不會出現這一題；A 場地的午餐額滿不影響 B 場地。
-      {
-        lunchOptions: [{ id: dayaLunch.id, name: "大雅便當", description: "", isFull: false }],
-        afternoonActivities: [],
-      },
+      // A 場地的午餐額滿不影響 B 場地。
+      { lunchOptions: [{ id: dayaLunch.id, name: "大雅便當", description: "", isFull: false }] },
     ]);
   });
 

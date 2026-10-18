@@ -47,7 +47,7 @@ const stepFields: RegistrationField[][] = [
   ["name", "phone", "email", "lineId", "stake", "ward"],
   ["venue"],
   ["courses"],
-  ["lunch", "afternoonActivity", "services", "printedHandbook"],
+  ["lunch", "services", "printedHandbook"],
   ["portraitConsent", "form"],
 ];
 const lastStep = stepFields.length - 1;
@@ -61,11 +61,10 @@ const inputFields: Record<keyof RegistrationInput, RegistrationField[]> = {
   lineId: ["lineId"],
   stakeId: ["stake", "ward"],
   wardId: ["ward"],
-  // 換場地時課程、午餐、午后動態會清空，所以它們的錯誤一起收起。
-  venueId: ["venue", "courses", "lunch", "afternoonActivity"],
+  // 換場地時課程、午餐會清空，所以它們的錯誤一起收起。
+  venueId: ["venue", "courses", "lunch"],
   courseIds: ["courses"],
   lunchOptionId: ["lunch"],
-  afternoonActivityId: ["afternoonActivity"],
   choirPart: ["services"],
   services: ["services"],
   printedHandbook: ["printedHandbook"],
@@ -83,14 +82,13 @@ const emptyInput: RegistrationInput = {
   venueId: "",
   courseIds: [],
   lunchOptionId: null,
-  afternoonActivityId: null,
   choirPart: null,
   services: [],
   printedHandbook: null,
   portraitConsent: false,
 };
 
-const noExtras = { lunchOptions: [], afternoonActivities: [] };
+const noExtras = { lunchOptions: [] };
 
 /**
  * 修改報名時要改的那一筆、查到它時用的姓名與電話（或報名編號，修改時再比對一次），
@@ -115,11 +113,11 @@ const radioClass = "size-6 shrink-0 accent-primary";
 /**
  * 報名表：基本資料 → 選場地 → 選課程 → 午餐與服務 → 肖像權同意與確認 → 完成頁。
  * 有 edit 時是修改報名：同樣的步驟與確認頁，一開始就停在確認頁、填好她原本的資料；
- * 姓名、支會不能改，不再問肖像權。她原本已佔的課程、午餐、午后動態就算額滿也照樣可選。
+ * 姓名、支會不能改，不再問肖像權。她原本已佔的課程、午餐就算額滿也照樣可選。
  * 各步都在同一頁切換，回上一步不會清掉已填的資料；送出後在同一頁顯示完成頁。
  * 確認頁可以跳回任一步修改，改好後直接回到確認頁。
  * 不用下拉選單：支聯會、支會、場地、課程、午餐都是攤開的大選項。
- * 送出時有課程、午餐或午后動態剛額滿：回到那一步，那一項標成已額滿並取消選取，其他資料都保留。
+ * 送出時有課程或午餐剛額滿：回到那一步，那一項標成已額滿並取消選取，其他資料都保留。
  * 代報（ADR 0003）：forOthers 時第一步多一句說明；完成頁可以「再幫一位報名」，
  * 下一位帶入電話、Email、支聯會、支會、場地，其他清空，從第一步重新填。
  */
@@ -142,11 +140,11 @@ export function RegistrationForm({
   const [input, setInput] = useState<RegistrationInput>(initial?.input ?? emptyInput);
   const [errors, setErrors] = useState<RegistrationErrors>({});
   const [registration, setRegistration] = useState<Registration | null>(null);
-  // 送出時才發現額滿的課程、午餐、午后動態，在新的名單讀進來之前先標成已額滿；讀取頁面時已額滿的由 options 標出。
+  // 送出時才發現額滿的課程、午餐，在新的名單讀進來之前先標成已額滿；讀取頁面時已額滿的由 options 標出。
   const [filledIds, setFilledIds] = useState<string[]>([]);
   // 每個場次選了哪門課或「不選課」。送出用的 input.courseIds 一律由這裡算出，兩者不會不一致。
   const [choices, setChoicesState] = useState<CourseChoices>(initial?.choices.courses ?? {});
-  // 午餐、午后動態、紙本手冊的選擇（含還沒選）。送出用的值同樣一律由這裡算出。
+  // 午餐、紙本手冊的選擇（含還沒選）。送出用的值同樣一律由這裡算出。
   const [extras, setExtrasState] = useState<ExtraChoices>(initial?.choices.extras ?? {});
   // 到過確認頁之後，回到前面修改時可以直接回確認頁，不必一步一步按「下一步」。
   const [reviewed, setReviewed] = useState(Boolean(edit));
@@ -240,10 +238,10 @@ export function RegistrationForm({
     update(extraInputOf(next));
   }
 
-  // 課程、午餐、午后動態屬於場地，換場地就要重新選；紙本手冊不受影響。
+  // 課程、午餐屬於場地，換場地就要重新選；紙本手冊不受影響。
   function chooseVenue(venueId: string) {
     const next = choicesAfterVenueChange({ courses: choices, extras });
-    update({ venueId, courseIds: [], lunchOptionId: null, afternoonActivityId: null });
+    update({ venueId, courseIds: [], lunchOptionId: null });
     setChoicesState(next.courses);
     setExtrasState(next.extras);
   }
@@ -333,7 +331,6 @@ export function RegistrationForm({
             venueId: "",
             courseIds: [],
             lunchOptionId: null,
-            afternoonActivityId: null,
           }));
           const next = choicesAfterVenueChange({ courses: choices, extras });
           setChoicesState(next.courses);
@@ -353,11 +350,9 @@ export function RegistrationForm({
           setChoicesState(kept);
           setInput((prev) => ({ ...prev, courseIds: courseIdsOf(kept) }));
         }
-        // 額滿或已不能選的午餐、午后動態取消選取，請她重選。
-        if (result.errors.lunch || result.errors.afternoonActivity) {
-          const kept = { ...extras };
-          if (result.errors.lunch) delete kept.lunch;
-          if (result.errors.afternoonActivity) delete kept.afternoonActivity;
+        // 額滿或已不能選的午餐取消選取，請她重選。
+        if (result.errors.lunch) {
+          const kept = { ...extras, lunch: undefined };
           setExtrasState(kept);
           setInput((prev) => ({ ...prev, ...extraInputOf(kept) }));
         }
@@ -631,7 +626,7 @@ function pairNote(course: CourseOption, sessions: SessionOption[], t: Messages):
   return session && partner ? t.register.pairedWith(session.name, partner.name) : undefined;
 }
 
-/** 一個可能額滿的單選選項（課程、午餐、午后動態）：額滿時標示「已額滿」、不能選。note 是額外的說明。 */
+/** 一個可能額滿的單選選項（課程、午餐）：額滿時標示「已額滿」、不能選。note 是額外的說明。 */
 function LimitedChoice({
   option,
   full,
@@ -678,7 +673,7 @@ function LimitedChoice({
 }
 
 /**
- * 午餐與服務：場地有午餐、午后動態時才問那一題，都要明確選一個（包括「不需要」「不參加」）；
+ * 午餐與服務：場地有午餐時才問午餐，要明確選一份（包括「不需要」）；
  * 服務意願選填；紙本手冊要選要或不要。
  */
 function LunchAndService({
@@ -701,7 +696,6 @@ function LunchAndService({
   t: Messages;
 }) {
   const lunchOptions = venue?.lunchOptions ?? [];
-  const activities = venue?.afternoonActivities ?? [];
   const toggleService = (service: string, on: boolean) =>
     update({
       // 依固定順序存，確認頁與完成頁的列法才一致。
@@ -737,37 +731,6 @@ function LunchAndService({
               {...errorAria("lunch", errors, "lunch-hint")}
             />
             {t.register.noLunch}
-          </label>
-        </fieldset>
-      )}
-
-      {activities.length > 0 && (
-        <fieldset data-field="afternoonActivity" className="flex flex-col gap-3">
-          <legend className="mb-2 text-lead font-bold">{t.register.afternoonActivityLabel}</legend>
-          <p id="afternoonActivity-hint">{t.register.afternoonActivityHint}</p>
-          <FieldError field="afternoonActivity" errors={errors} t={t} />
-          {activities.map((activity) => (
-            <LimitedChoice
-              key={activity.id}
-              option={activity}
-              full={isFull(activity)}
-              name="afternoonActivity"
-              checked={extras.afternoonActivity === activity.id}
-              onChange={() => setExtras({ ...extras, afternoonActivity: activity.id })}
-              aria={errorAria("afternoonActivity", errors, "afternoonActivity-hint")}
-              t={t}
-            />
-          ))}
-          <label className={choiceClass}>
-            <input
-              type="radio"
-              name="afternoonActivity"
-              className={radioClass}
-              checked={extras.afternoonActivity === null}
-              onChange={() => setExtras({ ...extras, afternoonActivity: null })}
-              {...errorAria("afternoonActivity", errors, "afternoonActivity-hint")}
-            />
-            {t.register.noAfternoonActivity}
           </label>
         </fieldset>
       )}
@@ -1216,9 +1179,9 @@ function initialEditState(registration: FoundRegistration, options: Registration
   return { input, choices };
 }
 
-/** 她原本已佔的課程、午餐、午后動態。 */
+/** 她原本已佔的課程、午餐。 */
 function heldIdsOf(registration: Registration): string[] {
-  return [registration.lunchOptionId, registration.afternoonActivityId, ...registration.courseIds].filter(
+  return [registration.lunchOptionId, ...registration.courseIds].filter(
     (id): id is string => id !== null,
   );
 }
