@@ -19,6 +19,7 @@ vi.mock("../lookup/actions", () => ({
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const JINHUA = id(1);
 const TAICHUNG = id(2);
+const KAOHSIUNG = id(3);
 const MORNING = id(11);
 const AFTERNOON = id(12);
 const TAICHUNG_MORNING = id(13);
@@ -31,6 +32,7 @@ const VEGETARIAN = id(32);
 const NOODLES = id(33);
 const HIKING = id(41);
 const CHOIR = id(42);
+const WREATH = id(43);
 const STAKE = id(51);
 const WARD = id(52);
 
@@ -43,7 +45,8 @@ const course = (courseId: string, name: string) => ({
 });
 const limited = (optionId: string, name: string) => ({ id: optionId, name, description: "", isFull: false });
 
-// 兩個場地：金華教堂有上午、下午兩個場次，台中教堂只有一個場次。讀取當下都還有名額。
+// 三個場地：金華教堂有上午、下午兩個場次，台中教堂只有一個場次，高雄教堂沒有課程、午餐、午后動態。
+// 讀取當下都還有名額。
 const options: RegistrationOptions = {
   venues: [
     {
@@ -54,7 +57,7 @@ const options: RegistrationOptions = {
         { id: AFTERNOON, name: "下午", courses: [course(SINGING, "唱歌")] },
       ],
       lunchOptions: [limited(BENTO, "便當"), limited(VEGETARIAN, "素食便當")],
-      afternoonActivities: [limited(HIKING, "健行")],
+      afternoonActivities: [limited(HIKING, "健行"), limited(WREATH, "手作花圈")],
     },
     {
       id: TAICHUNG,
@@ -63,6 +66,7 @@ const options: RegistrationOptions = {
       lunchOptions: [limited(NOODLES, "麵食")],
       afternoonActivities: [limited(CHOIR, "合唱練習")],
     },
+    { id: KAOHSIUNG, name: "高雄教堂", sessions: [], lunchOptions: [], afternoonActivities: [] },
   ],
   stakes: [
     {
@@ -193,6 +197,31 @@ describe("修改報名時換場地", () => {
     );
   });
 
+  // 新場地沒有要重選的題目時，可以直接回確認頁送出；送出的內容不能還帶著原場地的選擇。
+  it("換到沒有課程、午餐、午后動態的場地，送出的不帶原場地的課程、午餐、午后動態", async () => {
+    const user = userEvent.setup();
+    render(<RegistrationForm locale="zh" options={options} edit={edit} />);
+
+    await user.click(button("修改場地"));
+    await user.click(radio("場地", "高雄教堂"));
+    await user.click(button("改好了，回到確認頁"));
+    expect(step("確認修改")).toBeTruthy();
+    updateMine.mockResolvedValueOnce({ ok: true, registration: found });
+    await user.click(button("確認送出修改"));
+
+    expect(updateMine).toHaveBeenCalledTimes(1);
+    expect(updateMine).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        changes: expect.objectContaining({
+          venueId: KAOHSIUNG,
+          courseIds: [],
+          lunchOptionId: null,
+          afternoonActivityId: null,
+        }),
+      }),
+    );
+  });
+
   // 確認頁的「確認送出修改」會把每一步再檢查一次：她在確認頁時名單可能剛好變了，例如場地多了一個場次。
   it("停在確認頁時場地多了一個還沒選的場次，按「確認送出修改」跳回選課那一步，不會送出", async () => {
     const user = userEvent.setup();
@@ -269,6 +298,38 @@ describe("頁面重新讀取選項", () => {
       }),
     );
     expect(screen.getByRole("heading", { name: "修改完成" })).toBeTruthy();
+  });
+
+  it("修改時新選的午餐、午后動態剛額滿：被取消並標出，她原本的那一個仍可選", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<RegistrationForm locale="zh" options={options} edit={edit} />);
+
+    await user.click(button("修改午餐與服務"));
+    await user.click(radio("午餐", "素食便當"));
+    await user.click(radio("午后動態", "手作花圈"));
+    await user.click(button("改好了，回到確認頁"));
+    expect(step("確認修改")).toBeTruthy();
+    // 重新讀取時她新選的素食便當、手作花圈額滿了；她原本的便當、健行也額滿，但那是她的位子。
+    rerender(
+      <RegistrationForm locale="zh" options={withFull(BENTO, HIKING, VEGETARIAN, WREATH)} edit={edit} />,
+    );
+
+    expect(step("午餐與服務")).toBeTruthy();
+    expect(screen.getByText("您選的午餐剛剛被訂完了，請改選其他午餐。其他資料都還在，不用重填。")).toBeTruthy();
+    expect(
+      screen.getByText("您選的午后動態剛剛額滿了，請改選其他活動或「不參加」。其他資料都還在，不用重填。"),
+    ).toBeTruthy();
+    for (const [name, chosen, held] of [
+      ["午餐", /素食便當/, /^便當/],
+      ["午后動態", /手作花圈/, /健行/],
+    ] as const) {
+      expect(radio(name, chosen).checked).toBe(false);
+      expect(radio(name, chosen).disabled).toBe(true);
+      expect(within(group(name)).getAllByText("已額滿")).toHaveLength(1);
+      expect(radio(name, held).checked).toBe(false);
+      expect(radio(name, held).disabled).toBe(false);
+    }
+    expect(updateMine).not.toHaveBeenCalled();
   });
 
   it("報名時剛額滿的課程、午餐、午后動態被取消並標出，跳回選課那一步；改選後送出新選的", async () => {
