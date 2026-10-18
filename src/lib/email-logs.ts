@@ -19,14 +19,18 @@ export type EmailLog = {
   finishedAt: string | null;
 };
 
-/** 一筆報名的所有寄信紀錄，最新的在最前面。讀不到（不是總管理員）時是空的。 */
+// 資料庫卡住時不能讓後台頁面一直轉圈。
+const DATABASE_TIMEOUT_MS = 10_000;
+
+/** 一筆報名的所有寄信紀錄，最新的在最前面。讀不到（不是總管理員）時是空的；逾時丟出錯誤。 */
 export async function getEmailLogs(supabase: SupabaseClient, registrationId: string): Promise<EmailLog[]> {
   const { data, error } = await supabase
     .from("email_logs")
     .select("id, kind, recipient, status, error, created_at, finished_at")
     .eq("registration_id", registrationId)
     .order("created_at", { ascending: false })
-    .order("id");
+    .order("id")
+    .abortSignal(AbortSignal.timeout(DATABASE_TIMEOUT_MS));
   if (error) throw error;
   return data.map((row) => ({
     id: row.id,

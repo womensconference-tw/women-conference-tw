@@ -157,6 +157,16 @@ describe("寄信紀錄", () => {
     expect(Date.parse(logs[0].createdAt)).toBeGreaterThanOrEqual(Date.parse(logs[1].createdAt));
   });
 
+  it("換了目前年度之後，總管理員仍看得到舊年度報名的寄信紀錄", async () => {
+    const registration = await registered();
+    await sendConfirmationEmail(serverClient(), registration.id, "registered", fakeSender().send);
+    must(await admin.from("conferences").update({ is_current: false }).eq("id", conferenceId));
+
+    expect(await getEmailLogs(await signedInClient("head@example.com"), registration.id)).toMatchObject([
+      { kind: "registered", status: "sent" },
+    ]);
+  });
+
   it("沒寄過信的報名沒有寄信紀錄", async () => {
     const registration = await registered({ email: "" });
     expect(await getEmailLogs(await signedInClient("head@example.com"), registration.id)).toEqual([]);
