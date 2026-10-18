@@ -83,7 +83,10 @@ begin
             order by l.position, l.id
           )
           from public.lunch_options l where l.venue_id = v.id
-        ), '[]')
+        ), '[]'),
+        -- 給還沒部署新版、仍在寄信的舊版網站用：沒有這一項，舊版寄不出信（取消信之後也不能補寄）。
+        -- 新版不讀它，舊版網站都換掉之後可以移除。
+        'afternoon_activities', '[]'::jsonb
       )
     )
   into v_found

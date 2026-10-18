@@ -179,6 +179,18 @@ export function normalizePhone(raw: string): string {
 }
 
 /**
+ * 部署 #65 之前打開的報名表（午后動態還是另外一題）送來的內容都帶著 afternoonActivityId。
+ * 它送來的課程不含轉換後的午后動態課程，照收會把她的午后動態選擇刪掉、名額釋出，所以一律擋下，
+ * 回傳舊頁面也認得的錯誤（unknown）；她重新整理就是新的頁面。
+ */
+export function fromOutdatedPage(input: unknown): boolean {
+  return typeof input === "object" && input !== null && "afternoonActivityId" in input;
+}
+
+/** 舊版頁面送來時回傳的結果（見 fromOutdatedPage）。 */
+export const OUTDATED_PAGE_RESULT = { ok: false, errors: { form: "unknown" } } as const satisfies SubmitResult;
+
+/**
  * 把送來的報名表內容整理成 RegistrationInput。報名、修改的伺服器動作任何人都能直接打，
  * 送來的不一定是報名表的形狀；型別不對的一律當成空白，交給欄位檢查擋下。
  */

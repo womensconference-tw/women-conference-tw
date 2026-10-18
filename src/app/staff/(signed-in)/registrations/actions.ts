@@ -6,6 +6,8 @@ import { resendConfirmationEmail, type ResendResult } from "@/lib/email-logs";
 import { confirmationSiteUrl, queueConfirmationEmail } from "@/lib/queue-confirmation-email";
 import {
   changesOf,
+  fromOutdatedPage,
+  OUTDATED_PAGE_RESULT,
   staffCancelRegistration,
   staffRegistrationInputFrom,
   staffSubmitRegistration,
@@ -35,6 +37,7 @@ export async function addRegistration(
   confirmFull: unknown,
   submissionKey?: unknown,
 ): Promise<StaffFormResult> {
+  if (fromOutdatedPage(input)) return OUTDATED_PAGE_RESULT;
   const supabase = await createClient();
   const key = submissionKeyOf(submissionKey);
   const result = await staffSubmitRegistration(supabase, staffRegistrationInputFrom(input), {
@@ -52,6 +55,7 @@ export async function editRegistration(
   confirmFull: unknown,
   submissionKey?: unknown,
 ): Promise<StaffFormResult> {
+  if (fromOutdatedPage(input)) return OUTDATED_PAGE_RESULT;
   const supabase = await createClient();
   const staffInput = staffRegistrationInputFrom(input);
   const key = submissionKeyOf(submissionKey);

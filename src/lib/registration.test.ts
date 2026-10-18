@@ -4,6 +4,7 @@ import type { Locale } from "./i18n/locale";
 import { submitWhileHolding } from "../../test/hold-transaction";
 import { adminClient, anonClient, databaseClient, must, serverClient } from "../../test/supabase";
 import {
+  fromOutdatedPage,
   cancelRegistration,
   changesOf,
   choicesAfterVenueChange,
@@ -22,6 +23,24 @@ import {
   type RegistrationInput,
   type SubmitResult,
 } from "./registration";
+
+// 部署 #65 之前打開的報名表還會送來 afternoonActivityId；照收的話，她轉換好的午后動態課程會被刪掉。
+describe("舊版頁面送來的報名表", () => {
+  it.each([
+    { what: "選了午后動態", input: { name: "王小美", afternoonActivityId: "00000000-0000-4000-8000-00000000000a" } },
+    { what: "不參加午后動態", input: { name: "王小美", afternoonActivityId: null } },
+  ])("$what：認得出是舊版頁面", ({ input }) => {
+    expect(fromOutdatedPage(input)).toBe(true);
+  });
+
+  it.each([
+    { what: "現在的報名表", input: { name: "王小美", courseIds: [] } },
+    { what: "不是物件", input: "abc" },
+    { what: "空的", input: undefined },
+  ])("$what：不是舊版頁面", ({ input }) => {
+    expect(fromOutdatedPage(input)).toBe(false);
+  });
+});
 
 const admin = adminClient();
 const DAY = 24 * 60 * 60 * 1000;

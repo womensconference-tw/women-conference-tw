@@ -8,6 +8,8 @@ import {
   changesOf,
   lookupRegistration,
   optionsMayHaveChanged,
+  fromOutdatedPage,
+  OUTDATED_PAGE_RESULT,
   registrationInputFrom,
   submissionKeyOf,
   updateRegistration,
@@ -34,6 +36,7 @@ export async function lookUp(input: unknown): Promise<LookupResult> {
  */
 export async function updateMine(input: unknown): Promise<SubmitResult> {
   const raw = (input ?? {}) as Record<string, unknown>;
+  if (fromOutdatedPage(raw.changes)) return OUTDATED_PAGE_RESULT;
   const submissionKey = submissionKeyOf(raw.submissionKey);
   const result = await updateRegistration(createServiceClient(), {
     registrationId: typeof raw.registrationId === "string" ? raw.registrationId : "",

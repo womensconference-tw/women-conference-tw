@@ -3,6 +3,15 @@
 -- 已選了午后動態的報名改成選了那門課（已取消的報名也一樣，和課程一樣保留紀錄），沒選的就是這個場次「不選課」。
 -- 轉換後移除午后動態的資料表與欄位；只為它存在的函式在下一個 migration 移除。
 
+-- 先擋下報名的寫入（送出、修改、取消）與午后動態的修改，直到轉換完成：不然下面複製選擇之後、
+-- 刪掉欄位之前才寫入的報名，她選的午后動態會遺失。讀取照常。鎖到整個 migration 結束才放開。
+-- migration 整個檔案是一個隱含的交易，最外層不能直接 lock table，所以放在 do 區塊裡。
+do $$
+begin
+  lock table public.registrations, public.afternoon_activities in exclusive mode;
+end
+$$;
+
 -- 報名期間場次與課程不能新增（sessions_locked_after_opening），這次轉換是例外，暫時關掉。
 -- 新場次排在場地最後，不會夾在成對課程的兩個場次中間，所以成對課程的檢查也不必跑。
 alter table public.sessions disable trigger sessions_locked_after_opening;
