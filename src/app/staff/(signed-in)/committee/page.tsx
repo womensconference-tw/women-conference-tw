@@ -25,6 +25,7 @@ import {
   type TeamMember,
 } from "@/lib/committee";
 import { REGION_LABELS, REGIONS } from "@/lib/staff";
+import { siteOrigin } from "@/lib/site-origin";
 import { getStakeDirectory, type DirectoryStake } from "@/lib/stakes";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -525,14 +526,3 @@ function DeleteForm({ edit, kind, id, noun }: { edit: YearFields; kind: Committe
   );
 }
 
-/**
- * 這次請求的網址開頭（https://網域），正式網域、預覽網址、本機都對。
- * 經過多層轉送時標頭可能有好幾個值（逗號隔開），取第一個；讀不到網域時只給路徑。
- */
-function siteOrigin(headerStore: Headers): string {
-  const first = (name: string) => headerStore.get(name)?.split(",")[0].trim() || null;
-  const host = first("x-forwarded-host") ?? first("host");
-  if (!host) return "";
-  const protocol = first("x-forwarded-proto") ?? (/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
-  return `${protocol}://${host}`;
-}
