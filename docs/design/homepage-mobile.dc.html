@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>姊妹大會首頁（手機）</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&amp;family=Noto+Serif+TC:wght@600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#355227}a:hover{color:#26401b}
+</style>
+</helmet>
+<div id="top" style="width: 390px; min-height: 5600px; box-sizing: border-box; background: #FBFAF6; color: #1E2420; font-family: 'Noto Sans TC', sans-serif; font-size: 19px; line-height: 1.7;">
+
+<header style="display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid #E4E1D6; background: #FBFAF6;">
+<div style="font-family: 'Noto Serif TC', serif; font-weight: 700; font-size: 20px;">台灣姐妹大會</div>
+<a href="#" lang="en" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 18px; border: 2px solid #C9C5B6; border-radius: 12px; font-size: 18px; font-weight: 500; color: #1E2420; text-decoration: none;">English</a>
+</header>
+
+<div role="img" aria-label="2026 台灣姐妹大會主視覺：你要把你的重擔卸給耶和華，他必撫養你；他永不叫義人動搖。詩篇 55:22" style="width: 390px; height: 488px; box-sizing: border-box; background: #DCE6F2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; color: #33475E; border-bottom: 1px solid #C8D5E6;">
+<svg aria-hidden="true" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 17l-5-5-9 8"></path></svg>
+<div style="font-size: 20px; font-weight: 700;">年度主視覺 Banner</div>
+<div style="font-size: 16px;">圖片＋主題經文，由後台上傳<br>手機版 4:5（1080×1350）</div>
+</div>
+
+<div style="padding: 16px 20px; background: #FFFFFF; border-bottom: 1px solid #E4E1D6; display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 18px;"><strong>3月7日（星期六）</strong><span>上午 8:30 – 下午 4:30</span><span>台北・台中・高雄同步</span></div>
+<sc-if value="{{isOpen}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; color: #2C4620;"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 50%; background: #355227;"></span>報名中・截止 1/13</div>
+<a href="#register" style="display: inline-flex; align-items: center; min-height: 52px; padding: 0 20px; border-radius: 12px; background: #355227; color: #FFFFFF; font-size: 19px; font-weight: 700; text-decoration: none;">前往報名</a>
+</div>
+</sc-if>
+<sc-if value="{{isBefore}}" hint-placeholder-val="{{false}}">
+<div style="font-size: 18px; font-weight: 700; color: #1F3F66;">12月26日（星期五）開放報名</div>
+</sc-if>
+<sc-if value="{{isClosed}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+<div style="font-size: 18px; font-weight: 700; color: #6E3510;">報名已截止</div>
+<a href="#register" style="display: inline-flex; align-items: center; min-height: 52px; padding: 0 18px; border-radius: 12px; border: 2px solid #355227; color: #355227; font-size: 18px; font-weight: 700; text-decoration: none;">查詢我的報名</a>
+</div>
+</sc-if>
+</div>
+
+<section id="about" style="padding: 40px 20px 32px; display: flex; flex-direction: column; gap: 18px;">
+<h2 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 28px; line-height: 1.4;">歡迎來到姐妹大會</h2>
+<p style="margin: 0;">在忙碌的生活裡，姐妹們肩上承擔多重重擔：母親、妻子、女兒、同工、照顧者、陪伴者；這場姐妹大會，是一段屬世的停歇之旅，邀請我們卸下、回歸、安歇，讓我們重回主的溫暖懷抱。</p>
+<p style="margin: 0;">來自全台灣十六個支聯會的姐妹，將共聚在金華教堂、大雅教堂、鳥松教堂；在這裡，讓我們彼此傾聽、彼此分享，憑信心感受主的愛，謙卑與主同行；讓我們在鼓舞人心的信息中、提昇內在靈魂的課程中、天使般美妙的樂音中、熱切著手的公益服務中，獲得喜樂滋養，並在姐妹間的歡聲笑語中重新得力。</p>
+<p style="margin: 0;">願一切的努力與奉獻，得蒙 神的悅納，並讓姐妹們共聚歡欣！</p>
+<p style="margin: 0; text-align: right; color: #4A524C;">2026台灣姐妹大會籌備委員會</p>
+</section>
+
+<section style="padding: 0 20px 40px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 28px; line-height: 1.4;">大會有什麼</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+<div style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 14px;"><div style="font-size: 19px; font-weight: 700;">即席唱詩班</div><div style="font-size: 16px; color: #4A524C; line-height: 1.6;">跟著影片練唱〈主是我的牧羊人〉</div></div>
+<div style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 14px;"><div style="font-size: 19px; font-weight: 700;">領袖演講</div></div>
+<div style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 14px;"><div style="font-size: 19px; font-weight: 700;">靈性課程</div><div style="font-size: 16px; color: #4A524C; line-height: 1.6;">提昇內在靈魂的課程</div></div>
+<div style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 14px;"><div style="font-size: 19px; font-weight: 700;">角落課程</div><div style="font-size: 16px; color: #4A524C; line-height: 1.6;">在靜謐、歡樂與手作中療癒心靈</div></div>
+<div style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 14px;"><div style="font-size: 19px; font-weight: 700;">迷妳音樂會</div></div>
+<div style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 14px;"><div style="font-size: 19px; font-weight: 700;">向貴賓致敬</div><div style="font-size: 16px; color: #4A524C; line-height: 1.6;">80 歲長輩，持守到底的美好榜樣</div></div>
+<div style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 14px;"><div style="font-size: 19px; font-weight: 700;">與年長夫婦傳教士有約</div></div>
+<div style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 14px;"><div style="font-size: 19px; font-weight: 700;">公益服務</div><div style="font-size: 16px; color: #4A524C; line-height: 1.6;">歡迎姐妹一起來參加</div></div>
+<div style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 14px;"><div style="font-size: 19px; font-weight: 700;">靜態展示</div></div>
+</div>
+</section>
+
+<section id="agenda" style="padding: 40px 20px; background: #F2F0E8; display: flex; flex-direction: column; gap: 18px;">
+<div style="display: flex; flex-direction: column; gap: 4px;">
+<h2 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 28px; line-height: 1.4;">大會程序</h2>
+<p style="margin: 0; color: #4A524C;">三個教堂的時間和流程相同，課程與講師不同。請先選您要去的教堂：</p>
+</div>
+<div role="group" aria-label="選擇教堂" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;">
+<sc-for list="{{venues}}" as="v" hint-placeholder-count="3">
+<button type="button" onClick="{{v.pick}}" aria-pressed="{{v.pressed}}" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 72px; padding: 6px 4px; border-radius: 12px; font-family: inherit; cursor: pointer; line-height: 1.3; {{v.btnStyle}}"><span style="font-size: 20px; font-weight: 700;">{{v.city}}</span><span style="font-size: 16px;">{{v.name}}</span></button>
+</sc-for>
+</div>
+<div style="padding: 16px 18px; background: #FFFFFF; border-radius: 14px; display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 22px; font-weight: 700;">{{venue.name}}</div>
+<div>{{venue.addr}}</div>
+<a href="{{venue.map}}" style="display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; border-radius: 12px; border: 2px solid #355227; background: #FFFFFF; color: #355227; font-size: 19px; font-weight: 700; text-decoration: none;"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"></path><circle cx="12" cy="9.5" r="2.5"></circle></svg>開啟地圖導航</a>
+</div>
+
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+<li style="display: flex; gap: 14px; padding: 16px 0; border-top: 1px solid #D9D5C8;">
+<div style="flex: 0 0 64px; line-height: 1.4;"><div style="font-size: 19px; font-weight: 700; color: #355227;">{{r.start}}</div><div style="font-size: 16px; color: #4A524C;">{{r.end}}</div></div>
+<div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px;">
+<div style="font-size: 21px; font-weight: 700; line-height: 1.4;">{{r.title}}</div>
+<sc-if value="{{r.hasPlace}}" hint-placeholder-val="{{true}}"><div style="font-size: 17px; color: #4A524C;">{{r.place}}</div></sc-if>
+<sc-if value="{{r.hasParts}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-wrap: wrap; gap: 8px;">
+<sc-for list="{{r.parts}}" as="pt" hint-placeholder-count="3"><span style="padding: 4px 12px; background: #FFFFFF; border: 1px solid #D9D5C8; border-radius: 999px; font-size: 17px;">{{pt.label}}</span></sc-for>
+</div>
+</sc-if>
+<sc-if value="{{r.hasExtra}}" hint-placeholder-val="{{false}}"><div style="font-size: 17px; padding: 10px 12px; background: #FFFFFF; border-radius: 10px;">{{r.extra}}</div></sc-if>
+<sc-if value="{{r.isSession}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 17px; color: #4A524C;">報名時從下面選一門</div>
+<button type="button" onClick="{{r.toggle}}" aria-expanded="{{r.openStr}}" style="display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 0 16px; border-radius: 12px; border: 2px solid #355227; background: #FFFFFF; color: #355227; font-family: inherit; font-size: 18px; font-weight: 700; cursor: pointer;">{{r.toggleLabel}}<span aria-hidden="true" style="font-size: 20px;">{{r.chevron}}</span></button>
+<sc-if value="{{r.open}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 14px;">
+<sc-for list="{{r.groups}}" as="g" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<sc-if value="{{g.showCat}}" hint-placeholder-val="{{true}}"><div style="font-size: 16px; font-weight: 700; color: #355227; letter-spacing: 0.04em;">{{g.cat}}</div></sc-if>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px;">
+<sc-for list="{{g.items}}" as="c" hint-placeholder-count="3">
+<li style="padding: 12px 14px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 12px; display: flex; flex-direction: column;">
+<span style="font-size: 18px; font-weight: 500; line-height: 1.5;">{{c.title}}</span>
+<sc-if value="{{c.hasMeta}}" hint-placeholder-val="{{true}}"><span style="font-size: 16px; color: #4A524C;">{{c.meta}}</span></sc-if>
+<sc-if value="{{c.hasNote}}" hint-placeholder-val="{{false}}"><span style="font-size: 15px; font-weight: 700; color: #7A4A12;">{{c.note}}</span></sc-if>
+</li>
+</sc-for>
+</ul>
+</div>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</li>
+</sc-for>
+</ol>
+
+</section>
+
+<section id="register" style="padding: 44px 20px; display: flex; flex-direction: column; gap: 20px;">
+<h2 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 30px; line-height: 1.4;">報名參加</h2>
+
+<sc-if value="{{isOpen}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 18px;">
+<div style="display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; background: #E3EED8; border-radius: 14px; color: #2C4620;">
+<div style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 21px;"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: #355227;"></span>現在可以報名</div>
+<div style="font-size: 18px;">報名截止：1月13日（星期二）</div>
+</div>
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px;">
+<li style="display: flex; gap: 14px; align-items: center;"><span aria-hidden="true" style="flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: #355227; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 19px; font-weight: 700;">1</span><span>填寫姓名、電話、所屬支會</span></li>
+<li style="display: flex; gap: 14px; align-items: center;"><span aria-hidden="true" style="flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: #355227; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 19px; font-weight: 700;">2</span><span>選擇教堂與課程</span></li>
+<li style="display: flex; gap: 14px; align-items: center;"><span aria-hidden="true" style="flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: #355227; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 19px; font-weight: 700;">3</span><span>確認後送出</span></li>
+</ol>
+<a href="#" style="display: flex; align-items: center; justify-content: center; min-height: 64px; border-radius: 14px; background: #355227; color: #FFFFFF; font-size: 23px; font-weight: 700; text-decoration: none;">我要報名</a>
+<a href="#" style="display: flex; align-items: center; justify-content: center; min-height: 58px; border-radius: 14px; border: 2px solid #355227; background: #FFFFFF; color: #355227; font-size: 20px; font-weight: 700; text-decoration: none;">幫家人或朋友報名</a>
+<div style="margin-top: 8px; padding-top: 20px; border-top: 1px solid #E4E1D6; display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 21px; font-weight: 700;">已經報名了嗎？</div>
+<p style="margin: 0;">輸入<strong>姓名</strong>和<strong>電話</strong>就能查詢。沒有電話的姐妹請用 6 碼報名編號。1月13日以前都可以自己修改。</p>
+<a href="#" style="display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 56px; border-radius: 14px; border: 2px solid #355227; background: #FFFFFF; color: #355227; font-size: 19px; font-weight: 700; text-decoration: none;"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>查詢或修改我的報名</a>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{isBefore}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 20px 18px; background: #EAF1FA; border-radius: 14px; color: #1F3F66;">
+<div style="font-weight: 700; font-size: 22px;">報名還沒開始</div>
+<div>開放報名：<strong>12月26日（星期五）</strong></div>
+<div>報名截止：1月13日（星期二）</div>
+<div style="font-size: 17px; margin-top: 4px;">開放當天，這裡會出現「我要報名」按鈕。</div>
+</div>
+</sc-if>
+
+<sc-if value="{{isClosed}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 14px;">
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 18px; background: #F5EBE3; border-radius: 14px; color: #6E3510;">
+<div style="font-weight: 700; font-size: 22px;">報名已經截止</div>
+<div style="font-size: 18px;">已報名的姐妹可以查詢自己的資料。需要修改，請用 LINE 聯絡管理員。</div>
+</div>
+<a href="#" style="display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 64px; border-radius: 14px; background: #355227; color: #FFFFFF; font-size: 22px; font-weight: 700; text-decoration: none;"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>查詢我的報名</a>
+</div>
+</sc-if>
+</section>
+
+<section id="help" style="padding: 36px 20px; background: #EAF1FA; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 26px; line-height: 1.4;">報名遇到困難？</h2>
+<p style="margin: 0;">請用 LINE 聯絡大會管理員，會有專人回覆您。也可以請支會的姐妹幫您代為報名。</p>
+<div style="padding: 14px 18px; background: #FFFFFF; border-radius: 12px; display: flex; flex-direction: column;">
+<span style="font-size: 16px; color: #4A524C;">管理員 LINE ID</span>
+<span style="font-size: 26px; font-weight: 700; letter-spacing: 0.02em;">@657ggduy</span>
+</div>
+<a href="https://line.me/R/ti/p/@657ggduy" style="display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 60px; border-radius: 14px; background: #355227; color: #FFFFFF; font-size: 21px; font-weight: 700; text-decoration: none;"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H10l-6 4z"></path></svg>用 LINE 加管理員好友</a>
+</section>
+
+<footer style="padding: 28px 20px 40px; background: #1E2420; color: #E9E7DF; font-size: 16px; display: flex; flex-direction: column; gap: 6px;">
+<div style="font-size: 18px; font-weight: 700;">台灣姐妹大會</div>
+<div>耶穌基督後期聖徒教會</div>
+<a href="#top" style="display: inline-flex; align-items: center; min-height: 44px; color: #E9E7DF; font-size: 17px;">回到最上面</a>
+</footer>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"phase":{"editor":"enum","options":["before","open","closed"],"default":"open"},"$preview":{"width":390,"height":5600}}'>
+var CONT2 = '連續兩堂，第三場次接著上';
+var CONT3 = '接續第二場次';
+function G(cat, items) { return { cat: cat, items: items }; }
+function EXPO(room) { return G('靜態展示', [['靜態展示欣賞', '', room]]); }
+var VENUES = {
+  jh: { city: '台北', name: '金華教堂', addr: '台北市大安區金華街183巷5號',
+    open: '一樓大會堂', svc: '一樓大會堂', lunch: '', close: '一樓大會堂',
+    alt: '或改參加午后動態「聲之靜·心之境」・三樓大會堂（名額有限，報名時選擇）',
+    s1: [G('迷妳音樂會', [['', '', '一樓大會堂']]), G('向貴賓致敬', [['', '沈亦斌 姐妹、黃蘋 姐妹、紀春秀 姐妹', '二樓高級諮議']]),
+      G('靈性課程', [['運用「個人發展計畫」', '蔡婷儀', '三樓大會堂'], ['我會傾聽、我會提問', '錢繁萱', '三樓福研'], ['因信仰改變我的人生', '范玉楨', '二樓多功能'], ['神教導我成為美國人妻', '鄭文琪', '三樓慈助會'], ['我知道救主愛我', '林蓁蓁', '一樓慈助會']]),
+      EXPO('')],
+    s2: [G('公益服務', [['', '余心愛', '三樓福研']]), G('與年長夫婦傳教士有約', [['', '宋長老、宋馬彩鳳 姐妹', '二樓高級諮議']]),
+      G('靈性課程', [['做情緒朋友真相情人', '黃鳳英', '一樓大會堂'], ['大會堂唱詩班之旅', '鍾佩珊', '二樓多功能'], ['運用福音原則面對生活', '謝麗蓉', '三樓慈助會'], ['寫下生活也寫下愛', '林翁娟', '一樓慈助會']]),
+      G('角落課程', [['永生花相框', '黃冠茵', '三樓大會堂', CONT2], ['免揉歐式麵包', '王淑娟', '102 + 103', CONT2]]),
+      EXPO('')],
+    s3: [G('公益服務', [['', '余心愛', '三樓福研']]),
+      G('靈性課程', [['學習用主的眼光看自己', '柯秀英', '一樓大會堂'], ['神幫助度過生存困境', '楊曉雯', '二樓高級諮議'], ['你的自信在神前愈堅強', '李依函', '三樓慈助會'], ['從日常到不凡', '鄭攸', '二樓多功能'], ['成為孩子的音樂啟蒙老師', '王盈雯', '一樓慈助會']]),
+      G('角落課程', [['永生花相框', '黃冠茵', '三樓大會堂', CONT3], ['免揉歐式麵包', '王淑娟', '102 + 103', CONT3]]),
+      EXPO('')] },
+  dy: { city: '台中', name: '大雅教堂', addr: '台中市大雅區中清路三段1023巷43號',
+    open: '3F 大會堂', svc: '3F 大會堂', lunch: '3F 康樂廳', close: '3F 大會堂', alt: '',
+    s1: [G('迷妳音樂會', [['', '', '3F 康樂廳']]), G('向貴賓致敬', [['', '匡王春花 姐妹、陳貴惠 姐妹', '204 教室']]),
+      G('靈性課程', [['愛自己在多重角色中', '莊琬婷', '2F 初級會教室'], ['沈思的力量', '陳昱安', '303 教室'], ['母職與聖職', '陳許麗華', '2F 慈助會教室']]),
+      G('角落課程', [['手作紙黏土', '陳淑惠', '205 教室']]),
+      EXPO('2F／3F 大廳')],
+    s2: [G('公益服務', [['', '鍾婷羽、蔡雨倫', '2F 慈助會教室']]), G('與年長夫婦傳教士有約', [['', '曾其祥、曾李瑞馨 夫婦', '2F 初級會教室']]),
+      G('靈性課程', [['從自助旅行到天上來的工作', '張琬琳', '3F 康樂廳'], ['現代女性健康與體重管理', '劉家嘉', '3F 大會堂'], ['學齡前孩童的照護守則', '杜沅蓉', '204 教室']]),
+      G('角落課程', [['創意音符花器', '施秀春', '205 教室'], ['皮製手環', '陳雅玲', '2F 高級諮議室']]),
+      EXPO('2F／3F 大廳')],
+    s3: [G('公益服務', [['', '鍾婷羽、蔡雨倫', '2F 慈助會教室']]),
+      G('靈性課程', [['理財的屬靈功課', '南奕怡', '3F 大會堂'], ['大地的恩賜～樂草', '林晏竹', '3F 康樂廳'], ['在音樂中遇見喜樂', '王鄒佩真', '2F 初級會教室'], ['持續服務的內在動能', '麥碧鳳', '204 教室']]),
+      G('角落課程', [['香薰沙畫蠟燭', '張嶧寧', '205 教室'], ['創作屬於你的肩背包', '曾鈺芸', '2F 高級諮議室']]),
+      EXPO('2F／3F 大廳')] },
+  ns: { city: '高雄', name: '鳥松教堂', addr: '高雄市鳥松區德華街2號',
+    open: '3F 大會堂', svc: '3F 大會堂', lunch: '', close: '3F 大會堂', alt: '',
+    s1: [G('迷妳音樂會', [['', '', '3F 康樂廳']]), G('向貴賓致敬', [['', '', '2F 高級諮議室']]),
+      G('靈性課程', [['成為家庭經營的投資者', '', '3F 大會堂'], ['明智地運用時間', '', '2F 慈助會教室'], ['讓妳心中的愛永遠歸向主', '', '1F 初級會教室'], ['生命的逆境找到基督', '', '201 教室']]),
+      G('角落課程', [['鹿角蕨上板', '', '1F S&I 教室']]),
+      EXPO('2F／3F 大廳')],
+    s2: [G('公益服務', [['', '', '1F S&I 教室']]), G('與年長夫婦傳教士有約', [['', '', '201 教室']]),
+      G('靈性課程', [['自書遺囑 給家人的最後一封家書', '', '3F 大會堂', CONT2], ['從先知對末世女子的預言中找到自我價值與平安', '', '1F 初級會教室']]),
+      G('角落課程', [['浮游花瓶', '', '3F 康樂廳'], ['頭肩頸按摩舒眠', '', '2F 慈助會教室', CONT2], ['螺旋手機掛繩-Macrame編織入門', '', '2F 高級諮議室', CONT2]]),
+      EXPO('2F／3F 大廳')],
+    s3: [G('公益服務', [['', '', '1F S&I 教室']]),
+      G('靈性課程', [['自書遺囑 給家人的最後一封家書', '', '3F 大會堂', CONT3], ['角色不設限：活出神給我的多重祝福', '', '3F 康樂廳'], ['自立是救恩的必要條件', '', '1F 初級會教室']]),
+      G('角落課程', [['頭肩頸按摩舒眠', '', '2F 慈助會教室', CONT3], ['螺旋手機掛繩-Macrame編織入門', '', '2F 高級諮議室', CONT3]]),
+      EXPO('2F／3F 大廳')] }
+};
+var ON = 'background: #355227; color: #FFFFFF; border: 2px solid #355227;';
+var OFF = 'background: #FFFFFF; color: #355227; border: 2px solid #355227;';
+var DEFAULT_OPEN = { s1: true };
+class Component extends DCLogic {
+  renderVals() {
+    var self = this;
+    var p = this.props.phase ?? 'open';
+    var key = (this.state && this.state.venue) || 'jh';
+    var opened = (this.state && this.state.opened) || DEFAULT_OPEN;
+    var v = VENUES[key];
+    var venues = ['jh', 'dy', 'ns'].map(function (k) {
+      var x = VENUES[k];
+      return { city: x.city, name: x.name, pressed: k === key ? 'true' : 'false', btnStyle: k === key ? ON : OFF,
+        pick: function () { self.setState({ venue: k }); } };
+    });
+    function plain(start, end, title, place, parts) {
+      var ps = (parts || []).map(function (l) { return { label: l }; });
+      return { start: start, end: end, title: title, place: place || '', hasPlace: !!place, parts: ps, hasParts: ps.length > 0, extra: '', hasExtra: false, isSession: false, open: false, groups: [] };
+    }
+    function sess(id, start, end, title) {
+      var isOpen = !!opened[id];
+      var total = 0;
+      var groups = v[id].map(function (g) {
+        var single = g.items.length === 1 && !g.items[0][0];
+        var items = g.items.map(function (c) {
+          total += 1;
+          var meta = [c[1], c[2]].filter(function (s) { return !!s; }).join('・');
+          return { title: c[0] || g.cat, meta: meta, hasMeta: !!meta, note: c[3] || '', hasNote: !!c[3] };
+        });
+        return { cat: g.cat, showCat: !single, items: items };
+      });
+      var r = plain(start, end, title, '', null);
+      r.isSession = true;
+      r.open = isOpen;
+      r.openStr = isOpen ? 'true' : 'false';
+      r.chevron = isOpen ? '︿' : '﹀';
+      r.toggleLabel = isOpen ? '收起課程' : '看 ' + total + ' 個選項';
+      r.toggle = function () { var n = Object.assign({}, opened); n[id] = !isOpen; self.setState({ opened: n }); };
+      r.groups = groups;
+      return r;
+    }
+    var svc = plain('12:30', '– 13:15', '公益服務說明', v.svc, null);
+    svc.extra = v.alt;
+    svc.hasExtra = !!v.alt;
+    var rows = [
+      plain('08:30', '– 09:15', '報到', '', null),
+      plain('09:30', '– 10:30', '開幕式', v.open, ['即席唱詩班', '80 歲年長貴賓', '領袖演講']),
+      sess('s1', '11:00', '– 11:50', '第一場次'),
+      plain('11:50', '– 12:30', '午餐聯誼', v.lunch, null),
+      svc,
+      sess('s2', '13:30', '– 14:15', '第二場次'),
+      sess('s3', '14:30', '– 15:15', '第三場次'),
+      plain('15:30', '– 16:30', '閉幕式', v.close, ['見證', '領袖演講'])
+    ];
+    return {
+      isBefore: p === 'before', isOpen: p === 'open', isClosed: p === 'closed',
+      venues: venues, rows: rows,
+      venue: { name: v.city + '・' + v.name, addr: v.addr,
+        map: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(v.addr) }
+    };
+  }
+}
+</script>
+</body>
+</html>
