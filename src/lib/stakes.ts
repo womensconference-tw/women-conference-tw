@@ -157,7 +157,7 @@ export async function setUnitActive(
   return result.ok ? { ok: true } : result;
 }
 
-/** 刪除支聯會（連同它的支會）或支會。有報名（包括已取消的）指向它時不能刪除，可以改成停用。 */
+/** 刪除支聯會（連同它的支會）或支會。有報名（包括已取消的）或籌備委員會名單指向它時不能刪除，可以改成停用。 */
 export async function deleteUnit(supabase: SupabaseClient, kind: UnitKind, id: string): Promise<StakeResult> {
   if (!validIds(id)) return { ok: false, error: "not_found" };
   const admin = await ensureAdmin(supabase);
@@ -208,8 +208,8 @@ async function ensureAdmin(supabase: SupabaseClient): Promise<{ ok: false; error
 // 資料庫丟出的代碼轉成結果；其他錯誤記下來，畫面上顯示系統暫時出了問題。
 function failure(error: PostgrestError): { ok: false; error: StakeError } {
   switch (true) {
-    // 有報名（包括已取消的）指向它，外鍵擋下刪除。
-    case error.code === "23503" && /registrations/.test(error.message):
+    // 有報名（包括已取消的）或籌備委員會名單（#45）指向它，外鍵擋下刪除。
+    case error.code === "23503" && /registrations|committee_/.test(error.message):
       return { ok: false, error: "in_use" };
     // 新增支會時，支聯會不存在。
     case error.code === "23503":

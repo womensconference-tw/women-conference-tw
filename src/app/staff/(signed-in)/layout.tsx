@@ -22,6 +22,7 @@ export default async function SignedInLayout({ children }: LayoutProps<"/staff">
           <Link href="/staff">後台首頁</Link>
           <Link href="/staff/registrations">報名名單</Link>
           <Link href="/staff/statistics">統計</Link>
+          <Link href="/staff/committee">籌備委員會</Link>
           {staff.role === "admin" && <Link href="/staff/content">首頁內容</Link>}
           {staff.role === "admin" && <Link href="/staff/programme">場地與課程</Link>}
           {staff.role === "admin" && <Link href="/staff/stakes">支聯會與支會</Link>}
