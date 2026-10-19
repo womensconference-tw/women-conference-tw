@@ -15,6 +15,11 @@ const LIST_MARKER = /^(\s*)(?:[-*+]|\d+[.)])\s+/;
 const ORDERED_MARKER = /^\s*\d+[.)]\s/;
 const BULLET_MARKER = /^\s*[-*+]\s/;
 const HEADING_MARKER = /^#{1,6}\s+/;
+const CODE_FENCE = /^\s*(?:```|~~~)/;
+const TABLE_ROW = /^\s*\|/;
+const TABLE_DIVIDER = /^\s*\|?(?:\s*:?-+:?\s*\|)+\s*:?-*:?\s*$/;
+/** 行首不加粗的部分：縮排、引言的 >、清單或標題符號。 */
+const LINE_PREFIX = /^\s*(?:>\s?)*(?:(?:[-*+]|\d+[.)]|#{1,6})\s+)?/;
 
 export function applyEdit(value: string, edit: MarkdownEdit) {
   return {
@@ -74,21 +79,50 @@ export function formatMarkdown(format: MarkdownFormat, value: string, start: num
 }
 
 /**
- * 粗體。選取的文字逐行加上 **，換行、前後空白、清單與標題符號都留在 ** 外面：
+ * 粗體。選取的文字逐行加上 **，換行、前後空白、引言、清單與標題符號都留在 ** 外面：
  * 「**甲\n**」或「** 甲**」這種寫法顯示不出粗體，只會看到星號（Codex 審查）。
+ * 表格列在每一格裡加粗、分隔線不動；程式碼區塊顯示不出粗體，整段略過。
+ * 只加粗了一段時選起那段文字，直接打字就換掉；加粗了好幾段時選起整段。
  */
 function bold(value: string, start: number, end: number): MarkdownEdit {
   const text = value.slice(start, end);
   if (!text.trim()) return wrap(start, end, "粗體文字", "**", "**");
-  const insert = text
-    .split("\n")
-    .map((line) => {
-      const [, prefix, content, suffix] = line.match(/^(\s*(?:(?:[-*+]|\d+[.)]|#{1,6})\s+)?)(.*?)(\s*)$/)!;
-      return content ? `${prefix}**${content}**${suffix}` : line;
-    })
-    .join("\n");
-  // 只是一段沒有前後空白的文字時，選起原本的文字；否則選起整段。
-  if (insert === `**${text}**`) return wrap(start, end, text, "**", "**");
+  const linesBefore = value.slice(0, start === 0 ? 0 : value.lastIndexOf("\n", start - 1) + 1).split("\n");
+  let inFence = linesBefore.filter((line) => CODE_FENCE.test(line)).length % 2 === 1;
+  const bolded: { start: number; length: number }[] = [];
+  let insert = "";
+  const emphasize = (content: string) => {
+    bolded.push({ start: start + insert.length + 2, length: content.length });
+    insert += `**${content}**`;
+  };
+  // 行首的 prefix 與結尾的空白留在外面，中間加粗。
+  const boldPart = (part: string, prefix = /^\s*/) => {
+    const before = part.match(prefix)![0];
+    const content = part.slice(before.length).trimEnd();
+    insert += before;
+    if (content) emphasize(content);
+    insert += part.slice(before.length + content.length);
+  };
+  text.split("\n").forEach((line, index) => {
+    if (index > 0) insert += "\n";
+    if (CODE_FENCE.test(line)) {
+      inFence = !inFence;
+      insert += line;
+    } else if (inFence || !line.trim() || TABLE_DIVIDER.test(line)) {
+      insert += line;
+    } else if (TABLE_ROW.test(line)) {
+      line.split(/(?<!\\)\|/).forEach((cell, cellIndex) => {
+        if (cellIndex > 0) insert += "|";
+        boldPart(cell);
+      });
+    } else {
+      boldPart(line, LINE_PREFIX);
+    }
+  });
+  if (bolded.length === 1) {
+    const [only] = bolded;
+    return { from: start, to: end, insert, selectionStart: only.start, selectionEnd: only.start + only.length };
+  }
   return { from: start, to: end, insert, selectionStart: start, selectionEnd: start + insert.length };
 }
 

@@ -573,4 +573,12 @@ describe("複製年度", () => {
       ["執行計畫", "https://example.com/plan"],
     ]);
   });
+
+  it("從還是純文字的舊年度複製，新年度也照純文字顯示（#75，Codex 審查）", async () => {
+    must(await admin.from("committee_texts").insert({ conference_id: conferenceId, introduction: "*注意*  內容", markdown: false }));
+    const copied = await copyConference(headAdmin, { sourceConferenceId: conferenceId, year: "2100", conferenceDate: "2100-05-15" });
+    if (!copied.ok) throw new Error(copied.error);
+    conferenceIds.push(copied.conferenceId);
+    expect(await getCommittee(headAdmin, copied.conferenceId)).toMatchObject({ introduction: "*注意*  內容", markdown: false });
+  });
 });
