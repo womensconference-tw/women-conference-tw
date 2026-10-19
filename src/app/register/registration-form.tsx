@@ -120,18 +120,22 @@ const radioClass = "size-6 shrink-0 accent-primary";
  * 送出時有課程或午餐剛額滿：回到那一步，那一項標成已額滿並取消選取，其他資料都保留。
  * 代報（ADR 0003）：forOthers 時第一步多一句說明；完成頁可以「再幫一位報名」，
  * 下一位帶入電話、Email、支聯會、支會、場地，其他清空，從第一步重新填。
+ * preview 是後台的預覽報名表：每一步照樣可以點選，但確認頁不能送出，不會寫入報名、不會寄信。
  */
 export function RegistrationForm({
   locale,
   options,
   edit,
   forOthers = false,
+  preview = false,
 }: {
   locale: Locale;
   options: RegistrationOptions;
   edit?: EditTarget;
   /** 從首頁「幫家人或朋友報名」進來。 */
   forOthers?: boolean;
+  /** 後台的預覽報名表：不能送出。 */
+  preview?: boolean;
 }) {
   const t = edit ? editMessages(messages[locale]) : messages[locale];
   // 修改時一開始的資料：她原本的報名。只在第一次算，之後由她修改。
@@ -151,6 +155,8 @@ export function RegistrationForm({
   // 按了「再幫一位報名」：第一步說明哪些資料是從上一位帶過來的。
   const [another, setAnother] = useState(false);
   const [pending, startTransition] = useTransition();
+  // 預覽報名表停在確認頁：送出按鈕停用。
+  const previewLocked = preview && step === lastStep;
   // 回應斷掉後她再按一次，沿用同一個送出編號，不會多一筆報名、多寄一封信。
   const submission = useSubmissionKey();
   const selectedVenue = options.venues.find((option) => option.id === input.venueId);
@@ -300,6 +306,7 @@ export function RegistrationForm({
       goTo(step + 1);
       return;
     }
+    if (preview) return;
     startTransition(async () => {
       let result;
       try {
@@ -512,16 +519,20 @@ export function RegistrationForm({
       <div className="flex flex-col gap-3">
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || previewLocked}
           className={cn(
-            buttonVariants(),
+            // 預覽的送出按鈕和首頁「報名前」的按鈕一樣用虛線框表示不能按；不用半透明，文字才保有高對比。
+            buttonVariants(previewLocked ? { variant: "secondary" } : undefined),
             actionClass,
             "min-h-(--button-primary-min-height) text-(length:--text-lead-size) font-bold disabled:opacity-100",
+            previewLocked && "border-2 border-dashed border-foreground/40",
           )}
         >
           {step < lastStep
             ? t.register.nextButton
-            : pending
+            : previewLocked
+              ? t.preview.submitDisabled
+              : pending
               ? t.register.submittingButton
               : t.register.submitButton}
         </button>

@@ -49,6 +49,20 @@ export async function getCurrentConference(
   };
 }
 
+/**
+ * 首頁要照哪個階段顯示；null 表示只顯示「大會資訊即將公布」（還沒有目前年度，或公告上線前）。
+ * 預覽時公告上線前也照報名前的樣子顯示完整內容，讓工作人員先看看；公告上線之後和前台一樣。
+ */
+export function homePhase(
+  conference: CurrentConference | null,
+  { preview }: { preview: boolean },
+): Exclude<SchedulePhase, "unannounced"> | null {
+  if (!conference) return null;
+  // 目前年度三個時間點都要填，且公告上線不晚於報名開放（資料庫限制），所以公告上線前一定還沒開放報名。
+  if (conference.phase === "unannounced") return preview ? "upcoming" : null;
+  return conference.phase;
+}
+
 export function schedulePhase(schedule: Schedule, now: Date): SchedulePhase {
   if (!reached(schedule.announceAt, now)) return "unannounced";
   if (!reached(schedule.registrationOpensAt, now)) return "upcoming";

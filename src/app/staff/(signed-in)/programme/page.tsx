@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { getProgramme } from "@/lib/programme";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStaff } from "../../current-staff";
+import { PreviewLinks } from "../../preview-links";
 import { ResultMessage } from "../../result-message";
 import { REGION_LABELS } from "@/lib/staff";
 import { DONE, ERRORS, ItemForm, NumberFields, RegionField } from "./forms";
@@ -28,6 +29,7 @@ export default async function ProgrammePage({ searchParams }: PageProps<"/staff/
         <p>還沒有目前年度，請先設定目前年度。</p>
       ) : (
         <>
+          <PreviewLinks />
           {programme.registrationOpened && (
             <p className="rounded-lg border-2 border-card-outline p-3">
               報名已經開放：場地、場次、課程、成對課程、午餐不能再新增、刪除或換時段，只能修正文字、調整名額、排序與教室，以及停止報名。

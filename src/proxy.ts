@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 const SIGNED_OUT_PATHS = ["/staff/login", "/staff/auth/confirm"];
 
 /**
- * 後台 /staff 的每個請求：更新登入狀態的 cookie，沒登入就導回登入頁，並告訴搜尋引擎不要收錄。
+ * 後台 /staff 與預覽頁 /preview 的每個請求：更新登入狀態的 cookie，沒登入就導回登入頁，並告訴搜尋引擎不要收錄。
  * 這裡只看有沒有登入；是不是工作人員、能看什麼，由後台頁面與資料庫的權限規則判斷（ADR 0004）。
  */
 export async function proxy(request: NextRequest) {
@@ -43,5 +43,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: "/staff/:path*",
+  matcher: ["/staff/:path*", "/preview/:path*"],
 };
