@@ -7,7 +7,7 @@ import { getContentEditor, toTaipeiDateTimeInput } from "./content";
 import { getProgramme, type Programme } from "./programme";
 import { cancelRegistration, submitRegistration, updateRegistration, type RegistrationInput } from "./registration";
 import { listRegistrations } from "./registration-list";
-import { copyConference, listConferences, setCurrentConference } from "./years";
+import { copyConference, createFirstConference, listConferences, setCurrentConference } from "./years";
 
 const admin = adminClient();
 const DAY = 24 * 60 * 60 * 1000;
@@ -335,6 +335,102 @@ describe("複製去年建立新年度", () => {
       registrationOpensAt: null,
       registrationClosesAt: null,
     });
+  });
+});
+
+describe("建立第一個年度", () => {
+  /**
+   * 在一個還沒有任何年度大會的資料庫裡，以總管理員身分做 `work`，做完復原，不動到其他測試的資料。
+   * 共用的測試資料庫本來就有年度，所以在交易裡先刪光，最後不提交。
+   */
+  async function inEmptyDatabase(work: (tx: TransactionSql) => Promise<void>) {
+    const userId = must(await headAdmin.auth.getUser()).user.id;
+    const db = databaseClient();
+    const rollback = new Error("rollback");
+    try {
+      await db.begin(async (tx) => {
+        await tx`delete from public.conferences`;
+        await tx`set local role authenticated`;
+        await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: userId, role: "authenticated" })}, true)`;
+        await work(tx);
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    } finally {
+      await db.end();
+    }
+  }
+
+  it("沒有任何年度時，總管理員建立空白年度：時程空著、不是目前年度、沒有場地，可以填時程設為目前年度", async () => {
+    await inEmptyDatabase(async (tx) => {
+      const [{ id }] = await tx<{ id: string }[]>`select public.create_first_conference(2100, '2100-05-15') as id`;
+
+      const rows = await tx`select id, year, conference_date::text, is_current, announce_at, registration_opens_at,
+        registration_closes_at from public.conferences`;
+      expect(rows).toEqual([
+        {
+          id,
+          year: 2100,
+          conference_date: "2100-05-15",
+          is_current: false,
+          announce_at: null,
+          registration_opens_at: null,
+          registration_closes_at: null,
+        },
+      ]);
+      expect(await tx`select id from public.venues where conference_id = ${id}`).toHaveLength(0);
+
+      const now = Date.now();
+      await tx`select public.set_current_conference(${id}, ${new Date(now - DAY)}, ${new Date(now + DAY)},
+        ${new Date(now + 2 * DAY)})`;
+      expect(await tx`select year from public.conferences where is_current`).toEqual([{ year: 2100 }]);
+    });
+  });
+
+  it("已經有年度時不能建立，要複製去年", async () => {
+    const result = await createFirstConference(headAdmin, { year: "2100", conferenceDate: "2100-05-15" });
+
+    expect(result).toEqual({ ok: false, error: "conferences_exist" });
+    expect((await listConferences(headAdmin)).map((year) => year.year)).not.toContain(2100);
+  });
+
+  it("課務組、報報組、訪客不能建立", async () => {
+    for (const client of [courseTeam, registrationTeam, anonClient()]) {
+      const result = await createFirstConference(client, { year: "2100", conferenceDate: "2100-05-15" });
+      expect(result).toEqual({ ok: false, error: "not_admin" });
+    }
+  });
+
+  it("沒有任何年度時，課務組也不能建立", async () => {
+    const userId = must(await courseTeam.auth.getUser()).user.id;
+    const db = databaseClient();
+    try {
+      const attempt = db.begin(async (tx) => {
+        await tx`delete from public.conferences`;
+        await tx`set local role authenticated`;
+        await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: userId, role: "authenticated" })}, true)`;
+        await tx`select public.create_first_conference(2100, '2100-05-15')`;
+      });
+      await expect(attempt).rejects.toThrow("not_admin");
+    } finally {
+      await db.end();
+    }
+  });
+
+  it.each(["", "99", "20a0", "1999"])("年度「%s」看不懂", async (year) => {
+    const result = await createFirstConference(headAdmin, { year, conferenceDate: "2100-05-15" });
+    expect(result).toEqual({ ok: false, error: "year_invalid" });
+  });
+
+  it.each(["", "2100-02-30"])("大會日期「%s」沒填或不存在", async (conferenceDate) => {
+    const result = await createFirstConference(headAdmin, { year: "2100", conferenceDate });
+    expect(result).toEqual({ ok: false, error: "date_invalid" });
+  });
+
+  it("大會日期不在那一年", async () => {
+    const result = await createFirstConference(headAdmin, { year: "2100", conferenceDate: "2099-05-15" });
+    expect(result).toEqual({ ok: false, error: "date_not_in_year" });
   });
 });
 
