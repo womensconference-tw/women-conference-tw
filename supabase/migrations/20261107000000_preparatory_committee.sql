@@ -10,14 +10,15 @@
  */
 
 -- 連結只收有網域的 http(s) 網址，不能有空白或控制字元（和首頁自訂區塊的按鈕網址同一組字元）。
--- 網域前可以有帳號（user@），但網域本身不能是空的（https://@/、https://: 打不開）。和後台的 isSafeExternalUrl 一致。
+-- 網域前可以有帳號（user@），網域不能是空的，網域後只能接數字的連接埠，再來是 /、?、# 或結束
+-- （https://@/、https://user@/、https://example.com:abc/ 打不開）。和後台的 isSafeExternalUrl 一致。
 create function public.is_safe_external_url(p_url text)
 returns boolean
 language sql
 immutable
 set search_path = ''
 as $$
-  select p_url ~* '^https?://([^/\\?#@]*@)?[^/\\?#@:]+'
+  select p_url ~* '^https?://([^/\\?#@]*@)?[^/\\?#@:]+(:[0-9]{1,5})?([/?#]|$)'
     and p_url !~ '[\u0001-\u0020\u007f-\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]'
 $$;
 

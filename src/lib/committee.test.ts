@@ -222,7 +222,7 @@ describe("總管理員編輯", () => {
   it("會議記錄要有標題、真的日期與 http(s) 連結", async () => {
     expect(await saveMeeting(headAdmin, meeting({ title: "  " }))).toEqual({ ok: false, error: "title_required" });
     expect(await saveMeeting(headAdmin, meeting({ meetingDate: "2099-02-30" }))).toEqual({ ok: false, error: "date_invalid" });
-    for (const url of ["", "javascript:alert(1)", "/staff", "https://", "https://@/", "https://:", "https://example.com/a b"]) {
+    for (const url of ["", "javascript:alert(1)", "/staff", "https://", "https://@/", "https://:", "https://user@/", "https://example.com:abc/", "https://example.com/a b"]) {
       expect(await saveMeeting(headAdmin, meeting({ url })), url).toEqual({ ok: false, error: "url_invalid" });
     }
   });

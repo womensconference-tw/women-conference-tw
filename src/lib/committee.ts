@@ -342,10 +342,11 @@ export async function moveCommitteeLink(
 
 /**
  * 有網域的 http(s) 網址，不能有空白或控制字元。和資料庫的 is_safe_external_url 一致。
- * 網域前可以有帳號（user@），但網域本身不能是空的，https://@/、https://: 這種打不開的連結不收。
+ * 網域前可以有帳號（user@），網域不能是空的，網域後只能接數字的連接埠，再來是 /、?、# 或結束：
+ * https://@/、https://user@/、https://example.com:abc/ 這種打不開的連結不收。
  */
 export function isSafeExternalUrl(url: string): boolean {
-  return /^https?:\/\/([^/\\?#@]*@)?[^/\\?#@:]+/i.test(url) && isSafeButtonUrl(url);
+  return /^https?:\/\/([^/\\?#@]*@)?[^/\\?#@:]+(:[0-9]{1,5})?([/?#]|$)/i.test(url) && isSafeButtonUrl(url);
 }
 
 // 新增（沒有 id）或修改一列。修改時不能換年度（資料庫也沒給權限），所以只依 id 找。
