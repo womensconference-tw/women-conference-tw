@@ -3,8 +3,8 @@ import { parseTaipeiDateTime, validDate } from "./content";
 import { trimBlank, UUID_PATTERN } from "./registration";
 
 /*
- * 年度管理（#25）：複製去年建立新年度、切換目前年度、後台選年度檢視舊年度。
- * 複製與切換只有總管理員能做，由資料庫函式檢查（copy_conference、set_current_conference）；這裡先擋一次格式。
+ * 年度管理（#25）：複製去年建立新年度、切換目前年度、後台選年度檢視舊年度；沒有任何年度時建立第一個年度（#70）。
+ * 建立、複製與切換只有總管理員能做，由資料庫函式檢查（create_first_conference、copy_conference、set_current_conference）；這裡先擋一次格式。
  */
 
 export type YearError =
@@ -17,6 +17,7 @@ export type YearError =
   | "schedule_incomplete"
   | "schedule_order"
   | "not_found"
+  | "conferences_exist"
   | "unavailable";
 
 /** 後台年度選單與年度管理頁的一個年度。 */
@@ -67,23 +68,59 @@ export async function copyConference(
   supabase: SupabaseClient,
   input: CopyConferenceInput,
 ): Promise<{ ok: true; conferenceId: string; skippedCoursePairs: number } | { ok: false; error: YearError }> {
-  const year = Number(trimBlank(input.year));
-  if (!/^\d{4}$/.test(trimBlank(input.year)) || year < 2000) return { ok: false, error: "year_invalid" };
-  const conferenceDate = trimBlank(input.conferenceDate);
-  if (!validDate(conferenceDate)) return { ok: false, error: "date_invalid" };
-  // 日期選單預設是來源年度的明年，改了年度卻忘了改日期時擋下。
-  if (!conferenceDate.startsWith(`${year}-`)) return { ok: false, error: "date_not_in_year" };
+  const parsed = parseYearAndDate(input);
+  if (!parsed.ok) return parsed;
   if (!UUID_PATTERN.test(input.sourceConferenceId)) return { ok: false, error: "not_found" };
 
   const { data, error } = await supabase
     .rpc("copy_conference", {
       p_source_id: input.sourceConferenceId,
-      p_year: year,
-      p_conference_date: conferenceDate,
+      p_year: parsed.year,
+      p_conference_date: parsed.conferenceDate,
     })
     .single<{ new_conference_id: string; skipped_course_pairs: number }>();
   if (error) return failure(error);
   return { ok: true, conferenceId: data.new_conference_id, skippedCoursePairs: data.skipped_course_pairs };
+}
+
+export type CreateFirstConferenceInput = {
+  /** 表單上的原始文字。 */
+  year: string;
+  /** 大會日期，YYYY-MM-DD。 */
+  conferenceDate: string;
+};
+
+/**
+ * 還沒有任何年度時建立第一個年度（#70）：空白的年度，沒有場地、課程、首頁內容。
+ * 和複製出來的新年度一樣，時程時間點空著待填，也不會變成目前年度。已經有年度時不能用，要複製去年。
+ */
+export async function createFirstConference(
+  supabase: SupabaseClient,
+  input: CreateFirstConferenceInput,
+): Promise<{ ok: true; conferenceId: string } | { ok: false; error: YearError }> {
+  const parsed = parseYearAndDate(input);
+  if (!parsed.ok) return parsed;
+
+  const { data, error } = await supabase.rpc("create_first_conference", {
+    p_year: parsed.year,
+    p_conference_date: parsed.conferenceDate,
+  });
+  if (error) return failure(error);
+  return { ok: true, conferenceId: data as string };
+}
+
+// 新年度的年份與大會日期。
+function parseYearAndDate(input: {
+  year: string;
+  conferenceDate: string;
+}): { ok: true; year: number; conferenceDate: string } | { ok: false; error: YearError } {
+  const year = Number(trimBlank(input.year));
+  if (!/^\d{4}$/.test(trimBlank(input.year)) || year < 2000) return { ok: false, error: "year_invalid" };
+  const conferenceDate = trimBlank(input.conferenceDate);
+  if (!validDate(conferenceDate)) return { ok: false, error: "date_invalid" };
+  // 複製時日期選單預設是來源年度的明年，改了年度卻忘了改日期時擋下；建立第一個年度時也防打錯年。
+  if (!conferenceDate.startsWith(`${year}-`)) return { ok: false, error: "date_not_in_year" };
+  return { ok: true, year, conferenceDate };
 }
 
 export type SetCurrentConferenceInput = {
@@ -135,6 +172,8 @@ function failure(error: PostgrestError): { ok: false; error: YearError } {
       return { ok: false, error: "year_taken" };
     case error.message === "not_found":
       return { ok: false, error: "not_found" };
+    case error.message === "conferences_exist":
+      return { ok: false, error: "conferences_exist" };
     case error.message === "not_admin":
     case error.code === "42501":
       return { ok: false, error: "not_admin" };

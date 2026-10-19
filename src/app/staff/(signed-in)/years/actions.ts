@@ -2,12 +2,21 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { copyConference, setCurrentConference } from "@/lib/years";
+import { copyConference, createFirstConference, setCurrentConference } from "@/lib/years";
 
 /*
- * 複製年度、切換目前年度。是不是總管理員、時程對不對，都由資料庫判斷（src/lib/years.ts）。
+ * 建立第一個年度、複製年度、切換目前年度。是不是總管理員、時程對不對，都由資料庫判斷（src/lib/years.ts）。
  * 做完回到年度管理頁。
  */
+
+export async function createFirstYear(formData: FormData) {
+  const field = fieldsOf(formData);
+  const result = await createFirstConference(await createClient(), {
+    year: field("year"),
+    conferenceDate: field("conferenceDate"),
+  });
+  redirect(result.ok ? "/staff/years?done=created" : `/staff/years?error=${result.error}`);
+}
 
 export async function copyYear(formData: FormData) {
   const field = fieldsOf(formData);

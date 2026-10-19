@@ -10,7 +10,7 @@ import { DateTimeField, Field } from "../../fields";
 import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
 import { buttonClass, formatTime, inputClass } from "../../ui";
-import { copyYear, makeCurrentYear } from "./actions";
+import { copyYear, createFirstYear, makeCurrentYear } from "./actions";
 
 export const metadata: Metadata = { title: "年度管理" };
 
@@ -18,6 +18,8 @@ const cardClass = "flex flex-col gap-3 rounded-lg border-2 border-card-outline p
 const submitClass = cn(buttonVariants(), buttonClass, "self-start font-bold");
 
 const DONE: Record<string, string> = {
+  created:
+    "已建立年度。請到下面「所有年度」按「設為目前年度」填時程，再到「場地與課程」「首頁內容」準備內容。",
   copied: "已建立新年度。設為目前年度之前，首頁還是顯示原本的年度。",
   copied_without_some_pairs:
     "已建立新年度，但有成對課程因為去年調過場次順序、兩個場次不再相鄰，沒有複製。請到「場地與課程」重新設定這些成對課程。設為目前年度之前，首頁還是顯示原本的年度。",
@@ -35,11 +37,13 @@ const ERRORS: Record<YearError, string> = {
   schedule_incomplete: "目前年度的公告上線、報名開放、報名截止三個時間都要填。",
   schedule_order: "時間要依序：公告上線不能晚於報名開放，報名開放要早於報名截止。",
   not_found: "找不到這個年度，請重新整理頁面再試一次。",
+  conferences_exist: "已經有年度了，請重新整理頁面，用「複製去年建立新年度」。",
   unavailable: "系統暫時出了問題，請稍後再試。",
 };
 
 /**
  * 年度管理（只有總管理員）：複製去年建立新年度、切換目前年度、列出所有年度。
+ * 還沒有任何年度時，改成建立第一個年度（#70）。
  * 舊年度的資料都保留，名單可以在報名名單頁選年度查看。
  */
 export default async function YearsPage({ searchParams }: PageProps<"/staff/years">) {
@@ -57,13 +61,13 @@ export default async function YearsPage({ searchParams }: PageProps<"/staff/year
       <h1 className="text-2xl font-bold">年度管理</h1>
       <ResultMessage searchParams={searchParams} done={DONE} errors={ERRORS} />
 
-      <section className={cardClass}>
-        <h2 className="text-xl font-bold">複製去年建立新年度</h2>
-        <p>
-          複製場地、場次、課程（含名額與教室）、成對課程、午餐、首頁內容、常見問題與自訂區塊；
-          不複製報名。新年度的公告上線、報名開放、報名截止三個時間空著，設為目前年度時再填。
-        </p>
-        {newest ? (
+      {newest ? (
+        <section className={cardClass}>
+          <h2 className="text-xl font-bold">複製去年建立新年度</h2>
+          <p>
+            複製場地、場次、課程（含名額與教室）、成對課程、午餐、首頁內容、常見問題與自訂區塊；
+            不複製報名。新年度的公告上線、報名開放、報名截止三個時間空著，設為目前年度時再填。
+          </p>
           <form action={copyYear} className="flex flex-col gap-3">
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="從哪一年複製" required>
@@ -99,18 +103,44 @@ export default async function YearsPage({ searchParams }: PageProps<"/staff/year
               複製建立新年度
             </SubmitButton>
           </form>
-        ) : (
-          <p>還沒有任何年度可以複製。</p>
-        )}
-      </section>
+        </section>
+      ) : (
+        <FirstYearForm />
+      )}
 
       <section className="flex flex-col gap-3">
         <h2 className="text-xl font-bold">所有年度</h2>
+        {years.length === 0 && <p>還沒有任何年度。</p>}
         {years.map((year) => (
           <YearCard key={year.id} year={year} current={current} />
         ))}
       </section>
     </main>
+  );
+}
+
+function FirstYearForm() {
+  return (
+    <section className={cardClass}>
+      <h2 className="text-xl font-bold">建立第一個年度</h2>
+      <p>
+        還沒有任何年度。先建立一個空白的年度（沒有場地、課程、首頁內容），之後在「場地與課程」「首頁內容」準備；
+        公告上線、報名開放、報名截止三個時間空著，設為目前年度時再填。
+      </p>
+      <form action={createFirstYear} className="flex flex-col gap-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="年度" hint="西元年，例如 2027。" required>
+            <input name="year" inputMode="numeric" required autoComplete="off" className={inputClass} />
+          </Field>
+          <Field label="大會日期" required>
+            <input name="conferenceDate" type="date" required className={inputClass} />
+          </Field>
+        </div>
+        <SubmitButton pendingLabel="建立中…" className={submitClass}>
+          建立第一個年度
+        </SubmitButton>
+      </form>
+    </section>
   );
 }
 
