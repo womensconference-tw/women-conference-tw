@@ -1,0 +1,99 @@
+// @vitest-environment jsdom
+import { cleanup, render } from "@testing-library/react";
+import { afterEach, expect, it } from "vitest";
+import { Markdown } from "./markdown";
+
+/*
+ * 籌備委員會文字頁的 Markdown 排版（#75）。
+ */
+
+afterEach(cleanup);
+
+const show = (text: string) => render(<Markdown>{text}</Markdown>).container;
+
+it("排出標題、粗體、項目清單、連結", () => {
+  const page = show("# 宗旨\n\n**（2026 年度修正）**\n\n- 第一點\n- 第二點\n\n[舊網站](https://example.org/a)");
+  expect(page.querySelector("h3")?.textContent).toBe("宗旨");
+  expect(page.querySelector("strong")?.textContent).toBe("（2026 年度修正）");
+  expect([...page.querySelectorAll("ul > li")].map((li) => li.textContent)).toEqual(["第一點", "第二點"]);
+  const link = page.querySelector("a")!;
+  expect(link.getAttribute("href")).toBe("https://example.org/a");
+  expect(link.textContent).toContain("舊網站");
+});
+
+it("外部連結在新分頁開", () => {
+  const link = show("[舊網站](https://example.org/a)").querySelector("a")!;
+  expect(link.getAttribute("target")).toBe("_blank");
+  expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+});
+
+it("多層編號清單依序是 1. → A. → a. → 1)", () => {
+  const page = show("1. 甲\n    1. 乙\n        1. 丙\n            1. 丁\n2. 戊");
+  const levels = [...page.querySelectorAll("ol")].map((ol) => ol.className);
+  expect(levels).toHaveLength(4);
+  expect(levels[0]).toContain("list-decimal");
+  expect(levels[1]).toContain("list-[upper-alpha]");
+  expect(levels[2]).toContain("list-[lower-alpha]");
+  expect(levels[3]).toContain("list-[paren-decimal]");
+});
+
+it("表格包在可以左右捲動的框裡", () => {
+  const page = show("| 組別 | 姓名 |\n| --- | --- |\n| 課務組 | 測試甲 |");
+  const table = page.querySelector("table")!;
+  expect(table.parentElement?.className).toContain("overflow-x-auto");
+  expect([...table.querySelectorAll("th")].map((th) => th.textContent)).toEqual(["組別", "姓名"]);
+  expect(table.querySelector("td")?.textContent).toBe("課務組");
+});
+
+it("舊的純文字內容：每個換行都保留", () => {
+  const page = show("第一行\n第二行\n\n第三段");
+  const paragraphs = page.querySelectorAll("p");
+  expect(paragraphs).toHaveLength(2);
+  expect(paragraphs[0].querySelector("br")).toBeTruthy();
+  expect(paragraphs[0].textContent).toBe("第一行\n第二行");
+  expect(paragraphs[1].textContent).toBe("第三段");
+});
+
+it("HTML 不會進到頁面：script、iframe、onclick 都當成文字或拿掉", () => {
+  const page = show(
+    '<script>alert(1)</script>\n\n<iframe src="https://evil.invalid"></iframe>\n\n<b onclick="alert(1)">粗</b>\n\n<img src=x onerror="alert(1)">',
+  );
+  for (const tag of ["script", "iframe", "b", "img"]) expect(page.querySelector(tag)).toBeNull();
+  expect(page.querySelector("[onclick], [onerror]")).toBeNull();
+});
+
+it("連結只接受 http(s)：javascript:、data:、mailto: 等只顯示文字", () => {
+  const page = show(
+    [
+      "[a](javascript:alert(1))",
+      "[b](JaVaScRiPt:alert(1))",
+      "[c](data:text/html;base64,PHNjcmlwdD4=)",
+      "[d](vbscript:msgbox)",
+      "[e](mailto:someone@example.org)",
+      "[f](/staff)",
+      "<javascript:alert(1)>",
+      "[g](https://)",
+    ].join("\n\n"),
+  );
+  expect(page.querySelector("a")).toBeNull();
+  expect(page.textContent).toContain("a");
+  expect(page.textContent).toContain("f");
+});
+
+it("圖片不顯示，只留替代文字", () => {
+  const page = show("![追蹤用圖片](https://example.org/pixel.png)");
+  expect(page.querySelector("img")).toBeNull();
+  expect(page.textContent).toContain("追蹤用圖片");
+});
+
+it("自動連結也只接受 http(s)，並在新分頁開", () => {
+  const link = show("網址 https://example.org/b 在這裡").querySelector("a")!;
+  expect(link.getAttribute("href")).toBe("https://example.org/b");
+  expect(link.getAttribute("target")).toBe("_blank");
+});
+
+it("縮排的文字（舊的純文字內容或往內縮一層）照樣用一般字型顯示，保留換行", () => {
+  const block = show("前言\n\n    縮排的第一行\n    縮排的第二行").querySelector("pre")!;
+  expect(block.className).toContain("font-sans");
+  expect(block.textContent).toBe("縮排的第一行\n縮排的第二行\n");
+});

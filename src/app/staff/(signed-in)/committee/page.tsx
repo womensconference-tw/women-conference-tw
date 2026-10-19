@@ -34,6 +34,7 @@ import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
 import { buttonClass, inputClass } from "../../ui";
 import { CopyUrl } from "./copy-url";
+import { MarkdownEditor } from "./markdown-editor";
 import {
   deleteItemAction,
   moveLinkAction,
@@ -166,10 +167,18 @@ function Texts({
           <summary className="cursor-pointer text-lg font-bold">編輯大會簡介、主席的話、備忘錄</summary>
           <form action={saveTextsAction} className="mt-3 flex flex-col gap-3">
             <YearInputs {...edit} />
+            <p className="text-sm text-muted-foreground">
+              用編輯框上方的按鈕排版：先選取文字再按，或按了之後把範例文字換掉。儲存後依樣式顯示。
+              多層編號清單：先按「編號清單」，下一層的那幾行再按「往內縮一層」，依序顯示 1. → A. → a. → 1)。
+            </p>
             {COMMITTEE_TEXT_PAGES.map((page) => (
-              <Field key={page.key} label={page.label} hint={page.hint}>
-                <textarea name={page.name} defaultValue={texts[page.key]} rows={8} className={inputClass} />
-              </Field>
+              <MarkdownEditor
+                key={page.key}
+                name={page.name}
+                label={page.label}
+                hint={page.hint}
+                defaultValue={texts[page.key]}
+              />
             ))}
             <SubmitButton className={submitClass}>儲存</SubmitButton>
           </form>

@@ -9,7 +9,8 @@ import {
   type TeamMember,
 } from "@/lib/committee";
 import { REGION_LABELS } from "@/lib/staff";
-import { cn } from "@/lib/utils";
+import { ExternalLink } from "./external-link";
+import { Markdown } from "./markdown";
 
 /*
  * 籌備委員會資訊的顯示，後台籌備委員會頁面與公開頁面 /committee 共用（#74）。
@@ -22,7 +23,12 @@ const tableClass = "w-full border-collapse text-left [&_td]:border-t [&_td]:px-2
 export const COMMITTEE_TEXT_PAGES = [
   { name: "introduction", key: "introduction", label: "大會簡介", hint: "日期、場地、宗旨、主題經文。" },
   { name: "chairMessage", key: "chairMessage", label: "主席的話", hint: "主席的自我介紹與勉勵。" },
-  { name: "memorandum", key: "memorandum", label: "籌備委員會備忘錄", hint: "籌備委員會的組織章程。" },
+  {
+    name: "memorandum",
+    key: "memorandum",
+    label: "籌備委員會備忘錄",
+    hint: "籌備委員會的組織章程。頁面下方已有工作團隊與籌備委員的名單，備忘錄裡的名單可以只寫「見下方名單」，不必兩邊都維護。",
+  },
 ] as const;
 
 export function CommitteeTexts({ texts }: { texts: Pick<Committee, "introduction" | "chairMessage" | "memorandum"> }) {
@@ -30,7 +36,7 @@ export function CommitteeTexts({ texts }: { texts: Pick<Committee, "introduction
     <section key={page.key} className="flex flex-col gap-3">
       <h2 className="text-xl font-bold">{page.label}</h2>
       {texts[page.key] ? (
-        <p className="whitespace-pre-wrap break-words">{texts[page.key]}</p>
+        <Markdown>{texts[page.key]}</Markdown>
       ) : (
         <p className="text-muted-foreground">還沒有內容。</p>
       )}
@@ -149,15 +155,5 @@ export function MemberTable({
         </tbody>
       </table>
     </div>
-  );
-}
-
-/** 在新分頁打開的外部連結（Canva、Google 文件等）。 */
-function ExternalLink({ href, className, children }: { href: string; className?: string; children: ReactNode }) {
-  return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className={cn("break-words underline", className)}>
-      {children}
-      <span className="sr-only">（在新分頁開啟）</span>
-    </a>
   );
 }
