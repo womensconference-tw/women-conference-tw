@@ -32,8 +32,9 @@ import { getCurrentStaff } from "../../current-staff";
 import { Field } from "../../fields";
 import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
-import { buttonClass, inputClass } from "../../ui";
+import { buttonClass, inputClass, noticeClass } from "../../ui";
 import { CopyUrl } from "./copy-url";
+import { MarkdownEditor } from "./markdown-editor";
 import {
   deleteItemAction,
   moveLinkAction,
@@ -155,7 +156,7 @@ function Texts({
   texts,
   edit,
 }: {
-  texts: { introduction: string; chairMessage: string; memorandum: string };
+  texts: { introduction: string; chairMessage: string; memorandum: string; markdown: boolean };
   edit: YearFields | null;
 }) {
   return (
@@ -166,10 +167,23 @@ function Texts({
           <summary className="cursor-pointer text-lg font-bold">編輯大會簡介、主席的話、備忘錄</summary>
           <form action={saveTextsAction} className="mt-3 flex flex-col gap-3">
             <YearInputs {...edit} />
+            {!texts.markdown && (
+              <p className={noticeClass}>
+                這一年度的文字是改版前存的，目前照純文字顯示。按「儲存」後會改依樣式排版，原本的 * 或 # 可能變成斜體或標題，存之前請先排好。
+              </p>
+            )}
+            <p className="text-sm text-muted-foreground">
+              用編輯框上方的按鈕排版：先選取文字再按，或按了之後把範例文字換掉。儲存後依樣式顯示。
+              多層編號清單：先按「編號清單」，下一層的那幾行再按「往內縮一層」，依序顯示 1. → A. → a. → 1)。
+            </p>
             {COMMITTEE_TEXT_PAGES.map((page) => (
-              <Field key={page.key} label={page.label} hint={page.hint}>
-                <textarea name={page.name} defaultValue={texts[page.key]} rows={8} className={inputClass} />
-              </Field>
+              <MarkdownEditor
+                key={page.key}
+                name={page.name}
+                label={page.label}
+                hint={page.hint}
+                defaultValue={texts[page.key]}
+              />
             ))}
             <SubmitButton className={submitClass}>儲存</SubmitButton>
           </form>

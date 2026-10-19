@@ -84,6 +84,8 @@ export type Committee = {
   introduction: string;
   chairMessage: string;
   memorandum: string;
+  /** 三個文字頁是不是 Markdown；改版前存的是純文字，總管理員用新的編輯框存過一次才是（#75）。 */
+  markdown: boolean;
   /** 依日期，同一天依標題。 */
   meetings: Meeting[];
   /** 依總管理員排的順序。 */
@@ -101,7 +103,7 @@ export async function getCommittee(supabase: SupabaseClient, conferenceId: strin
   const [texts, meetings, links, teamMembers, members, stakeRows] = await Promise.all([
     supabase
       .from("committee_texts")
-      .select("introduction, chair_message, memorandum")
+      .select("introduction, chair_message, memorandum, markdown")
       .eq("conference_id", conferenceId)
       .maybeSingle(),
     supabase
@@ -147,6 +149,7 @@ export async function getCommittee(supabase: SupabaseClient, conferenceId: strin
     introduction: texts.data?.introduction ?? "",
     chairMessage: texts.data?.chair_message ?? "",
     memorandum: texts.data?.memorandum ?? "",
+    markdown: texts.data?.markdown ?? true,
     meetings: meetings.data!.map((row) => ({
       id: row.id,
       title: row.title,

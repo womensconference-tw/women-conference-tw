@@ -121,6 +121,7 @@ describe("讀取", () => {
       introduction: "",
       chairMessage: "",
       memorandum: "",
+      markdown: true,
       meetings: [],
       links: [],
       teamMembers: [],
@@ -309,6 +310,15 @@ describe("總管理員編輯", () => {
       chairMessage: "主席",
       memorandum: "章程",
     });
+  });
+
+  it("文字頁記得是不是 Markdown：改版前存的照純文字顯示，用新的編輯框存過就依樣式排版（#75）", async () => {
+    expect((await getCommittee(headAdmin, conferenceId)).markdown).toBe(true);
+    must(await admin.from("committee_texts").insert({ conference_id: conferenceId, introduction: "*舊的*", markdown: false }));
+    expect(await getCommittee(anonClient(), conferenceId)).toMatchObject({ introduction: "", markdown: true });
+    expect((await getCommittee(headAdmin, conferenceId)).markdown).toBe(false);
+    await ok(saveCommitteeTexts(headAdmin, { conferenceId, introduction: "*舊的*", chairMessage: "", memorandum: "" }));
+    expect((await getCommittee(headAdmin, conferenceId)).markdown).toBe(true);
   });
 
   it("會議記錄可以修改與刪除", async () => {
@@ -562,5 +572,13 @@ describe("複製年度", () => {
       ["交接清單", "https://example.com/handover"],
       ["執行計畫", "https://example.com/plan"],
     ]);
+  });
+
+  it("從還是純文字的舊年度複製，新年度也照純文字顯示（#75，Codex 審查）", async () => {
+    must(await admin.from("committee_texts").insert({ conference_id: conferenceId, introduction: "*注意*  內容", markdown: false }));
+    const copied = await copyConference(headAdmin, { sourceConferenceId: conferenceId, year: "2100", conferenceDate: "2100-05-15" });
+    if (!copied.ok) throw new Error(copied.error);
+    conferenceIds.push(copied.conferenceId);
+    expect(await getCommittee(headAdmin, copied.conferenceId)).toMatchObject({ introduction: "*注意*  內容", markdown: false });
   });
 });

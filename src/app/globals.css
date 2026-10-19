@@ -192,3 +192,9 @@
     @apply font-sans;
   }
 }
+
+/* 籌備委員會備忘錄第四層編號：1) 2) 3)（#75） */
+@counter-style paren-decimal {
+  system: extends decimal;
+  suffix: ") ";
+}
