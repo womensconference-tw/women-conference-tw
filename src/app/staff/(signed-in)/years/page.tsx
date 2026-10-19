@@ -110,6 +110,7 @@ export default async function YearsPage({ searchParams }: PageProps<"/staff/year
 
       <section className="flex flex-col gap-3">
         <h2 className="text-xl font-bold">所有年度</h2>
+        {years.length === 0 && <p>還沒有任何年度。</p>}
         {years.map((year) => (
           <YearCard key={year.id} year={year} current={current} />
         ))}
