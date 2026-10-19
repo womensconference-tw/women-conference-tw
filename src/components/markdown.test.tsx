@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
+import { CommitteeTexts } from "./committee";
 import { Markdown } from "./markdown";
 
 /*
@@ -96,4 +97,25 @@ it("縮排的文字（舊的純文字內容或往內縮一層）照樣用一般�
   const block = show("前言\n\n    縮排的第一行\n    縮排的第二行").querySelector("pre")!;
   expect(block.className).toContain("font-sans");
   expect(block.textContent).toBe("縮排的第一行\n縮排的第二行\n");
+});
+
+it("標題裡很長的英文字會斷行，手機上不撐出橫向捲動（Codex 審查）", () => {
+  const page = show("# AnnualWomensConference2026PlanningCommitteeMemorandum\n\n## 二\n\n### 三\n\n#### 四");
+  for (const heading of page.querySelectorAll("h3, h4, h5, h6")) expect(heading.className).toContain("break-words");
+});
+
+it("改版前存的純文字照原樣顯示：空格、空行、星號都不變（#75，Codex 審查）", () => {
+  const { container } = render(
+    <CommitteeTexts texts={{ introduction: "甲  乙\n\n\n\n*注意*\n# 說明", chairMessage: "", memorandum: "", markdown: false }} />,
+  );
+  const text = container.querySelector("p.whitespace-pre-wrap")!;
+  expect(text.textContent).toBe("甲  乙\n\n\n\n*注意*\n# 說明");
+  expect(container.querySelector("em, h3")).toBeNull();
+});
+
+it("用新的編輯框存過的依 Markdown 排版", () => {
+  const { container } = render(
+    <CommitteeTexts texts={{ introduction: "*注意*", chairMessage: "", memorandum: "", markdown: true }} />,
+  );
+  expect(container.querySelector("em")?.textContent).toBe("注意");
 });

@@ -20,6 +20,11 @@ function run(format: MarkdownFormat, marked: string) {
 describe("粗體", () => {
   it("包住選取的文字", () => expect(run("bold", "這是^重點^文字")).toBe("這是**^重點^**文字"));
   it("沒有選取時插入範例並選起來，直接打字就換掉", () => expect(run("bold", "這是^")).toBe("這是**^粗體文字^**"));
+  it("選取到行尾的換行時，換行留在星號外面（Codex 審查）", () => expect(run("bold", "^甲\n^乙")).toBe("^**甲**\n^乙"));
+  it("選取多段時，每段各自加粗，空行不動（Codex 審查）", () =>
+    expect(run("bold", "^甲\n\n乙^")).toBe("^**甲**\n\n**乙**^"));
+  it("前後的空白留在星號外面，清單符號也不包進去", () =>
+    expect(run("bold", "^- 甲 \n    1. 乙^")).toBe("^- **甲** \n    1. **乙**^"));
 });
 
 describe("標題", () => {
@@ -49,6 +54,8 @@ describe("縮排（多層清單）", () => {
   it("縮排到已有的下一層後面，接著那一層的編號", () =>
     expect(run("indent", "1. 甲\n    1. 乙\n2. 丙^")).toBe("1. 甲\n    1. 乙\n    2. 丙^"));
   it("不足四格就移掉全部空白", () => expect(run("outdent", "  - 乙^")).toBe("- 乙^"));
+  it("空格加 Tab 的縮排也算一層，整層移掉（Codex 審查）", () =>
+    expect(run("outdent", "1. 甲\n \t1. 乙^")).toBe("1. 甲\n2. 乙^"));
 });
 
 describe("游標在最前面", () => {

@@ -40,7 +40,7 @@ function rehypeOrderedListDepth() {
   };
 }
 
-const headingClass = "mt-2 font-bold";
+const headingClass = "mt-2 font-bold break-words";
 
 const components: Components = {
   // 頁面上每個文字頁的名稱是 h2，內容裡的標題從 h3 開始。

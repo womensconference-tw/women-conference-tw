@@ -27,7 +27,7 @@ export function applyEdit(value: string, edit: MarkdownEdit) {
 export function formatMarkdown(format: MarkdownFormat, value: string, start: number, end: number): MarkdownEdit {
   switch (format) {
     case "bold":
-      return wrap(start, end, value.slice(start, end) || "粗體文字", "**", "**");
+      return bold(value, start, end);
     case "link": {
       const text = value.slice(start, end);
       if (!text) return wrap(start, end, "連結文字", "[", "](https://)");
@@ -65,12 +65,51 @@ export function formatMarkdown(format: MarkdownFormat, value: string, start: num
     case "outdent":
       return editLines(value, start, end, (lines, above) =>
         numberLines(
-          lines.map((line) => line.replace(/^(?: {1,4}|\t)/, "")),
+          lines.map(outdentLine),
           above,
           false,
         ),
       );
   }
+}
+
+/**
+ * 粗體。選取的文字逐行加上 **，換行、前後空白、清單與標題符號都留在 ** 外面：
+ * 「**甲\n**」或「** 甲**」這種寫法顯示不出粗體，只會看到星號（Codex 審查）。
+ */
+function bold(value: string, start: number, end: number): MarkdownEdit {
+  const text = value.slice(start, end);
+  if (!text.trim()) return wrap(start, end, "粗體文字", "**", "**");
+  const insert = text
+    .split("\n")
+    .map((line) => {
+      const [, prefix, content, suffix] = line.match(/^(\s*(?:(?:[-*+]|\d+[.)]|#{1,6})\s+)?)(.*?)(\s*)$/)!;
+      return content ? `${prefix}**${content}**${suffix}` : line;
+    })
+    .join("\n");
+  // 只是一段沒有前後空白的文字時，選起原本的文字；否則選起整段。
+  if (insert === `**${text}**`) return wrap(start, end, text, "**", "**");
+  return { from: start, to: end, insert, selectionStart: start, selectionEnd: start + insert.length };
+}
+
+/** 往外移一層：移掉開頭最多一層（四格）的縮排，Tab 算到下一個四格的位置。 */
+function outdentLine(line: string) {
+  let column = 0;
+  let index = 0;
+  while (index < line.length && column < INDENT.length) {
+    if (line[index] === " ") column++;
+    else if (line[index] === "\t") column += INDENT.length - (column % INDENT.length);
+    else break;
+    index++;
+  }
+  return line.slice(index);
+}
+
+/** 縮排有幾格，Tab 算到下一個四格的位置。 */
+function indentWidth(line: string) {
+  let column = 0;
+  for (const char of line.match(/^\s*/)![0]) column = char === "\t" ? column + INDENT.length - (column % INDENT.length) : column + 1;
+  return column;
 }
 
 /** 用 before、after 包住 text；換完選取 text，直接打字就換掉。 */
@@ -124,7 +163,7 @@ function addMarker(line: string, marker: string) {
 function numberLines(lines: string[], above: string[], all: boolean) {
   const levels: { indent: number; count: number }[] = [];
   const next = (line: string, numbered: boolean) => {
-    const indent = stripListMarker(line).match(/^\s*/)![0].length;
+    const indent = indentWidth(stripListMarker(line));
     while (levels.length && levels[levels.length - 1].indent > indent) levels.pop();
     const top = levels[levels.length - 1];
     if (!numbered) {

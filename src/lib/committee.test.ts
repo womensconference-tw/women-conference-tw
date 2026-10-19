@@ -121,6 +121,7 @@ describe("讀取", () => {
       introduction: "",
       chairMessage: "",
       memorandum: "",
+      markdown: true,
       meetings: [],
       links: [],
       teamMembers: [],
@@ -309,6 +310,15 @@ describe("總管理員編輯", () => {
       chairMessage: "主席",
       memorandum: "章程",
     });
+  });
+
+  it("文字頁記得是不是 Markdown：改版前存的照純文字顯示，用新的編輯框存過就依樣式排版（#75）", async () => {
+    expect((await getCommittee(headAdmin, conferenceId)).markdown).toBe(true);
+    must(await admin.from("committee_texts").insert({ conference_id: conferenceId, introduction: "*舊的*", markdown: false }));
+    expect(await getCommittee(anonClient(), conferenceId)).toMatchObject({ introduction: "", markdown: true });
+    expect((await getCommittee(headAdmin, conferenceId)).markdown).toBe(false);
+    await ok(saveCommitteeTexts(headAdmin, { conferenceId, introduction: "*舊的*", chairMessage: "", memorandum: "" }));
+    expect((await getCommittee(headAdmin, conferenceId)).markdown).toBe(true);
   });
 
   it("會議記錄可以修改與刪除", async () => {

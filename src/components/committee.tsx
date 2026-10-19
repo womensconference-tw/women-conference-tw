@@ -31,12 +31,21 @@ export const COMMITTEE_TEXT_PAGES = [
   },
 ] as const;
 
-export function CommitteeTexts({ texts }: { texts: Pick<Committee, "introduction" | "chairMessage" | "memorandum"> }) {
+/** 三個文字頁。改版前存的純文字照原樣顯示（保留空格與換行），存過 Markdown 的才依樣式排版（#75）。 */
+export function CommitteeTexts({
+  texts,
+}: {
+  texts: Pick<Committee, "introduction" | "chairMessage" | "memorandum" | "markdown">;
+}) {
   return COMMITTEE_TEXT_PAGES.map((page) => (
     <section key={page.key} className="flex flex-col gap-3">
       <h2 className="text-xl font-bold">{page.label}</h2>
       {texts[page.key] ? (
-        <Markdown>{texts[page.key]}</Markdown>
+        texts.markdown ? (
+          <Markdown>{texts[page.key]}</Markdown>
+        ) : (
+          <p className="whitespace-pre-wrap break-words">{texts[page.key]}</p>
+        )
       ) : (
         <p className="text-muted-foreground">還沒有內容。</p>
       )}
