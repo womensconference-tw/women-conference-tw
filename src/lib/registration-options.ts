@@ -136,6 +136,11 @@ export async function getRegistrationOptions(
   };
 }
 
+/** 有場地也有支聯會，報名表才填得完；還沒設定時填到一半會卡住。 */
+export function hasRegistrationChoices(options: RegistrationOptions): boolean {
+  return options.venues.length > 0 && options.stakes.length > 0;
+}
+
 /** 成對課程的另一堂在這個場地的哪個場次；找不到（不該發生）時當成不是成對課程。 */
 function pairedCourse(
   sessions: { id: string; courses: { id: string }[] }[],

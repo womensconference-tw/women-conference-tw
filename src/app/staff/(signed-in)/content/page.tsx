@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { getCurrentStaff } from "../../current-staff";
 import { DateTimeField, Field } from "../../fields";
+import { PreviewLinks } from "../../preview-links";
 import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
 import { TextPair } from "../../text-pair";
@@ -112,8 +113,9 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
         <Link href="/" target="_blank" className="font-semibold underline">
           首頁
         </Link>
-        確認。英文欄位沒填時，英文版會顯示中文。
+        確認；公告上線前首頁還看不到，請用下面的「預覽首頁」。英文欄位沒填時，英文版會顯示中文。
       </p>
+      <PreviewLinks />
       {missingCount > 0 && (
         <p className="rounded-lg border-2 border-destructive p-3 font-semibold text-destructive">
           ⚠ 還有 {missingCount} 個欄位沒有英文，請找有「英文還沒填」提示的欄位補上。

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FoundRegistration, RegistrationInput, SubmitResult } from "@/lib/registration";
@@ -374,5 +374,39 @@ describe("頁面重新讀取選項", () => {
     // 課程的順序不影響報名。
     expect((register.mock.lastCall?.[0] as RegistrationInput).courseIds.toSorted()).toEqual([FLOWERS, SINGING]);
     expect(screen.getByRole("heading", { name: "報名完成" })).toBeTruthy();
+  });
+});
+
+describe("預覽報名表", () => {
+  it("可以一路點到確認頁，但送出按鈕停用，按了也不會送出報名", async () => {
+    const user = userEvent.setup();
+    render(<RegistrationForm locale="zh" options={options} preview />);
+
+    await user.type(screen.getByLabelText("姓名"), "王小美");
+    await user.type(screen.getByLabelText("電話"), "0912345678");
+    await user.click(radio("支聯會", "台北支聯會"));
+    await user.click(radio("支會", "新店支會"));
+    await user.click(button("下一步"));
+    await user.click(radio("場地", "金華教堂"));
+    await user.click(button("下一步"));
+    await user.click(radio("上午", "拼布"));
+    await user.click(radio("下午", "唱歌"));
+    await user.click(radio("午后動態", "健行"));
+    await user.click(button("下一步"));
+    await user.click(radio("午餐", "便當"));
+    await user.click(radio("紙本手冊", "需要紙本手冊"));
+    await user.click(button("下一步"));
+    expect(step("肖像權同意與確認")).toBeTruthy();
+    await user.click(screen.getByRole("checkbox", { name: "我已閱讀並同意" }));
+
+    const submit = button("預覽模式不能送出");
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "確認送出報名" })).toBeNull();
+    await user.click(submit);
+    // 不經過按鈕直接送出表單（例如在輸入框按 Enter）也不會送出報名。
+    fireEvent.submit(submit.closest("form")!);
+
+    expect(register).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "報名完成" })).toBeNull();
   });
 });

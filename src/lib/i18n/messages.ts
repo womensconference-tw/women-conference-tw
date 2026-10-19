@@ -12,6 +12,14 @@ const zh = {
   },
   // 切換按鈕顯示「要切換過去的那個語言」，用該語言自己的寫法。
   languageSwitch: "English",
+  // 後台的預覽首頁、預覽報名表：只有登入的工作人員看得到，最上方說明這是預覽。
+  preview: {
+    homeNotAnnounced: "預覽模式：訪客還看不到這些內容。",
+    homeAnnounced: "預覽模式：這是訪客現在看到的首頁。",
+    register: "預覽模式：這是報名表的樣子，不能送出，也不會寄信。",
+    registerNoOptions: "還沒有場地或支聯會，報名表沒有東西可選。",
+    submitDisabled: "預覽模式不能送出",
+  },
   home: {
     comingSoon: "大會資訊即將公布，請稍後再來看看。",
     conferenceDate: (year: number, date: string) => `${year} 年大會：${date}`,
@@ -252,6 +260,13 @@ const en = {
     description: "Official website and registration for the Taiwan Women's Conference",
   },
   languageSwitch: "中文",
+  preview: {
+    homeNotAnnounced: "Preview mode: visitors can't see this yet.",
+    homeAnnounced: "Preview mode: this is the homepage visitors see now.",
+    register: "Preview mode: this is how the registration form looks. It can't be submitted and sends no email.",
+    registerNoOptions: "There are no venues or stakes yet, so the registration form has nothing to choose.",
+    submitDisabled: "Can't submit in preview mode",
+  },
   home: {
     comingSoon: "Conference details are coming soon. Please check back later.",
     conferenceDate: (year: number, date: string) => `${year} Conference: ${date}`,

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { adminClient, anonClient, must } from "../../test/supabase";
-import { getCurrentConference } from "./conference";
+import { getCurrentConference, homePhase } from "./conference";
 
 const FIXTURE_YEAR = 2099;
 
@@ -95,5 +95,30 @@ describe("目前年度的時程", () => {
     const conference = await getCurrentConference(anonClient(), new Date(now));
 
     expect(conference?.phase).toBe(phase);
+  });
+});
+
+describe("首頁顯示的樣子", () => {
+  it("公告上線前：前台首頁只顯示即將公布，預覽照報名前的樣子顯示完整內容", async () => {
+    const conference = await getCurrentConference(anonClient(), new Date("2099-02-01T12:00:00+08:00"));
+
+    expect(homePhase(conference, { preview: false })).toBeNull();
+    expect(homePhase(conference, { preview: true })).toBe("upcoming");
+  });
+
+  it.each([
+    { moment: "報名前", now: "2099-03-15T12:00:00+08:00", phase: "upcoming" },
+    { moment: "報名中", now: "2099-04-15T12:00:00+08:00", phase: "open" },
+    { moment: "已截止", now: "2099-05-10T12:00:00+08:00", phase: "closed" },
+  ])("$moment：預覽和前台首頁一樣", async ({ now, phase }) => {
+    const conference = await getCurrentConference(anonClient(), new Date(now));
+
+    expect(homePhase(conference, { preview: false })).toBe(phase);
+    expect(homePhase(conference, { preview: true })).toBe(phase);
+  });
+
+  it("沒有目前年度時，預覽也只顯示即將公布", () => {
+    expect(homePhase(null, { preview: false })).toBeNull();
+    expect(homePhase(null, { preview: true })).toBeNull();
   });
 });

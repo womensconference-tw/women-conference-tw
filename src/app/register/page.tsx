@@ -3,7 +3,7 @@ import Link from "next/link";
 import { LanguageSwitch } from "@/components/language-switch";
 import { buttonVariants } from "@/components/ui/button";
 import { getCurrentConference } from "@/lib/conference";
-import { getRegistrationOptions } from "@/lib/registration-options";
+import { getRegistrationOptions, hasRegistrationChoices } from "@/lib/registration-options";
 import { getLocale, getMessages } from "@/lib/i18n/server";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -28,10 +28,7 @@ export default async function RegisterPage({ searchParams }: PageProps<"/registe
     getRegistrationOptions(supabase, locale),
   ]);
   // 還沒設定場地或支聯會時，表單填到一半會卡住，所以也當成還不能報名。
-  const options =
-    conference?.phase === "open" && allOptions.venues.length > 0 && allOptions.stakes.length > 0
-      ? allOptions
-      : null;
+  const options = conference?.phase === "open" && hasRegistrationChoices(allOptions) ? allOptions : null;
 
   return (
     <main className="mx-auto flex w-full max-w-(--content-max-width) flex-1 flex-col gap-8 px-5 pt-3 pb-8 text-body leading-relaxed">
