@@ -94,9 +94,9 @@ describe("工作人員帳號", () => {
     expect(await getStaffMember(await signedInClient("lin@example.com"))).toMatchObject({ name: "林姊妹" });
     const userId = (await listStaffMembers(headAdmin)).find((member) => member.email === "lin@example.com")!.userId;
     expect(
-      await updateStaffMember(headAdmin, { userId, name: "林春妙", role: "course_team", region: "north" }),
+      await updateStaffMember(headAdmin, { userId, name: "測試名字", role: "course_team", region: "north" }),
     ).toEqual({ ok: true });
-    expect((await listStaffMembers(headAdmin)).find((member) => member.userId === userId)?.name).toBe("林春妙");
+    expect((await listStaffMembers(headAdmin)).find((member) => member.userId === userId)?.name).toBe("測試名字");
   });
 
   it("名字的 50 個字按字算，「𠮷」這類字也只算一個", async () => {
