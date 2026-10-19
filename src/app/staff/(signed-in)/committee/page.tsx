@@ -1,12 +1,21 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
+import {
+  COMMITTEE_TEXT_PAGES,
+  CommitteeTexts,
+  committeeCardClass as cardClass,
+  LinkList,
+  MeetingList,
+  MemberTable,
+  TeamTable,
+} from "@/components/committee";
 import { buttonVariants } from "@/components/ui/button";
 import {
   COMMITTEE_TEAM_LABELS,
   COMMITTEE_TEAMS,
   getCommittee,
-  roleLabel,
+  listPublicCommitteeYears,
   type CommitteeError,
   type CommitteeItemKind,
   type CommitteeLink,
@@ -24,6 +33,7 @@ import { Field } from "../../fields";
 import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
 import { buttonClass, inputClass } from "../../ui";
+import { CopyUrl } from "./copy-url";
 import {
   deleteItemAction,
   moveLinkAction,
@@ -36,9 +46,7 @@ import {
 
 export const metadata: Metadata = { title: "籌備委員會" };
 
-const cardClass = "flex flex-col gap-3 rounded-lg border-2 border-card-outline p-4";
 const submitClass = cn(buttonVariants(), buttonClass, "self-start font-bold");
-const tableClass = "w-full border-collapse text-left [&_td]:border-t [&_td]:px-2 [&_td]:py-2 [&_th]:px-2 [&_th]:py-2";
 
 const DONE: Record<string, string> = {
   saved: "已儲存。",
@@ -66,7 +74,8 @@ type YearFields = { conferenceId: string; year: number };
 /**
  * 籌備委員會（所有工作人員都看得到，只有總管理員能編輯）：大會簡介、主席的話、籌備委員會備忘錄、
  * 會議記錄、重要連結、工作團隊與籌備委員名單。預設是目前年度，可以選年度看別的年度。
- * 名單只是資訊，名單上的人不會因此有後台帳號。
+ * 名單只是資訊，名單上的人不會因此有後台帳號。目前與過去年度不用登入也能在公開頁面 /committee 看（#74），
+ * 這裡放公開網址，方便總管理員傳給工作團隊與籌備委員。
  */
 export default async function CommitteePage({ searchParams }: PageProps<"/staff/committee">) {
   const supabase = await createClient();
@@ -77,13 +86,18 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
 
   // 沒選、或選的年度不在清單裡（網址被改過）時，是目前年度。
   const selected = years.find((year) => String(year.year) === yearParam) ?? years.find((year) => year.isCurrent);
-  const [committee, directory] = await Promise.all([
+  const [committee, directory, publicYears] = await Promise.all([
     selected ? getCommittee(supabase, selected.id) : null,
     canEdit ? getStakeDirectory(supabase) : null,
+    listPublicCommitteeYears(supabase),
   ]);
   const stakes = directory?.stakes ?? [];
   // 總管理員才有的編輯表單；表單帶著這個年度，寫到這個年度、做完回到這個年度。
   const edit = canEdit && selected ? { conferenceId: selected.id, year: selected.year } : null;
+  // 公開頁面看得到哪些年度由資料庫決定（目前與過去年度）。
+  const isPublic = publicYears.some((year) => year.id === selected?.id);
+  // 看舊年度時帶上年度。網域由瀏覽器補上（CopyUrl）。
+  const publicPath = `/committee${selected && !selected.isCurrent ? `?year=${selected.year}` : ""}`;
 
   return (
     <main className="flex flex-col gap-8">
@@ -111,10 +125,21 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
         <p>{years.length === 0 ? "還沒有年度大會。" : "還沒有設定目前年度，請選年度查看。"}</p>
       ) : (
         <>
-          <p>
-            籌備委員會的資訊只有工作人員看得到。
-            {canEdit ? "名單只是資訊，名單上的人不會因此有後台帳號。" : "只有總管理員能修改。"}
-          </p>
+          <section className={cardClass}>
+            <h2 className="text-lg font-bold">公開網址</h2>
+            {isPublic ? (
+              <>
+                <p>
+                  目前與過去年度的籌備委員會資訊不用登入就能看，把這個網址傳給工作團隊與籌備委員。
+                  前台首頁沒有連到這裡，搜尋引擎也不會收錄。
+                </p>
+                <CopyUrl key={publicPath} path={publicPath} />
+              </>
+            ) : (
+              <p>這個年度還沒成為目前年度，公開頁面還看不到，只有工作人員看得到。設為目前年度後就會公開。</p>
+            )}
+          </section>
+          <p>{canEdit ? "名單只是資訊，名單上的人不會因此有後台帳號。" : "只有總管理員能修改。"}</p>
           <Texts texts={committee} edit={edit} />
           <Meetings meetings={committee.meetings} edit={edit} />
           <Links links={committee.links} edit={edit} />
@@ -126,12 +151,6 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
   );
 }
 
-const TEXT_PAGES = [
-  { name: "introduction", key: "introduction", label: "大會簡介", hint: "日期、場地、宗旨、主題經文。" },
-  { name: "chairMessage", key: "chairMessage", label: "主席的話", hint: "主席的自我介紹與勉勵。" },
-  { name: "memorandum", key: "memorandum", label: "籌備委員會備忘錄", hint: "籌備委員會的組織章程。" },
-] as const;
-
 function Texts({
   texts,
   edit,
@@ -141,22 +160,13 @@ function Texts({
 }) {
   return (
     <>
-      {TEXT_PAGES.map((page) => (
-        <section key={page.key} className="flex flex-col gap-3">
-          <h2 className="text-xl font-bold">{page.label}</h2>
-          {texts[page.key] ? (
-            <p className="whitespace-pre-wrap break-words">{texts[page.key]}</p>
-          ) : (
-            <p className="text-muted-foreground">還沒有內容。</p>
-          )}
-        </section>
-      ))}
+      <CommitteeTexts texts={texts} />
       {edit && (
         <details className={cardClass}>
           <summary className="cursor-pointer text-lg font-bold">編輯大會簡介、主席的話、備忘錄</summary>
           <form action={saveTextsAction} className="mt-3 flex flex-col gap-3">
             <YearInputs {...edit} />
-            {TEXT_PAGES.map((page) => (
+            {COMMITTEE_TEXT_PAGES.map((page) => (
               <Field key={page.key} label={page.label} hint={page.hint}>
                 <textarea name={page.name} defaultValue={texts[page.key]} rows={8} className={inputClass} />
               </Field>
@@ -173,29 +183,23 @@ function Meetings({ meetings, edit }: { meetings: Meeting[]; edit: YearFields | 
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-xl font-bold">會議記錄（{meetings.length} 筆）</h2>
-      {meetings.length === 0 && <p className="text-muted-foreground">還沒有會議記錄。</p>}
-      <ol className="flex flex-col gap-3">
-        {meetings.map((meeting) => (
-          <li key={meeting.id} className={cardClass}>
-            <p className="text-sm text-muted-foreground">{meeting.meetingDate.replaceAll("-", "/")}</p>
-            <ExternalLink href={meeting.url} className="text-lg font-bold">
-              {meeting.title}
-            </ExternalLink>
-            {meeting.note && <p className="whitespace-pre-wrap break-words">{meeting.note}</p>}
-            {edit && (
-              <>
-                <details>
-                  <summary className="cursor-pointer font-semibold">編輯會議記錄</summary>
-                  <div className="mt-3">
-                    <MeetingForm edit={edit} meeting={meeting} submitLabel="儲存會議記錄" />
-                  </div>
-                </details>
-                <DeleteForm edit={edit} kind="meeting" id={meeting.id} noun="會議記錄" />
-              </>
-            )}
-          </li>
-        ))}
-      </ol>
+      <MeetingList
+        meetings={meetings}
+        manage={
+          edit &&
+          ((meeting) => (
+            <>
+              <details>
+                <summary className="cursor-pointer font-semibold">編輯會議記錄</summary>
+                <div className="mt-3">
+                  <MeetingForm edit={edit} meeting={meeting} submitLabel="儲存會議記錄" />
+                </div>
+              </details>
+              <DeleteForm edit={edit} kind="meeting" id={meeting.id} noun="會議記錄" />
+            </>
+          ))
+        }
+      />
       {edit && (
         <AddDetails label="新增會議記錄">
           <MeetingForm edit={edit} submitLabel="新增會議記錄" />
@@ -231,31 +235,27 @@ function Links({ links, edit }: { links: CommitteeLink[]; edit: YearFields | nul
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-xl font-bold">重要連結</h2>
-      {links.length === 0 && <p className="text-muted-foreground">還沒有連結。</p>}
-      <ol className="flex flex-col gap-3">
-        {links.map((link, index) => (
-          <li key={link.id} className={edit ? cardClass : undefined}>
-            <ExternalLink href={link.url} className="text-lg font-bold">
-              {link.title}
-            </ExternalLink>
-            {edit && (
-              <>
-                <div className="flex flex-wrap gap-3">
-                  {index > 0 && <MoveButton edit={edit} id={link.id} direction="up" />}
-                  {index < links.length - 1 && <MoveButton edit={edit} id={link.id} direction="down" />}
+      <LinkList
+        links={links}
+        manage={
+          edit &&
+          ((link, index) => (
+            <>
+              <div className="flex flex-wrap gap-3">
+                {index > 0 && <MoveButton edit={edit} id={link.id} direction="up" />}
+                {index < links.length - 1 && <MoveButton edit={edit} id={link.id} direction="down" />}
+              </div>
+              <details>
+                <summary className="cursor-pointer font-semibold">編輯連結</summary>
+                <div className="mt-3">
+                  <LinkForm edit={edit} link={link} submitLabel="儲存連結" />
                 </div>
-                <details>
-                  <summary className="cursor-pointer font-semibold">編輯連結</summary>
-                  <div className="mt-3">
-                    <LinkForm edit={edit} link={link} submitLabel="儲存連結" />
-                  </div>
-                </details>
-                <DeleteForm edit={edit} kind="link" id={link.id} noun="連結" />
-              </>
-            )}
-          </li>
-        ))}
-      </ol>
+              </details>
+              <DeleteForm edit={edit} kind="link" id={link.id} noun="連結" />
+            </>
+          ))
+        }
+      />
       {edit && (
         <AddDetails label="新增連結">
           <LinkForm edit={edit} submitLabel="新增連結" />
@@ -293,55 +293,27 @@ function MoveButton({ edit, id, direction }: { edit: YearFields; id: string; dir
 }
 
 function Team({ members, stakes, edit }: { members: TeamMember[]; stakes: DirectoryStake[]; edit: YearFields | null }) {
-  const teams = COMMITTEE_TEAMS.filter((team) => members.some((member) => member.team === team));
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-xl font-bold">工作團隊（{members.length} 人）</h2>
       <p>籌備會的執行組。和後台的工作人員帳號無關：名單上的課務組、報報組成員不會因此有後台帳號。</p>
-      {members.length === 0 && <p className="text-muted-foreground">還沒有名單。</p>}
-      {teams.map((team) => (
-        <div key={team} className="flex flex-col gap-2">
-          <h3 className="text-lg font-bold">{COMMITTEE_TEAM_LABELS[team]}</h3>
-          <div className="overflow-x-auto">
-            <table className={tableClass}>
-              <thead>
-                <tr>
-                  <th>職務</th>
-                  <th>姓名</th>
-                  <th>區</th>
-                  <th>支聯會</th>
-                  {edit && <th>管理</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {members
-                  .filter((member) => member.team === team)
-                  .map((member) => (
-                    <tr key={member.id} className="align-top">
-                      <td>{roleLabel(member.team, member.role)}</td>
-                      <td>{member.name}</td>
-                      <td>{member.region ? REGION_LABELS[member.region] : "全區"}</td>
-                      <td>{member.stakeName}</td>
-                      {edit && (
-                        <td>
-                          <div className="flex flex-col gap-2">
-                            <details>
-                              <summary className="cursor-pointer font-semibold">編輯</summary>
-                              <div className="mt-3">
-                                <TeamMemberForm edit={edit} stakes={stakes} member={member} submitLabel="儲存" />
-                              </div>
-                            </details>
-                            <DeleteForm edit={edit} kind="team_member" id={member.id} noun="這位" />
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ))}
+      <TeamTable
+        members={members}
+        manage={
+          edit &&
+          ((member) => (
+            <div className="flex flex-col gap-2">
+              <details>
+                <summary className="cursor-pointer font-semibold">編輯</summary>
+                <div className="mt-3">
+                  <TeamMemberForm edit={edit} stakes={stakes} member={member} submitLabel="儲存" />
+                </div>
+              </details>
+              <DeleteForm edit={edit} kind="team_member" id={member.id} noun="這位" />
+            </div>
+          ))
+        }
+      />
       {edit && (
         <AddDetails label="新增工作團隊成員">
           <TeamMemberForm edit={edit} stakes={stakes} submitLabel="新增" />
@@ -421,44 +393,23 @@ function Members({
     <section className="flex flex-col gap-4">
       <h2 className="text-xl font-bold">籌備委員（{members.length} 人）</h2>
       <p>每個支聯會推兩位，其中一位須為慈助會會長團成員。依支聯會名單的順序排列。</p>
-      {members.length === 0 ? (
-        <p className="text-muted-foreground">還沒有名單。</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className={tableClass}>
-            <thead>
-              <tr>
-                <th>支聯會</th>
-                <th>姓名</th>
-                <th>慈助會會長團</th>
-                {edit && <th>管理</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((member) => (
-                <tr key={member.id} className="align-top">
-                  <td>{member.stakeName}</td>
-                  <td>{member.name}</td>
-                  <td>{member.reliefSocietyPresidency ? "✓ 是" : ""}</td>
-                  {edit && (
-                    <td>
-                      <div className="flex flex-col gap-2">
-                        <details>
-                          <summary className="cursor-pointer font-semibold">編輯</summary>
-                          <div className="mt-3">
-                            <MemberForm edit={edit} stakes={stakes} member={member} submitLabel="儲存" />
-                          </div>
-                        </details>
-                        <DeleteForm edit={edit} kind="member" id={member.id} noun="這位" />
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <MemberTable
+        members={members}
+        manage={
+          edit &&
+          ((member) => (
+            <div className="flex flex-col gap-2">
+              <details>
+                <summary className="cursor-pointer font-semibold">編輯</summary>
+                <div className="mt-3">
+                  <MemberForm edit={edit} stakes={stakes} member={member} submitLabel="儲存" />
+                </div>
+              </details>
+              <DeleteForm edit={edit} kind="member" id={member.id} noun="這位" />
+            </div>
+          ))
+        }
+      />
       {edit && (
         <AddDetails label="新增籌備委員">
           <MemberForm edit={edit} stakes={stakes} submitLabel="新增" />
@@ -569,12 +520,3 @@ function DeleteForm({ edit, kind, id, noun }: { edit: YearFields; kind: Committe
   );
 }
 
-/** 在新分頁打開的外部連結（Canva、Google 文件等）。 */
-function ExternalLink({ href, className, children }: { href: string; className?: string; children: ReactNode }) {
-  return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className={cn("break-words underline", className)}>
-      {children}
-      <span className="sr-only">（在新分頁開啟）</span>
-    </a>
-  );
-}
