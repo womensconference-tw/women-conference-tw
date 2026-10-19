@@ -5,8 +5,8 @@ import { REGIONS, type Region } from "./staff";
 
 /*
  * 籌備委員會資訊（#45）：大會簡介、主席的話、籌備委員會備忘錄、會議記錄、重要連結、工作團隊與籌備委員名單。
- * 屬於年度大會。所有工作人員都看得到，只有總管理員能編輯，由資料庫的權限規則強制（ADR 0004）；
- * 這裡先確認一次，好在畫面上說明。未登入讀不到（名單是工作人員的個資）。
+ * 屬於年度大會。只有總管理員能編輯，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
+ * 目前與過去年度不用登入也讀得到（公開頁面 /committee，#74）；還沒到的年度只有工作人員讀得到。
  * 名單只是資訊，不給任何後台權限：工作團隊的課務組、報報組成員不會因此有後台帳號（GLOSSARY「工作團隊」）。
  */
 
@@ -75,6 +75,8 @@ export type CommitteeMember = {
   name: string;
   stakeId: string;
   stakeName: string;
+  /** 支聯會的區。 */
+  stakeRegion: Region | null;
   reliefSocietyPresidency: boolean;
 };
 
@@ -92,9 +94,11 @@ export type Committee = {
   members: CommitteeMember[];
 };
 
-/** 一個年度的籌備委員會資訊。工作人員才讀得到：不是工作人員的登入者讀到的全是空的，未登入的會出錯（沒有權限）。 */
+/**
+ * 一個年度的籌備委員會資訊。目前與過去年度任何人都讀得到；還沒到的年度只有工作人員讀得到，其他人讀到的全是空的。
+ */
 export async function getCommittee(supabase: SupabaseClient, conferenceId: string): Promise<Committee> {
-  const [texts, meetings, links, teamMembers, members] = await Promise.all([
+  const [texts, meetings, links, teamMembers, members, stakeRows] = await Promise.all([
     supabase
       .from("committee_texts")
       .select("introduction, chair_message, memorandum")
@@ -115,20 +119,25 @@ export async function getCommittee(supabase: SupabaseClient, conferenceId: strin
       .order("id"),
     supabase
       .from("committee_team_members")
-      .select("id, team, role, name, region, stake_id, stakes(name_zh)")
+      .select("id, team, role, name, region, stake_id")
       .eq("conference_id", conferenceId)
       .order("name")
       .order("id"),
     supabase
       .from("committee_members")
-      .select("id, name, stake_id, relief_society_presidency, stakes(name_zh, position)")
+      .select("id, name, stake_id, relief_society_presidency")
       .eq("conference_id", conferenceId)
       .order("name")
       .order("id"),
+    // 名單用到的支聯會可能已經停用，前台訪客讀不到支聯會表裡停用的，改由資料庫函式讀（#74）。
+    supabase.rpc("committee_stakes", { p_conference_id: conferenceId }),
   ]);
-  for (const result of [texts, meetings, links, teamMembers, members]) {
+  for (const result of [texts, meetings, links, teamMembers, members, stakeRows]) {
     if (result.error) throw result.error;
   }
+  const stakes = new Map(
+    (stakeRows.data as { id: string; name_zh: string; region: string; position: number }[]).map((stake) => [stake.id, stake]),
+  );
 
   // 組別與職務的順序不是字母順序，在這裡排；資料庫已經依姓名排好，sort 不會打亂同組同職務的順序。
   const teamOrder = (member: { team: CommitteeTeam; role: CommitteeRole }) =>
@@ -154,11 +163,11 @@ export async function getCommittee(supabase: SupabaseClient, conferenceId: strin
         name: row.name,
         region: row.region as Region | null,
         stakeId: row.stake_id,
-        stakeName: stakeOf(row.stakes)?.name_zh ?? "",
+        stakeName: stakes.get(row.stake_id)?.name_zh ?? "",
       }))
       .sort((a, b) => teamOrder(a) - teamOrder(b)),
     members: members
-      .data!.map((row) => ({ row, stakePosition: stakeOf(row.stakes)?.position ?? 0 }))
+      .data!.map((row) => ({ row, stakePosition: stakes.get(row.stake_id)?.position ?? 0 }))
       // 支聯會排序相同時依編號，和支聯會名單一樣。
       .sort(
         (a, b) =>
@@ -169,15 +178,25 @@ export async function getCommittee(supabase: SupabaseClient, conferenceId: strin
         id: row.id,
         name: row.name,
         stakeId: row.stake_id,
-        stakeName: stakeOf(row.stakes)?.name_zh ?? "",
+        stakeName: stakes.get(row.stake_id)?.name_zh ?? "",
+        stakeRegion: (stakes.get(row.stake_id)?.region ?? null) as Region | null,
         reliefSocietyPresidency: row.relief_society_presidency,
       })),
   };
 }
 
-// 多對一的關聯，supabase-js 的型別推不出來是一筆還是多筆。
-function stakeOf<T>(stakes: T | T[] | null): T | null {
-  return Array.isArray(stakes) ? (stakes[0] ?? null) : stakes;
+/** 公開頁面的一個年度。 */
+export type PublicCommitteeYear = { id: string; year: number; isCurrent: boolean };
+
+/** 籌備委員會資訊公開的年度（目前與過去年度），新的在前。不用登入也讀得到。 */
+export async function listPublicCommitteeYears(supabase: SupabaseClient): Promise<PublicCommitteeYear[]> {
+  const { data, error } = await supabase.rpc("list_public_committee_years");
+  if (error) throw error;
+  return (data as { id: string; year: number; is_current: boolean }[]).map((row) => ({
+    id: row.id,
+    year: row.year,
+    isCurrent: row.is_current,
+  }));
 }
 
 export type CommitteeTextsInput = {
