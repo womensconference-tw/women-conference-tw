@@ -1,12 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { buttonClass, inputClass } from "../../ui";
 
-/** 公開頁面的網址，可以一鍵複製；瀏覽器不讓複製時，網址框可以自己選取複製。 */
-export function CopyUrl({ url }: { url: string }) {
+/**
+ * 公開頁面的網址，可以一鍵複製；瀏覽器不讓複製時，網址框可以自己選取複製。
+ * 網域用瀏覽器網址列上的（總管理員實際打開的網站），正式網域、預覽網址、本機都對。
+ * 不用請求的標頭組網址：標頭可能被偽造，複製出去的網址會指到別的網站（Codex 審查）。
+ */
+export function CopyUrl({ path }: { path: string }) {
+  // 伺服器上沒有瀏覽器的網址，先只顯示路徑，畫到瀏覽器上再補上網域。
+  const origin = useSyncExternalStore(noSubscription, () => window.location.origin, () => "");
+  const url = origin + path;
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
 
   async function copy() {
@@ -40,3 +47,6 @@ export function CopyUrl({ url }: { url: string }) {
     </div>
   );
 }
+
+// 網址列的網域在這一頁不會變，不必訂閱變化。
+const noSubscription = () => () => {};

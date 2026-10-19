@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import {
@@ -25,7 +24,6 @@ import {
   type TeamMember,
 } from "@/lib/committee";
 import { REGION_LABELS, REGIONS } from "@/lib/staff";
-import { siteOrigin } from "@/lib/site-origin";
 import { getStakeDirectory, type DirectoryStake } from "@/lib/stakes";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -81,12 +79,7 @@ type YearFields = { conferenceId: string; year: number };
  */
 export default async function CommitteePage({ searchParams }: PageProps<"/staff/committee">) {
   const supabase = await createClient();
-  const [me, years, { year: yearParam }, headerStore] = await Promise.all([
-    getCurrentStaff(),
-    listConferences(supabase),
-    searchParams,
-    headers(),
-  ]);
+  const [me, years, { year: yearParam }] = await Promise.all([getCurrentStaff(), listConferences(supabase), searchParams]);
   // 版面和頁面同時執行，版面的導向擋不住這裡，自己也要檢查。
   if (!me) redirect("/staff/login");
   const canEdit = me.role === "admin";
@@ -103,7 +96,8 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
   const edit = canEdit && selected ? { conferenceId: selected.id, year: selected.year } : null;
   // 公開頁面看得到哪些年度由資料庫決定（目前與過去年度）。
   const isPublic = publicYears.some((year) => year.id === selected?.id);
-  const publicUrl = siteOrigin(headerStore) + `/committee${selected && !selected.isCurrent ? `?year=${selected.year}` : ""}`;
+  // 看舊年度時帶上年度。網域由瀏覽器補上（CopyUrl）。
+  const publicPath = `/committee${selected && !selected.isCurrent ? `?year=${selected.year}` : ""}`;
 
   return (
     <main className="flex flex-col gap-8">
@@ -139,7 +133,7 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
                   目前與過去年度的籌備委員會資訊不用登入就能看，把這個網址傳給工作團隊與籌備委員。
                   前台首頁沒有連到這裡，搜尋引擎也不會收錄。
                 </p>
-                <CopyUrl key={publicUrl} url={publicUrl} />
+                <CopyUrl key={publicPath} path={publicPath} />
               </>
             ) : (
               <p>這個年度還沒成為目前年度，公開頁面還看不到，只有工作人員看得到。設為目前年度後就會公開。</p>
