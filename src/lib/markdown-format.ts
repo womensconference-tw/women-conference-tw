@@ -82,34 +82,44 @@ export function formatMarkdown(format: MarkdownFormat, value: string, start: num
  * 粗體。用顯示頁面時同一套 Markdown 規則（GitHub 風格）讀懂內容，只在段落、標題、表格每一格的文字上加 **：
  * 換行、前後空白、引言、清單、標題、表格的 | 都留在 ** 外面，程式碼區塊整段略過（Codex 審查）。
  * 選取範圍切在連結、程式碼等中間時，整個一起加粗；裡面本來就有的粗體拿掉星號，免得變成「****」。
+ * 段落跨多行時逐行加粗，續行開頭的 > 與縮排留在外面。
+ * 頭尾是標點、旁邊緊接著字時，Markdown 不把 ** 當成粗體，標點移到 ** 外面（例如「（**乙**）」）。
  * 只加粗了一段時選起那段文字，直接打字就換掉；加粗了好幾段時選起整段。
  */
 function bold(value: string, start: number, end: number): MarkdownEdit {
   const text = value.slice(start, end);
-  if (!text.trim()) return wrap(start, end, "粗體文字", "**", "**");
+  const unchanged = { from: start, to: end, insert: text, selectionStart: start, selectionEnd: end };
+  const tree = fromMarkdown(value, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+  if (!text.trim()) return insideCode(tree, start) ? unchanged : wrap(start, end, "粗體文字", "**", "**");
 
-  const segments: { from: number; to: number; strong: Strong[] }[] = [];
-  const visit = (node: Nodes) => {
-    if (node.type === "paragraph" || node.type === "heading" || node.type === "tableCell") {
+  const segments: { from: number; to: number; strong: Strong[]; text: [number, number][] }[] = [];
+  const visit = (node: Nodes, rangeStart = start, rangeEnd = end) => {
+    if (node.type === "paragraph" || node.type === "heading" || node.type === "tableCell" || node.type === "link") {
       const children = node.children;
       if (!children.length) return;
-      let from = Math.max(start, offset(children[0], "start"));
-      let to = Math.min(end, offset(children[children.length - 1], "end"));
+      let from = Math.max(rangeStart, offset(children[0], "start"));
+      let to = Math.min(rangeEnd, offset(children[children.length - 1], "end"));
       for (const child of children) {
         if (child.type === "text") continue;
         if (offset(child, "start") < from && from < offset(child, "end")) from = offset(child, "start");
         if (offset(child, "start") < to && to < offset(child, "end")) to = offset(child, "end");
       }
+      // 選取的剛好是整個連結時，粗體放進連結文字裡：「看**[連結](網址)**。」顯示不出粗體，「看[**連結**](網址)。」可以。
+      const covered = children.filter((child) => offset(child, "start") < to && offset(child, "end") > from);
+      const [only] = covered;
+      if (covered.length === 1 && only.type === "link" && offset(only, "start") === from && offset(only, "end") === to) {
+        return visit(only, from, to);
+      }
       const strong = children.filter(
         (child): child is Strong => child.type === "strong" && offset(child, "start") >= from && offset(child, "end") <= to,
       );
-      if (from < to) segments.push({ from, to, strong });
+      if (from < to) segments.push({ from, to, strong, text: textRanges(children) });
       return;
     }
-    if ("children" in node) node.children.forEach(visit);
+    if ("children" in node) node.children.forEach((child) => visit(child));
   };
-  visit(fromMarkdown(value, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }));
-  if (!segments.length) return { from: start, to: end, insert: text, selectionStart: start, selectionEnd: end };
+  visit(tree);
+  if (!segments.length) return unchanged;
 
   const from = Math.min(start, segments[0].from);
   const to = Math.max(end, segments[segments.length - 1].to);
@@ -119,22 +129,63 @@ function bold(value: string, start: number, end: number): MarkdownEdit {
   for (const segment of segments) {
     insert += value.slice(cursor, segment.from);
     // 拿掉裡面本來就有的粗體符號（** 或 __）。
+    // rawOffsets 記下每個字在原文的位置，判斷是不是一般文字。
     let raw = "";
+    const rawOffsets: number[] = [];
+    const keep = (from: number, to: number) => {
+      raw += value.slice(from, to);
+      for (let index = from; index < to; index++) rawOffsets.push(index);
+    };
     let at = segment.from;
     for (const node of segment.strong) {
       const [nodeStart, nodeEnd] = [offset(node, "start"), offset(node, "end")];
-      raw += value.slice(at, nodeStart) + value.slice(nodeStart + 2, nodeEnd - 2);
+      keep(at, nodeStart);
+      keep(nodeStart + 2, nodeEnd - 2);
       at = nodeEnd;
     }
-    raw += value.slice(at, segment.to);
-    const content = raw.trim();
-    const leading = raw.length - raw.trimStart().length;
-    insert += raw.slice(0, leading);
-    if (content) {
+    keep(at, segment.to);
+    // 只有一般文字裡的空白與標點可以移到 ** 外面；連結、程式碼的符號移出去就壞了。
+    const movable = (rawIndex: number, char: string) =>
+      isBlankOrPunctuation(char) && segment.text.some(([textStart, textEnd]) => textStart <= rawOffsets[rawIndex] && rawOffsets[rawIndex] < textEnd);
+    let lineStart = 0;
+    const lines = raw.split("\n");
+    lines.forEach((line, index) => {
+      if (index > 0) {
+        insert += "\n";
+        lineStart += lines[index - 1].length + 1;
+      }
+      const atLineStart = index > 0 || segment.from === 0 || value[segment.from - 1] === "\n";
+      const prefix = atLineStart ? line.match(/^[ \t]*(?:>[ \t]*)*/)![0] : "";
+      // 前後的字（取兩個 UTF-16 單位，emoji 這種佔兩個的字才完整）。
+      const textBefore = () => (value.slice(0, from) + insert).slice(-2);
+      const textAfter = (rest: string) => rest || (index === lines.length - 1 ? value.slice(segment.to, segment.to + 2) : "\n");
+      insert += prefix;
+      let content = line.slice(prefix.length);
+      let contentStart = lineStart + prefix.length;
+      // 頭尾的空白與擋住粗體的標點移到 ** 外面。
+      let head = "";
+      while (content && !opensBold(textBefore() + head, content)) {
+        const char = firstChar(content);
+        if (!movable(contentStart, char)) break;
+        head += char;
+        content = content.slice(char.length);
+        contentStart += char.length;
+      }
+      let tail = "";
+      while (content && !closesBold(content, textAfter(tail))) {
+        const char = lastChar(content);
+        if (!movable(contentStart + content.length - char.length, char)) break;
+        tail = char + tail;
+        content = content.slice(0, -char.length);
+      }
+      if (!content || !opensBold(textBefore() + head, content) || !closesBold(content, textAfter(tail))) {
+        insert += head + content + tail;
+        return;
+      }
+      insert += head;
       bolded.push({ start: from + insert.length + 2, length: content.length });
-      insert += `**${content}**`;
-    }
-    insert += raw.slice(leading + content.length);
+      insert += `**${content}**${tail}`;
+    });
     cursor = segment.to;
   }
   insert += value.slice(cursor, to);
@@ -144,6 +195,43 @@ function bold(value: string, start: number, end: number): MarkdownEdit {
     return { from, to, insert, selectionStart: only.start, selectionEnd: only.start + only.length };
   }
   return { from, to, insert, selectionStart: from, selectionEnd: from + insert.length };
+}
+
+/** 段落裡一般文字（含粗體、斜體、刪除線裡的文字）在原文的位置範圍。 */
+function textRanges(children: Nodes[]): [number, number][] {
+  return children.flatMap((child): [number, number][] => {
+    if (child.type === "text") return [[offset(child, "start"), offset(child, "end")]];
+    if (child.type === "strong" || child.type === "emphasis" || child.type === "delete") return textRanges(child.children);
+    return [];
+  });
+}
+
+/** 位置在程式碼區塊或 HTML 區塊裡面（這些地方顯示不出粗體）。 */
+function insideCode(node: Nodes, at: number): boolean {
+  if (node.type === "code" || node.type === "html" || node.type === "inlineCode") {
+    return offset(node, "start") < at && at < offset(node, "end");
+  }
+  return "children" in node && node.children.some((child) => insideCode(child, at));
+}
+
+const firstChar = (text: string) => String.fromCodePoint(text.codePointAt(0)!);
+const lastChar = (text: string) => Array.from(text.slice(-2)).pop()!;
+const isBlank = (char: string) => !char || /\s/u.test(char);
+const isPunctuation = (char: string) => /[\p{P}\p{S}]/u.test(char);
+const isBlankOrPunctuation = (char: string) => isBlank(char) || isPunctuation(char);
+
+/** 開頭的 ** 算不算粗體（CommonMark 的 left-flanking 規則）；before 是前面的文字，content 是要加粗的文字。 */
+function opensBold(before: string, content: string) {
+  const previous = before ? lastChar(before) : "";
+  const next = firstChar(content);
+  return !isBlank(next) && (!isPunctuation(next) || isBlankOrPunctuation(previous));
+}
+
+/** 結尾的 ** 算不算粗體（right-flanking 規則）；after 是後面的文字。 */
+function closesBold(content: string, after: string) {
+  const previous = lastChar(content);
+  const next = after ? firstChar(after) : "";
+  return !isBlank(previous) && (!isPunctuation(previous) || isBlankOrPunctuation(next));
 }
 
 function offset(node: Nodes, side: "start" | "end") {
