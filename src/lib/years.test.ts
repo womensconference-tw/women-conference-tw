@@ -340,11 +340,11 @@ describe("複製去年建立新年度", () => {
 
 describe("建立第一個年度", () => {
   /**
-   * 在一個還沒有任何年度大會的資料庫裡，以總管理員身分做 `work`，做完復原，不動到其他測試的資料。
-   * 共用的測試資料庫本來就有年度，所以在交易裡先刪光，最後不提交。
+   * 在一個還沒有任何年度大會的資料庫裡，以 `staff` 的身分做 `work`，做完一定復原，不動到其他測試的資料。
+   * 共用的測試資料庫本來就有年度，所以在交易裡先刪光，最後不提交；`work` 失敗時也一樣不提交。
    */
-  async function inEmptyDatabase(work: (tx: TransactionSql) => Promise<void>) {
-    const userId = must(await headAdmin.auth.getUser()).user.id;
+  async function inEmptyDatabase(staff: SupabaseClient, work: (tx: TransactionSql) => Promise<void>) {
+    const userId = must(await staff.auth.getUser()).user.id;
     const db = databaseClient();
     const rollback = new Error("rollback");
     try {
@@ -363,7 +363,7 @@ describe("建立第一個年度", () => {
   }
 
   it("沒有任何年度時，總管理員建立空白年度：時程空著、不是目前年度、沒有場地，可以填時程設為目前年度", async () => {
-    await inEmptyDatabase(async (tx) => {
+    await inEmptyDatabase(headAdmin, async (tx) => {
       const [{ id }] = await tx<{ id: string }[]>`select public.create_first_conference(2100, '2100-05-15') as id`;
 
       const rows = await tx`select id, year, conference_date::text, is_current, announce_at, registration_opens_at,
@@ -403,19 +403,9 @@ describe("建立第一個年度", () => {
   });
 
   it("沒有任何年度時，課務組也不能建立", async () => {
-    const userId = must(await courseTeam.auth.getUser()).user.id;
-    const db = databaseClient();
-    try {
-      const attempt = db.begin(async (tx) => {
-        await tx`delete from public.conferences`;
-        await tx`set local role authenticated`;
-        await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: userId, role: "authenticated" })}, true)`;
-        await tx`select public.create_first_conference(2100, '2100-05-15')`;
-      });
-      await expect(attempt).rejects.toThrow("not_admin");
-    } finally {
-      await db.end();
-    }
+    await inEmptyDatabase(courseTeam, async (tx) => {
+      await expect(tx`select public.create_first_conference(2100, '2100-05-15')`).rejects.toThrow("not_admin");
+    });
   });
 
   it.each(["", "99", "20a0", "1999"])("年度「%s」看不懂", async (year) => {
