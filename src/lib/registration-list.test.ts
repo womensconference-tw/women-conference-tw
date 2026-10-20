@@ -419,6 +419,7 @@ describe("後台修改報名時讀出的報名", () => {
       stakeName: "測試台北支聯會",
       wardName: "測試新店支會",
       isCurrentYear: true,
+      personalDataCleared: false,
     });
   });
 

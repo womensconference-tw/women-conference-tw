@@ -21,8 +21,12 @@ export const REGISTRATION_STATUS_LABELS: Record<RegistrationStatus, string> = {
   cancelled: "已取消",
 };
 
+/** 清除個資（#26）之後姓名是空的，名單與報名頁改顯示這句。 */
+export const CLEARED_NAME = "（個資已清除）";
+
 export type RegistrationListItem = {
   id: string;
+  /** 清除個資之後是 CLEARED_NAME。 */
   name: string;
   phone: string | null;
   registrationNumber: string | null;
@@ -93,7 +97,7 @@ export async function listRegistrations(
   return {
     items: (data as unknown as RegistrationRow[]).map((row) => ({
       id: row.id,
-      name: row.name,
+      name: row.name ?? CLEARED_NAME,
       phone: row.phone,
       registrationNumber: row.registration_number,
       venueName: row.venues?.name_zh ?? "",
@@ -111,7 +115,7 @@ export async function listRegistrations(
 
 type RegistrationRow = {
   id: string;
-  name: string;
+  name: string | null;
   phone: string | null;
   registration_number: string | null;
   status: RegistrationStatus;
@@ -132,6 +136,8 @@ export type RegistrationForEdit = Registration & {
   wardName: string;
   /** 只有目前年度的報名能修改、取消。 */
   isCurrentYear: boolean;
+  /** 這個年度已經清除個資（#26）：姓名是 CLEARED_NAME，不能修改、取消或重寄。 */
+  personalDataCleared: boolean;
 };
 
 /** 用登入的工作人員身分讀一筆報名；範圍外、不存在或編號格式不對時是 null。 */
@@ -143,7 +149,7 @@ export async function getRegistrationForEdit(
   const { data, error } = await supabase
     .from("registrations")
     .select(
-      "id, name, phone, registration_number, email, line_id, stake_id, ward_id, venue_id, lunch_option_id, choir_part, services, printed_handbook, role, status, stakes(name_zh), wards(name_zh), conferences(is_current), registration_courses(course_id)",
+      "id, name, phone, registration_number, email, line_id, stake_id, ward_id, venue_id, lunch_option_id, choir_part, services, printed_handbook, role, status, stakes(name_zh), wards(name_zh), conferences(is_current, personal_data_cleared_at), registration_courses(course_id)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -152,7 +158,7 @@ export async function getRegistrationForEdit(
   const row = data as unknown as EditRow;
   return {
     id: row.id,
-    name: row.name,
+    name: row.name ?? CLEARED_NAME,
     phone: row.phone,
     registrationNumber: row.registration_number,
     email: row.email,
@@ -170,12 +176,13 @@ export async function getRegistrationForEdit(
     stakeName: row.stakes?.name_zh ?? "",
     wardName: row.wards?.name_zh ?? "",
     isCurrentYear: row.conferences?.is_current ?? false,
+    personalDataCleared: Boolean(row.conferences?.personal_data_cleared_at),
   };
 }
 
 type EditRow = {
   id: string;
-  name: string;
+  name: string | null;
   phone: string | null;
   registration_number: string | null;
   email: string | null;
@@ -191,7 +198,7 @@ type EditRow = {
   status: RegistrationStatus;
   stakes: { name_zh: string } | null;
   wards: { name_zh: string } | null;
-  conferences: { is_current: boolean } | null;
+  conferences: { is_current: boolean; personal_data_cleared_at: string | null } | null;
   registration_courses: { course_id: string }[];
 };
 

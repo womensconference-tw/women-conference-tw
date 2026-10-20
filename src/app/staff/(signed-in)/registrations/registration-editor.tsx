@@ -44,6 +44,7 @@ const ERRORS: Record<StaffRegistrationError, string> = {
   unknown: "系統暫時出了問題，沒有存下。請稍後再試一次。",
   roleInvalid: "請選擇身分類別。",
   notAllowed: "只有總管理員能新增、修改、取消報名。",
+  personalDataCleared: "這個年度已經清除個資，不能再新增或修改報名。",
 };
 
 const emptyInput: StaffRegistrationInput = {

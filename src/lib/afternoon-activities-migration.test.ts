@@ -23,6 +23,14 @@ async function convert(check: (tx: TransactionSql, ids: Fixture) => Promise<void
   try {
     await sql.begin(async (tx) => {
       const ids = await arrange(tx);
+      // 資料版本號（#26）在提交時才加；這個 migration 中途會改資料表（alter table），有還沒執行的觸發器時不能改，
+      // 所以讓它們立即執行。這個 migration 本身在資料版本號之前，正式環境跑的時候沒有這些觸發器。
+      await tx`set constraints
+        public.venues_data_version, public.venues_data_version_update, public.sessions_data_version,
+        public.sessions_data_version_update, public.courses_data_version, public.courses_data_version_update,
+        public.lunch_options_data_version, public.lunch_options_data_version_update,
+        public.registrations_data_version, public.registration_courses_data_version
+        immediate`;
       await tx.unsafe(migration);
       // 延後到提交才檢查的限制（例如報名期間不能新增場次）在這裡就檢查，不必真的提交。
       await tx`set constraints all immediate`;
