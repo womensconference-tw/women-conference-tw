@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { clearPersonalData } from "@/lib/year-export";
 import { copyConference, createFirstConference, setCurrentConference } from "@/lib/years";
 
 /*
@@ -44,4 +45,18 @@ export async function makeCurrentYear(formData: FormData) {
 
 function fieldsOf(formData: FormData) {
   return (name: string) => String(formData.get(name) ?? "");
+}
+
+/** 確認 Excel 已存好之後清除一個年度的個資（#26），做完回到那個年度的清除頁。 */
+export async function clearYearPersonalData(formData: FormData) {
+  const field = fieldsOf(formData);
+  const conferenceId = field("conferenceId");
+  const result = await clearPersonalData(await createClient(), {
+    conferenceId,
+    exportId: field("exportId"),
+    confirmed: formData.get("confirmed") === "on",
+  });
+  const page = `/staff/years/${encodeURIComponent(conferenceId)}`;
+  if (!result.ok) redirect(`${page}?error=${result.error}`);
+  redirect(`${page}?done=${result.alreadyCleared ? "already_cleared" : "cleared"}`);
 }

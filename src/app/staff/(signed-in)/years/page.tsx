@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
+import { conferenceEnded } from "@/lib/year-export";
 import { listConferences, type ConferenceYear, type YearError } from "@/lib/years";
 import { getCurrentStaff } from "../../current-staff";
 import { DateTimeField, Field } from "../../fields";
@@ -169,6 +170,15 @@ function YearCard({ year, current }: { year: ConferenceYear; current: Conference
       <Link href={`/staff/registrations?year=${year.year}`} className="self-start font-semibold underline">
         看 {year.year} 年的報名名單
       </Link>
+      {year.personalDataClearedAt ? (
+        <p>已於 {formatTime(year.personalDataClearedAt)} 清除個資。</p>
+      ) : (
+        conferenceEnded(year.conferenceDate) && (
+          <Link href={`/staff/years/${year.id}`} className="self-start font-semibold underline">
+            大會已結束：下載 {year.year} 年的 Excel 與清除個資
+          </Link>
+        )
+      )}
 
       {!year.isCurrent && (
         <details className="flex flex-col gap-3">

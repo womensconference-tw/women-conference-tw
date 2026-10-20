@@ -31,13 +31,17 @@ export type ConferenceYear = {
   announceAt: string | null;
   registrationOpensAt: string | null;
   registrationClosesAt: string | null;
+  /** 清除個資的時間（#26）；還沒清除是 null。 */
+  personalDataClearedAt: string | null;
 };
 
 /** 所有年度，新的在前。只有工作人員讀得到全部；前台訪客只讀得到目前年度。 */
 export async function listConferences(supabase: SupabaseClient): Promise<ConferenceYear[]> {
   const { data, error } = await supabase
     .from("conferences")
-    .select("id, year, conference_date, is_current, announce_at, registration_opens_at, registration_closes_at")
+    .select(
+      "id, year, conference_date, is_current, announce_at, registration_opens_at, registration_closes_at, personal_data_cleared_at",
+    )
     .order("year", { ascending: false });
   if (error) throw error;
   return data.map((row) => ({
@@ -48,6 +52,7 @@ export async function listConferences(supabase: SupabaseClient): Promise<Confere
     announceAt: row.announce_at,
     registrationOpensAt: row.registration_opens_at,
     registrationClosesAt: row.registration_closes_at,
+    personalDataClearedAt: row.personal_data_cleared_at,
   }));
 }
 

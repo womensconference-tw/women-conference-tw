@@ -479,6 +479,8 @@ const databaseErrors: Record<string, RegistrationErrors> = {
   too_many_attempts: { form: "tooManyAttempts" },
   phone_invalid: { phone: "phoneInvalid" },
   registration_cancelled: { form: "cancelled" },
+  // 這個年度已經清除個資（#26）：大會已經結束，不能再報名或修改。
+  personal_data_cleared: { form: "notOpen" },
 };
 
 // 欄位檢查與資料表限制本來就一致；萬一資料表擋下了，也標在對應的欄位旁，不只顯示「系統出了問題」。
@@ -681,7 +683,9 @@ export type StaffRegistrationError =
   | RegistrationError
   | "roleInvalid"
   /** 不是總管理員（課務組、報報組只能看）。 */
-  | "notAllowed";
+  | "notAllowed"
+  /** 這個年度已經清除個資（#26），不能再新增、修改、取消報名。 */
+  | "personalDataCleared";
 
 export type StaffRegistrationErrors = Partial<Record<StaffRegistrationField, StaffRegistrationError>>;
 
@@ -701,6 +705,7 @@ const staffDatabaseErrors: Record<string, StaffRegistrationErrors> = {
   not_allowed: { form: "notAllowed" },
   registration_not_found: { form: "notFound" },
   role_invalid: { role: "roleInvalid" },
+  personal_data_cleared: { form: "personalDataCleared" },
 };
 
 /** 後台才會碰到的資料表限制（前台報名一律是與會姐妹）。 */
@@ -794,7 +799,9 @@ export async function staffUpdateRegistration(
   return withConfirmation(result, confirmFull);
 }
 
-export type StaffCancelResult = { ok: true } | { ok: false; error: "notAllowed" | "notFound" | "unknown" };
+export type StaffCancelResult =
+  | { ok: true }
+  | { ok: false; error: "notAllowed" | "notFound" | "personalDataCleared" | "unknown" };
 
 /** 後台取消報名（只限總管理員）：不受報名期間限制。標記為已取消、不刪除，已取消的再取消一次照樣成功。 */
 export async function staffCancelRegistration(
@@ -806,6 +813,7 @@ export async function staffCancelRegistration(
   if (!error) return { ok: true };
   if (error.message === "not_allowed") return { ok: false, error: "notAllowed" };
   if (error.message === "registration_not_found") return { ok: false, error: "notFound" };
+  if (error.message === "personal_data_cleared") return { ok: false, error: "personalDataCleared" };
   console.error("staff_cancel_registration failed", error);
   return { ok: false, error: "unknown" };
 }

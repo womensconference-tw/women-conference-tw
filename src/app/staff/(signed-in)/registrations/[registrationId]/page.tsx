@@ -23,6 +23,7 @@ const DONE = { resent: "確認信已經寄出。" };
 const ERRORS = {
   notAllowed: "只有總管理員能取消報名。",
   notFound: "找不到這筆報名，可能不是目前年度的報名。",
+  personalDataCleared: "這個年度已經清除個資，不能取消報名。",
   unknown: "系統暫時出了問題，沒有取消。請稍後再試一次。",
   resend_notAllowed: "只有總管理員能重寄確認信。",
   resend_notFound: "找不到這筆報名，可能不是目前年度的報名。",
@@ -64,7 +65,9 @@ export default async function EditRegistrationPage({
   const { registrationId } = await params;
   const registration = await getRegistrationForEdit(supabase, registrationId);
   if (!registration) notFound();
-  const readOnlyReason = !registration.isCurrentYear
+  const readOnlyReason = registration.personalDataCleared
+    ? "這個年度已經清除個資，只能查看寄信紀錄，不能修改、取消或重寄確認信。"
+    : !registration.isCurrentYear
     ? "這不是目前年度的報名，只能查看寄信紀錄，不能修改、取消或重寄確認信。"
     : registration.status === "cancelled"
       ? "這筆報名已經取消，不能修改，也不能重寄確認信。"

@@ -68,6 +68,7 @@ const registration: RegistrationForEdit = {
   stakeName: "台北支聯會",
   wardName: "新店支會",
   isCurrentYear: true,
+  personalDataCleared: false,
 };
 
 /** 還沒回應的伺服器動作；呼叫 resolve 才回應。 */

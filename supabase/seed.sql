@@ -1,5 +1,13 @@
 -- 本機開發用的假資料。改下面三個時間點再執行 `npm run db:reset`，就能看到首頁切換狀態。
 -- 預設讓首頁顯示「報名中」。
+-- 資料版本號（#26）平常在交易提交時才加；假資料中途要暫時關掉一些限制（alter table），有還沒執行的觸發器時不能改，
+-- 所以這裡讓它們立即執行。
+set constraints
+  public.venues_data_version, public.venues_data_version_update, public.sessions_data_version,
+  public.sessions_data_version_update, public.courses_data_version, public.courses_data_version_update,
+  public.lunch_options_data_version, public.lunch_options_data_version_update,
+  public.registrations_data_version, public.registration_courses_data_version
+  immediate;
 insert into public.conferences (
   year,
   conference_date,
