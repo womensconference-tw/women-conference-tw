@@ -23,32 +23,55 @@ const FORMATS: { format: MarkdownFormat; label: string }[] = [
  *
  * 同一頁重新畫出來、內容換了（存草稿、捨棄草稿、別人發布或存了草稿，#76）：沒動過的編輯框換成新的內容；
  * 正在編輯、還沒存的留著她打的字，提醒她這一頁剛被更新，不會無聲無息蓋掉（Codex 審查）。
+ * 她自己捨棄草稿時帶一個新的 resetToken，就算正在編輯也換回已發布的內容。
  */
 export function MarkdownEditor({
   name,
   label,
   hint,
   defaultValue,
+  resetToken,
 }: {
   name: string;
   label: string;
   hint: string;
   defaultValue: string;
+  /** 換成新的值時，不管有沒有動過都換成 defaultValue。 */
+  resetToken?: string;
 }) {
   const id = useId();
   const ref = useRef<HTMLTextAreaElement>(null);
   // 編輯框目前依據的內容，用來判斷她有沒有動過。
   const shown = useRef(defaultValue);
+  const lastResetToken = useRef(resetToken);
   const [updatedElsewhere, setUpdatedElsewhere] = useState(false);
 
   useEffect(() => {
     const textarea = ref.current;
-    if (!textarea || shown.current === defaultValue) return;
-    const untouched = textarea.value === shown.current || textarea.value === defaultValue;
+    if (!textarea) return;
+    // 代號拿掉（之後做了別的事）不算捨棄。
+    const reset = resetToken !== undefined && resetToken !== lastResetToken.current;
+    lastResetToken.current = resetToken;
+    if (!reset && shown.current === defaultValue) return;
+    const untouched = reset || textarea.value === shown.current || textarea.value === defaultValue;
     shown.current = defaultValue;
     if (untouched) textarea.value = defaultValue;
     setUpdatedElsewhere(!untouched);
-  }, [defaultValue]);
+  }, [defaultValue, resetToken]);
+
+  // 提醒出現後，她把內容改成和更新的一樣，或存了草稿、表單重設了，就沒有會被蓋掉的修改。
+  function checkUpdated() {
+    if (ref.current?.value === shown.current) setUpdatedElsewhere(false);
+  }
+
+  // 伺服器動作做完，React 會重設表單，不會觸發 input。reset 事件在欄位重設之前發出，等重設完再看。
+  useEffect(() => {
+    const form = ref.current?.form;
+    if (!form) return;
+    const onReset = () => setTimeout(checkUpdated);
+    form.addEventListener("reset", onReset);
+    return () => form.removeEventListener("reset", onReset);
+  }, []);
 
   function apply(format: MarkdownFormat) {
     const textarea = ref.current;
@@ -86,7 +109,15 @@ export function MarkdownEditor({
           這一頁剛被更新（可能是另一位總管理員）。編輯框裡留著你還沒存的修改，按「儲存草稿」會蓋掉更新的內容。
         </p>
       )}
-      <textarea ref={ref} id={id} name={name} defaultValue={defaultValue} rows={12} className={cn(inputClass, "font-mono")} />
+      <textarea
+        ref={ref}
+        id={id}
+        name={name}
+        defaultValue={defaultValue}
+        onInput={checkUpdated}
+        rows={12}
+        className={cn(inputClass, "font-mono")}
+      />
       <span className="text-sm text-muted-foreground">{hint}</span>
     </div>
   );

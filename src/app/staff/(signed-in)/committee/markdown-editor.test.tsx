@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "./markdown-editor";
 
@@ -61,8 +61,14 @@ it("編輯框下面顯示欄位說明", () => {
 
 // 存草稿、捨棄草稿、別人發布或存了草稿之後，同一頁重新畫出來，編輯框拿到新的內容（#76，Codex 審查）。
 describe("內容換了", () => {
-  const editor = (defaultValue: string) => (
-    <MarkdownEditor name="memorandum" label="籌備委員會備忘錄" hint="組織章程。" defaultValue={defaultValue} />
+  const editor = (defaultValue: string, resetToken?: string) => (
+    <MarkdownEditor
+      name="memorandum"
+      label="籌備委員會備忘錄"
+      hint="組織章程。"
+      defaultValue={defaultValue}
+      resetToken={resetToken}
+    />
   );
   const updatedNotice = () => screen.queryByText(/剛被更新/);
 
@@ -84,5 +90,42 @@ describe("內容換了", () => {
     rerender(editor("打到一半"));
     expect(textarea().value).toBe("打到一半");
     expect(updatedNotice()).toBeNull();
+  });
+
+  it("提醒出現後，她把內容改成和更新的一樣：提醒拿掉", () => {
+    const { rerender } = render(editor("原本的"));
+    fireEvent.input(textarea(), { target: { value: "打到一半" } });
+    rerender(editor("別人的版本"));
+    expect(updatedNotice()).toBeTruthy();
+    fireEvent.input(textarea(), { target: { value: "別人的版本" } });
+    expect(updatedNotice()).toBeNull();
+  });
+
+  it("她自己捨棄草稿（帶新的重設代號）：就算正在編輯，也換回已發布的內容，不顯示提醒", () => {
+    const { rerender } = render(editor("草稿"));
+    fireEvent.input(textarea(), { target: { value: "草稿又改了" } });
+    rerender(editor("已發布", "reset-1"));
+    expect(textarea().value).toBe("已發布");
+    expect(updatedNotice()).toBeNull();
+
+    // 再捨棄一次（例如另一位總管理員又存了草稿），代號不同，照樣換回。
+    fireEvent.input(textarea(), { target: { value: "又打了" } });
+    rerender(editor("已發布", "reset-2"));
+    expect(textarea().value).toBe("已發布");
+
+    // 之後做別的事，網址不再帶代號：不算捨棄，留著她打的字。
+    fireEvent.input(textarea(), { target: { value: "繼續打" } });
+    rerender(editor("已發布"));
+    expect(textarea().value).toBe("繼續打");
+  });
+
+  it("提醒出現後，她存了和更新一樣的內容、表單被重設：提醒拿掉", async () => {
+    const { rerender } = render(<form>{editor("原本的")}</form>);
+    fireEvent.input(textarea(), { target: { value: "打到一半" } });
+    rerender(<form>{editor("別人的版本")}</form>);
+    expect(updatedNotice()).toBeTruthy();
+    textarea().closest("form")!.reset();
+    await waitFor(() => expect(updatedNotice()).toBeNull());
+    expect(textarea().value).toBe("別人的版本");
   });
 });

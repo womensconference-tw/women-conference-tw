@@ -67,7 +67,11 @@ type YearFields = { conferenceId: string; year: number };
  */
 export default async function CommitteePage({ searchParams }: PageProps<"/staff/committee">) {
   const supabase = await createClient();
-  const [me, years, { year: yearParam }] = await Promise.all([getCurrentStaff(), listConferences(supabase), searchParams]);
+  const [me, years, { year: yearParam, reset }] = await Promise.all([
+    getCurrentStaff(),
+    listConferences(supabase),
+    searchParams,
+  ]);
   // 版面和頁面同時執行，版面的導向擋不住這裡，自己也要檢查。
   if (!me) redirect("/staff/login");
   const canEdit = me.role === "admin";
@@ -130,7 +134,7 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
             )}
           </section>
           <p>{canEdit ? "名單只是資訊，名單上的人不會因此有後台帳號。" : "只有總管理員能修改。"}</p>
-          <Texts texts={committee} draft={draft} edit={edit} />
+          <Texts texts={committee} draft={draft} edit={edit} resetToken={typeof reset === "string" ? reset : undefined} />
           <Meetings meetings={committee.meetings} edit={edit} />
           <Links links={committee.links} edit={edit} />
           <Team members={committee.teamMembers} stakes={stakes} edit={edit} />
@@ -149,10 +153,13 @@ function Texts({
   texts,
   draft,
   edit,
+  resetToken,
 }: {
   texts: Pick<Committee, "introduction" | "chairMessage" | "memorandum" | "markdown">;
   draft: CommitteeTextDraft | null;
   edit: YearFields | null;
+  /** 剛捨棄草稿時有值（discardTextDraftAction）。 */
+  resetToken?: string;
 }) {
   const changed = changedTextPages(texts, draft);
   return (
@@ -210,6 +217,7 @@ function Texts({
                 label={page.label}
                 hint={page.hint}
                 defaultValue={(draft ?? texts)[page.key]}
+                resetToken={resetToken}
               />
             ))}
             <SubmitButton className={submitClass}>儲存草稿</SubmitButton>

@@ -41,9 +41,10 @@ export async function publishTextsAction(formData: FormData) {
   done(formData, result, "published", result.ok || result.error !== "draft_changed" ? "/staff/committee" : "/preview/committee");
 }
 
+// 捨棄成功時帶一個新的重設代號，編輯框就算正在編輯也換回已發布的內容（MarkdownEditor 的 resetToken）。
 export async function discardTextDraftAction(formData: FormData) {
   const result = await discardCommitteeTextDraft(await createClient(), fieldsOf(formData)("conferenceId"));
-  done(formData, result, "discarded");
+  done(formData, result, "discarded", "/staff/committee", result.ok ? { reset: crypto.randomUUID() } : {});
 }
 
 export async function saveMeetingAction(formData: FormData) {
@@ -123,8 +124,9 @@ function done(
   result: CommitteeResult | { ok: true; id?: string; revision?: string },
   success: string,
   path = "/staff/committee",
+  extra: Record<string, string> = {},
 ): never {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams(extra);
   // 表單帶著目前看的年度，做完停在同一個年度。格式不對時（網頁被改過）回到預設的目前年度。
   const year = String(formData.get("year") ?? "");
   if (/^\d{4}$/.test(year)) params.set("year", year);
