@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import {
+  changedPagesSummary,
   COMMITTEE_TEXT_PAGES,
   CommitteeTexts,
   committeeCardClass as cardClass,
@@ -12,12 +14,15 @@ import {
 } from "@/components/committee";
 import { buttonVariants } from "@/components/ui/button";
 import {
+  changedTextPages,
   COMMITTEE_TEAM_LABELS,
   COMMITTEE_TEAMS,
   getCommittee,
+  getCommitteeTextDraft,
   listPublicCommitteeYears,
-  type CommitteeError,
+  type Committee,
   type CommitteeItemKind,
+  type CommitteeTextDraft,
   type CommitteeLink,
   type CommitteeMember,
   type Meeting,
@@ -32,42 +37,24 @@ import { getCurrentStaff } from "../../current-staff";
 import { Field } from "../../fields";
 import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
-import { buttonClass, inputClass, noticeClass } from "../../ui";
+import { buttonClass, formatTime, inputClass, noticeClass } from "../../ui";
 import { CopyUrl } from "./copy-url";
 import { MarkdownEditor } from "./markdown-editor";
+import { COMMITTEE_DONE, COMMITTEE_ERRORS } from "./messages";
 import {
   deleteItemAction,
+  discardTextDraftAction,
   moveLinkAction,
   saveLinkAction,
   saveMeetingAction,
   saveMemberAction,
   saveTeamMemberAction,
-  saveTextsAction,
+  saveTextDraftAction,
 } from "./actions";
 
 export const metadata: Metadata = { title: "籌備委員會" };
 
 const submitClass = cn(buttonVariants(), buttonClass, "self-start font-bold");
-
-const DONE: Record<string, string> = {
-  saved: "已儲存。",
-  moved: "已調整順序。",
-  deleted: "已刪除。",
-};
-
-const ERRORS: Record<CommitteeError, string> = {
-  not_admin: "只有總管理員能編輯籌備委員會資訊。",
-  title_required: "請填標題。",
-  name_required: "請填姓名。",
-  date_invalid: "請選會議日期。",
-  url_invalid: "連結要是 https:// 或 http:// 開頭的完整網址，不能有空白。",
-  team_invalid: "請選組別。",
-  role_invalid: "請選職務。",
-  region_invalid: "請選北區、中區、南區或全區。",
-  stake_required: "請選支聯會。",
-  not_found: "找不到這一項，可能已經被刪除。請重新整理頁面再試一次。",
-  unavailable: "系統暫時出了問題，請稍後再試。",
-};
 
 /** 這一個年度的表單都要帶的欄位：寫到哪個年度、做完回到哪個年度。 */
 type YearFields = { conferenceId: string; year: number };
@@ -87,8 +74,10 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
 
   // 沒選、或選的年度不在清單裡（網址被改過）時，是目前年度。
   const selected = years.find((year) => String(year.year) === yearParam) ?? years.find((year) => year.isCurrent);
-  const [committee, directory, publicYears] = await Promise.all([
+  const [committee, draft, directory, publicYears] = await Promise.all([
     selected ? getCommittee(supabase, selected.id) : null,
+    // 文字頁的草稿只有總管理員讀得到（#76）。
+    canEdit && selected ? getCommitteeTextDraft(supabase, selected.id) : null,
     canEdit ? getStakeDirectory(supabase) : null,
     listPublicCommitteeYears(supabase),
   ]);
@@ -103,7 +92,7 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
   return (
     <main className="flex flex-col gap-8">
       <h1 className="text-2xl font-bold">籌備委員會{selected && `（${selected.year} 年）`}</h1>
-      <ResultMessage searchParams={searchParams} done={DONE} errors={ERRORS} />
+      <ResultMessage searchParams={searchParams} done={COMMITTEE_DONE} errors={COMMITTEE_ERRORS} />
       {(years.length > 1 || (years.length > 0 && !selected)) && (
         <form className="flex flex-col gap-2 sm:flex-row sm:items-end">
           <label className="flex flex-col gap-1 sm:w-48">
@@ -141,7 +130,7 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
             )}
           </section>
           <p>{canEdit ? "名單只是資訊，名單上的人不會因此有後台帳號。" : "只有總管理員能修改。"}</p>
-          <Texts texts={committee} edit={edit} />
+          <Texts texts={committee} draft={draft} edit={edit} />
           <Meetings meetings={committee.meetings} edit={edit} />
           <Links links={committee.links} edit={edit} />
           <Team members={committee.teamMembers} stakes={stakes} edit={edit} />
@@ -152,29 +141,66 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
   );
 }
 
+/**
+ * 三個文字頁。上面顯示已發布的版本（大家看到的樣子），標出草稿裡有修改的頁面。
+ * 總管理員編輯後只存成草稿，到預覽頁確認排版後才發布，或捨棄草稿回到已發布的版本（#76）。
+ */
 function Texts({
   texts,
+  draft,
   edit,
 }: {
-  texts: { introduction: string; chairMessage: string; memorandum: string; markdown: boolean };
+  texts: Pick<Committee, "introduction" | "chairMessage" | "memorandum" | "markdown">;
+  draft: CommitteeTextDraft | null;
   edit: YearFields | null;
 }) {
+  const changed = changedTextPages(texts, draft);
   return (
     <>
-      <CommitteeTexts texts={texts} />
+      <CommitteeTexts texts={texts} changed={changed} />
+      {edit && draft && (
+        <section className={cardClass}>
+          <h2 className="text-lg font-bold">尚未發布的修改</h2>
+          <p>
+            {changedPagesSummary(changed)}草稿存於 {formatTime(draft.updatedAt)}，還沒發布，
+            公開頁面和其他工作人員看到的還是上面已發布的版本。
+          </p>
+          <div className="flex flex-wrap items-start gap-3">
+            <Link href={`/preview/committee?year=${edit.year}`} className={cn(buttonVariants(), buttonClass, "font-bold")}>
+              預覽並發布
+            </Link>
+          </div>
+          <details>
+            <summary className="cursor-pointer font-semibold text-destructive">捨棄草稿</summary>
+            <form action={discardTextDraftAction} className="mt-3 flex flex-col gap-2">
+              <YearInputs {...edit} />
+              <p>確定要捨棄這次的修改嗎？會回到已發布的版本，不能復原。</p>
+              <SubmitButton
+                className={cn(buttonVariants(), buttonClass, "self-start bg-destructive text-white hover:bg-destructive/80")}
+              >
+                確定捨棄
+              </SubmitButton>
+            </form>
+          </details>
+        </section>
+      )}
       {edit && (
         <details className={cardClass}>
           <summary className="cursor-pointer text-lg font-bold">編輯大會簡介、主席的話、備忘錄</summary>
-          <form action={saveTextsAction} className="mt-3 flex flex-col gap-3">
+          <form action={saveTextDraftAction} className="mt-3 flex flex-col gap-3">
             <YearInputs {...edit} />
             {!texts.markdown && (
               <p className={noticeClass}>
-                這一年度的文字是改版前存的，目前照純文字顯示。按「儲存」後會改依樣式排版，原本的 * 或 # 可能變成斜體或標題，存之前請先排好。
+                這一年度的文字是改版前存的，目前照純文字顯示。發布後會改依樣式排版，原本的 * 或 # 可能變成斜體或標題，請在預覽時確認。
               </p>
             )}
             <p className="text-sm text-muted-foreground">
-              用編輯框上方的按鈕排版：先選取文字再按，或按了之後把範例文字換掉。儲存後依樣式顯示。
+              用編輯框上方的按鈕排版：先選取文字再按，或按了之後把範例文字換掉。
               多層編號清單：先按「編號清單」，下一層的那幾行再按「往內縮一層」，依序顯示 1. → A. → a. → 1)。
+            </p>
+            <p className="text-sm text-muted-foreground">
+              按「儲存草稿」後大家還看不到，請按「預覽並發布」確認排版後再發布。
+              {draft && "編輯框裡是尚未發布的草稿。"}兩位總管理員同時編輯時，後存的草稿會蓋掉先存的。
             </p>
             {COMMITTEE_TEXT_PAGES.map((page) => (
               <MarkdownEditor
@@ -182,10 +208,10 @@ function Texts({
                 name={page.name}
                 label={page.label}
                 hint={page.hint}
-                defaultValue={texts[page.key]}
+                defaultValue={(draft ?? texts)[page.key]}
               />
             ))}
-            <SubmitButton className={submitClass}>儲存</SubmitButton>
+            <SubmitButton className={submitClass}>儲存草稿</SubmitButton>
           </form>
         </details>
       )}

@@ -3,6 +3,7 @@ import {
   COMMITTEE_TEAM_LABELS,
   roleLabel,
   type Committee,
+  type CommitteeTextKey,
   type CommitteeLink,
   type CommitteeMember,
   type Meeting,
@@ -14,8 +15,36 @@ import { Markdown } from "./markdown";
 
 /*
  * 籌備委員會資訊的顯示，後台籌備委員會頁面與公開頁面 /committee 共用（#74）。
- * 後台的總管理員傳入 manage，在每一項旁邊放編輯、刪除等功能。
+ * 後台的總管理員傳入 manage，在每一項旁邊放編輯、刪除等功能。文字頁草稿的預覽（#76）也用公開頁面這一套。
  */
+
+/** 公開頁面與草稿預覽的版面。 */
+export const committeePageClass = "mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-5 pt-6 pb-10 leading-relaxed";
+
+/** 公開頁面的內容：三個文字頁、會議記錄、重要連結與兩份名單，只能看不能改。 */
+export function CommitteeView({ committee }: { committee: Committee }) {
+  return (
+    <>
+      <CommitteeTexts texts={committee} />
+      <section className="flex flex-col gap-4">
+        <h2 className="text-xl font-bold">會議記錄</h2>
+        <MeetingList meetings={committee.meetings} />
+      </section>
+      <section className="flex flex-col gap-4">
+        <h2 className="text-xl font-bold">重要連結</h2>
+        <LinkList links={committee.links} />
+      </section>
+      <section className="flex flex-col gap-4">
+        <h2 className="text-xl font-bold">工作團隊</h2>
+        <TeamTable members={committee.teamMembers} />
+      </section>
+      <section className="flex flex-col gap-4">
+        <h2 className="text-xl font-bold">籌備委員</h2>
+        <MemberTable members={committee.members} />
+      </section>
+    </>
+  );
+}
 
 export const committeeCardClass = "flex flex-col gap-3 rounded-lg border-2 border-card-outline p-4";
 const tableClass = "w-full border-collapse text-left [&_td]:border-t [&_td]:px-2 [&_td]:py-2 [&_th]:px-2 [&_th]:py-2";
@@ -31,15 +60,23 @@ export const COMMITTEE_TEXT_PAGES = [
   },
 ] as const;
 
-/** 三個文字頁。改版前存的純文字照原樣顯示（保留空格與換行），存過 Markdown 的才依樣式排版（#75）。 */
+/**
+ * 三個文字頁。改版前存的純文字照原樣顯示（保留空格與換行），存過 Markdown 的才依樣式排版（#75）。
+ * changed 是草稿裡有修改、還沒發布的頁面，在標題旁標示（後台，#76）。
+ */
 export function CommitteeTexts({
   texts,
+  changed = [],
 }: {
   texts: Pick<Committee, "introduction" | "chairMessage" | "memorandum" | "markdown">;
+  changed?: readonly CommitteeTextKey[];
 }) {
   return COMMITTEE_TEXT_PAGES.map((page) => (
     <section key={page.key} className="flex flex-col gap-3">
-      <h2 className="text-xl font-bold">{page.label}</h2>
+      <h2 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xl font-bold">
+        {page.label}
+        {changed.includes(page.key) && <UnpublishedBadge />}
+      </h2>
       {texts[page.key] ? (
         texts.markdown ? (
           <Markdown>{texts[page.key]}</Markdown>
@@ -51,6 +88,20 @@ export function CommitteeTexts({
       )}
     </section>
   ));
+}
+
+/** 草稿裡哪幾頁有修改，例如「主席的話、籌備委員會備忘錄有修改。」（#76）。 */
+export function changedPagesSummary(changed: readonly CommitteeTextKey[]): string {
+  if (changed.length === 0) return "草稿和已發布的版本相同。";
+  const labels = COMMITTEE_TEXT_PAGES.filter((page) => changed.includes(page.key)).map((page) => page.label);
+  return `${labels.join("、")}有修改。`;
+}
+
+/** 標示這一頁有尚未發布的修改。 */
+export function UnpublishedBadge() {
+  return (
+    <span className="rounded-full border-2 border-primary px-2 py-0.5 text-sm font-semibold">有尚未發布的修改</span>
+  );
 }
 
 export function MeetingList({ meetings, manage }: { meetings: Meeting[]; manage?: ((meeting: Meeting) => ReactNode) | null }) {

@@ -5,7 +5,7 @@ import { REGIONS, type Region } from "./staff";
 
 /*
  * 籌備委員會資訊（#45）：大會簡介、主席的話、籌備委員會備忘錄、會議記錄、重要連結、工作團隊與籌備委員名單。
- * 屬於年度大會。只有總管理員能編輯，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
+ * 屬於年度大會。三個文字頁先存成草稿，總管理員預覽確定後才發布（#76）；其他的存了就公開。只有總管理員能編輯，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
  * 目前與過去年度不用登入也讀得到（公開頁面 /committee，#74）；還沒到的年度只有工作人員讀得到。
  * 名單只是資訊，不給任何後台權限：工作團隊的課務組、報報組成員不會因此有後台帳號（GLOSSARY「工作團隊」）。
  */
@@ -21,6 +21,8 @@ export type CommitteeError =
   | "region_invalid"
   | "stake_required"
   | "not_found"
+  | "no_draft"
+  | "draft_changed"
   | "unavailable";
 
 export type CommitteeResult = { ok: true } | { ok: false; error: CommitteeError };
@@ -209,18 +211,102 @@ export type CommitteeTextsInput = {
   memorandum: string;
 };
 
-/** 儲存三個文字頁：大會簡介、主席的話、籌備委員會備忘錄。 */
-export async function saveCommitteeTexts(supabase: SupabaseClient, input: CommitteeTextsInput): Promise<CommitteeResult> {
+/** 三個文字頁的欄位，依頁面上的順序。 */
+export const COMMITTEE_TEXT_KEYS = ["introduction", "chairMessage", "memorandum"] as const;
+export type CommitteeTextKey = (typeof COMMITTEE_TEXT_KEYS)[number];
+
+/** 三個文字頁還沒發布的草稿（#76）。只有總管理員讀得到。 */
+export type CommitteeTextDraft = Record<CommitteeTextKey, string> & {
+  /** 這份草稿的版本代號，每次存草稿都換。發布時帶上預覽時看到的代號，確認發布的就是預覽過的那一版。 */
+  revision: string;
+  /** 最後存草稿的時間。 */
+  updatedAt: string;
+};
+
+/** 一個年度三個文字頁的草稿；沒有草稿、或不是總管理員時是 null。 */
+export async function getCommitteeTextDraft(
+  supabase: SupabaseClient,
+  conferenceId: string,
+): Promise<CommitteeTextDraft | null> {
+  if (!validIds(conferenceId)) return null;
+  const { data, error } = await supabase
+    .from("committee_text_drafts")
+    .select("introduction, chair_message, memorandum, revision, updated_at")
+    .eq("conference_id", conferenceId)
+    .maybeSingle();
+  // 前台訪客連讀取的權限都沒有；課務組、報報組被權限規則擋下，讀到的是空的。
+  if (error?.code === "42501") return null;
+  if (error) throw error;
+  return (
+    data && {
+      introduction: data.introduction,
+      chairMessage: data.chair_message,
+      memorandum: data.memorandum,
+      revision: data.revision,
+      updatedAt: data.updated_at,
+    }
+  );
+}
+
+/**
+ * 草稿裡和已發布的版本不同的頁面，依頁面上的順序。沒有草稿時是空的。
+ * 已發布的還是改版前的純文字時，發布後改依樣式排版，有內容的頁面文字沒改也會變樣，一樣算有修改（#75）。
+ */
+export function changedTextPages(
+  published: Record<CommitteeTextKey, string> & { markdown: boolean },
+  draft: Record<CommitteeTextKey, string> | null,
+): CommitteeTextKey[] {
+  if (!draft) return [];
+  return COMMITTEE_TEXT_KEYS.filter((key) => draft[key] !== published[key] || (!published.markdown && draft[key] !== ""));
+}
+
+/**
+ * 把三個文字頁（大會簡介、主席的話、籌備委員會備忘錄）存成草稿；公開頁面與其他工作人員看到的仍是已發布的版本。
+ * 傳回這份草稿的版本代號。
+ */
+export async function saveCommitteeTextDraft(
+  supabase: SupabaseClient,
+  input: CommitteeTextsInput,
+): Promise<{ ok: true; revision: string } | { ok: false; error: CommitteeError }> {
   if (!validIds(input.conferenceId)) return { ok: false, error: "not_found" };
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
-  const { error } = await supabase.rpc("save_committee_texts", {
+  const { data, error } = await supabase.rpc("save_committee_text_draft", {
     p_conference_id: input.conferenceId,
     p_introduction: trimBlank(input.introduction),
     p_chair_message: trimBlank(input.chairMessage),
     p_memorandum: trimBlank(input.memorandum),
   });
+  return error ? failure(error) : { ok: true, revision: data as string };
+}
+
+/**
+ * 發布草稿：草稿變成正式版本，大家立即看到。revision 是預覽時看到的草稿版本代號；
+ * 預覽之後草稿又被存過（例如另一位總管理員）就不發布（draft_changed），請她重新預覽。
+ */
+export async function publishCommitteeTexts(
+  supabase: SupabaseClient,
+  conferenceId: string,
+  revision: string,
+): Promise<CommitteeResult> {
+  if (!validIds(conferenceId)) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+  // 表單送來的代號格式不對（網頁被改過），一定不是現在的草稿。
+  if (!UUID_PATTERN.test(revision)) return { ok: false, error: "draft_changed" };
+
+  const { error } = await supabase.rpc("publish_committee_texts", { p_conference_id: conferenceId, p_revision: revision });
+  return error ? failure(error) : { ok: true };
+}
+
+/** 捨棄草稿，回到已發布的版本。沒有草稿時也算成功（可能另一位總管理員剛捨棄或發布了）。 */
+export async function discardCommitteeTextDraft(supabase: SupabaseClient, conferenceId: string): Promise<CommitteeResult> {
+  if (!validIds(conferenceId)) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+
+  const { error } = await supabase.rpc("discard_committee_text_draft", { p_conference_id: conferenceId });
   return error ? failure(error) : { ok: true };
 }
 
@@ -434,6 +520,10 @@ function failure(error: PostgrestError): { ok: false; error: CommitteeError } {
     case error.code === "23503":
     case error.message === "not_found":
       return { ok: false, error: "not_found" };
+    case error.message === "no_draft":
+      return { ok: false, error: "no_draft" };
+    case error.message === "draft_changed":
+      return { ok: false, error: "draft_changed" };
     case error.message === "not_admin":
     case error.code === "42501":
       return { ok: false, error: "not_admin" };
