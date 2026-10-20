@@ -131,7 +131,7 @@ function columnName(index: number): string {
 function escape(text: string): string {
   return text
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, "")
-    .replace(/_(x[0-9A-Fa-f]{4}_)/g, "_x005F_$1")
+    .replace(/_(?=x[0-9A-Fa-f]{4}_)/g, "_x005F_")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

@@ -567,32 +567,65 @@ describe("清除與修改同時送出", () => {
 });
 
 describe("清除與場地、課程設定的修改同時發生", () => {
-  // 課程名稱這類修改不經過報名函式。清除已經比對過版本號、還在清除的時候（這裡被寄信紀錄的鎖擋住），
-  // 改名不能搶先提交：要嘛排在清除之後，要嘛其中一邊被中止；不能清除成功、改名也成功卻排在清除之前。
-  it("清除進行中改了課程名稱：不會清除成功又讓改名排在前面", async () => {
+  /** 等到有連線在等 holderPid 的鎖（query 符合 pattern 的才算），回傳那條連線；一直沒有就失敗，不靠時間碰運氣。 */
+  async function blockedBy(watcher: ReturnType<typeof databaseClient>, holderPid: number, pattern = ".") {
+    for (let waited = 0; ; waited += 50) {
+      const [row] = await watcher<{ pid: number }[]>`
+        select pid from pg_stat_activity
+        where ${holderPid}::int = any(pg_blocking_pids(pid)) and query ~ ${pattern}`;
+      if (row) return row.pid;
+      if (waited > 3000) throw new Error(`沒有連線在等 ${holderPid} 的鎖`);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  // 課程名稱這類修改不經過報名函式。清除已經比對過版本號、還在清除的時候（這裡被另一條連線鎖住的寄信紀錄擋住），
+  // 改名不能搶先提交，要等清除提交之後才提交：清除用的 Excel 是清除那一刻的內容，改名排在清除之後。
+  it("清除進行中改了課程名稱：改名等清除提交之後才提交，兩邊都成功", async () => {
     const id = await registered({ email: "may@example.com" });
     expect(await sendConfirmationEmail(serverClient(), id, "resent", async () => ({ ok: true, id: null }))).toBe("sent");
     const { exportId } = await downloaded();
+    const exportedVersion = await dataVersion();
 
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    let result: Awaited<ReturnType<typeof clear>>;
+    const holder = databaseClient();
+    const renamer = databaseClient();
+    const watcher = databaseClient();
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let held!: (pid: number) => void;
+    const holding = new Promise<number>((resolve) => (held = resolve));
     try {
-      result = await submitWhileHolding(
-        (tx) => tx`select 1 from public.email_logs where registration_id = ${id} for update`,
-        () => clear(exportId),
+      const holdTransaction = holder.begin(async (tx) => {
+        const [{ pid }] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+        await tx`select 1 from public.email_logs where registration_id = ${id} for update`;
+        held(pid);
+        await released;
+      });
+      const holderPid = await holding;
+
+      // 清除拿到年度的鎖、比對過版本號，卡在寄信紀錄。
+      const clearing = clear(exportId);
+      const clearPid = await blockedBy(watcher, holderPid, "clear_personal_data");
+
+      // 改名本身不用等；提交時要加版本號，等清除。
+      const renaming = renamer.begin(
         (tx) => tx`update public.courses set title_zh = '清除中改的名稱' where id = ${wreathId}`,
-        "clear_personal_data",
       );
+      await blockedBy(watcher, clearPid);
+
+      release();
+      await holdTransaction;
+      expect(await clearing).toMatchObject({ ok: true, alreadyCleared: false });
+      await renaming;
     } finally {
-      vi.restoreAllMocks();
+      release();
+      await Promise.all([holder.end(), renamer.end(), watcher.end()]);
     }
-    const [course] = must(await admin.from("courses").select("title_zh").eq("id", wreathId));
-    const renamed = course.title_zh === "清除中改的名稱";
-    expect(result.ok && renamed).toBe(false);
-    if (!result.ok) {
-      expect(await clearedAt()).toBeNull();
-      expect((await storedRegistrations())[0].name).toBe("王小美");
-    }
+
+    expect(must(await admin.from("courses").select("title_zh").eq("id", wreathId).single()).title_zh).toBe("清除中改的名稱");
+    expect(await clearedAt()).not.toBeNull();
+    // 清除與改名各加一次。
+    expect(await dataVersion()).toBe(exportedVersion + 2);
   });
 });
 

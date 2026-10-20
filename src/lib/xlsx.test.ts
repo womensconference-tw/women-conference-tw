@@ -13,7 +13,7 @@ describe("Excel 檔", () => {
   });
 
   it("文字裡本來就有 _x000D_ 這種寫法、或有 CR 換行時，Excel 讀到的和原本一樣", () => {
-    const rows = [["課程_x000D_名稱", "第一行\r\n第二行", "_x005F_"]];
+    const rows = [["課程_x000D_名稱", "第一行\r\n第二行", "_x005F_", "課程_x0041_x0042_"]];
     const { files, sheets } = readXlsx(writeXlsx([{ name: "名單", rows }]));
     expect(sheets[0].rows).toEqual(rows);
     expect(files.get("xl/worksheets/sheet1.xml")).toContain("課程_x005F_x000D_名稱");
