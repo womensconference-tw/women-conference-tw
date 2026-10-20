@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Locale } from "./i18n/locale";
 import { localized } from "./i18n/localized";
+import { heroImageUrl, heroPathsOf, pickHeroPaths } from "./hero";
 import { UUID_PATTERN } from "./registration";
 
 export type Venue = { name: string; address: string; features: string };
@@ -27,6 +28,13 @@ export type HomeContent = {
   /** 主題經文；沒填時兩個都是空字串。 */
   themeScripture: { text: string; reference: string };
   welcome: string;
+  /** 歡迎詞的署名；沒填是空字串。 */
+  welcomeSignature: string;
+  /**
+   * 主視覺圖片的公開網址（已依語言與缺圖的規則挑好，見 pickHeroPaths）與圖片說明；沒有圖時是 null。
+   * 只有電腦版的圖時 mobileUrl 是 null：手機不顯示圖，改用文字顯示主題經文。
+   */
+  hero: { mobileUrl: string | null; desktopUrl: string; alt: string } | null;
   faqs: { question: string; answer: string }[];
   venues: Venue[];
   /** 「需要幫忙」顯示的管理員 LINE 與加好友連結；沒填時是 null。 */
@@ -45,7 +53,8 @@ export async function getHomeContent(
     .select(
       `start_time, end_time, admin_line_id,
       theme_scripture_zh, theme_scripture_en, theme_scripture_reference_zh, theme_scripture_reference_en,
-      welcome_zh, welcome_en,
+      welcome_zh, welcome_en, welcome_signature_zh, welcome_signature_en, hero_alt_zh, hero_alt_en,
+      hero_mobile_zh_path, hero_mobile_en_path, hero_desktop_zh_path, hero_desktop_en_path,
       faqs(question_zh, question_en, answer_zh, answer_en),
       venues(name_zh, name_en, address_zh, address_en, features_zh, features_en),
       custom_blocks(title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
@@ -65,6 +74,7 @@ export async function getHomeContent(
   if (error) throw error;
   if (!data) return null;
   const adminLineId = data.admin_line_id?.trim();
+  const hero = pickHeroPaths(heroPathsOf(data), locale);
 
   return {
     time: data.start_time
@@ -75,6 +85,12 @@ export async function getHomeContent(
       reference: localized(data, "theme_scripture_reference", locale),
     },
     welcome: localized(data, "welcome", locale),
+    welcomeSignature: localized(data, "welcome_signature", locale),
+    hero: hero && {
+      mobileUrl: hero.mobile && heroImageUrl(supabase, hero.mobile),
+      desktopUrl: heroImageUrl(supabase, hero.desktop),
+      alt: localized(data, "hero_alt", locale),
+    },
     faqs: data.faqs.map((faq) => ({
       question: localized(faq, "question", locale),
       answer: localized(faq, "answer", locale),

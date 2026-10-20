@@ -59,6 +59,7 @@ export async function HomePage({ preview }: { preview: boolean }) {
         </section>
       ) : (
         <>
+          {content.hero && <HeroImage hero={content.hero} />}
           <RegistrationSection
             conference={conference}
             phase={phase}
@@ -271,13 +272,40 @@ function HelpSection({ content, t }: SectionProps & { content: HomeContent }) {
   );
 }
 
+// 1×1 透明的圖：只有電腦版主視覺時給手機用，瀏覽器不用另外下載。
+const BLANK_IMAGE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+/**
+ * 主視覺（#81）：手機寬度用手機版、電腦寬度用電腦版；用 <picture>，手機不會下載電腦版的大圖。
+ * 缺圖時用哪一張已經在 pickHeroPaths 挑好；電腦版用的是手機版的圖時置中，不拉伸變形。
+ * 只有電腦版的圖時，手機上整張隱藏（給的是透明的小圖，不會下載電腦版），改用文字顯示主題經文（AboutSection）。
+ */
+function HeroImage({ hero }: { hero: NonNullable<HomeContent["hero"]> }) {
+  return (
+    <picture className={hero.mobileUrl ? undefined : "hidden md:block"}>
+      {/* 和 Tailwind 的 md（48rem）同一個寬度，使用者把瀏覽器字級調大時，隱藏與不下載的寬度才一致（Codex 審查）。 */}
+      <source media="(min-width: 48rem)" srcSet={hero.desktopUrl} />
+      {/* 存放空間的公開網址，美編組已經做好尺寸，不經過 Next.js 的圖片最佳化。 */}
+      <img
+        src={hero.mobileUrl ?? BLANK_IMAGE}
+        alt={hero.alt}
+        fetchPriority="high"
+        className="mx-auto block h-auto max-h-[85vh] w-auto max-w-full rounded-lg object-contain"
+      />
+    </picture>
+  );
+}
+
 function AboutSection({ content, t }: SectionProps & { content: HomeContent }) {
-  const { themeScripture, welcome, faqs } = content;
+  const { welcome, welcomeSignature, faqs } = content;
+  // 主視覺的圖裡已經有主題經文；沒有圖時才用文字顯示。只有電腦版的圖時，手機上看不到圖，只在手機上顯示文字。
+  const themeScripture = content.hero?.mobileUrl ? { text: "", reference: "" } : content.themeScripture;
+  const scriptureOnlyOnPhone = !!content.hero;
   if (!themeScripture.text && !welcome && faqs.length === 0) return null;
   return (
     <Section heading={t.home.aboutHeading}>
       {themeScripture.text && (
-        <div className="flex flex-col gap-2">
+        <div className={cn("flex flex-col gap-2", scriptureOnlyOnPhone && "md:hidden")}>
           <h3 className="text-lead font-bold">{t.home.themeScriptureHeading}</h3>
           <blockquote className="border-l-4 border-quote-line pl-4">
             <p className="whitespace-pre-line">{themeScripture.text}</p>
@@ -289,6 +317,7 @@ function AboutSection({ content, t }: SectionProps & { content: HomeContent }) {
         <div className="flex flex-col gap-2">
           <h3 className="text-lead font-bold">{t.home.welcomeHeading}</h3>
           <p className="whitespace-pre-line">{welcome}</p>
+          {welcomeSignature && <p className="text-right">{welcomeSignature}</p>}
         </div>
       )}
       {faqs.length > 0 && (

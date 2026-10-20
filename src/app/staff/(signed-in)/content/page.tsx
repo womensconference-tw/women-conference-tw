@@ -20,7 +20,17 @@ import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
 import { TextPair } from "../../text-pair";
 import { buttonClass, formatTime, inputClass } from "../../ui";
-import { deleteContentItem, moveContentItem, saveContentDetails, saveContentItem, saveContentSchedule } from "./actions";
+import { HERO_SLOTS, type HeroError, type HeroSlot } from "@/lib/hero";
+import {
+  deleteContentItem,
+  moveContentItem,
+  removeHeroImageAction,
+  saveContentDetails,
+  saveContentItem,
+  saveContentSchedule,
+  saveHeroAltAction,
+} from "./actions";
+import { HeroUpload } from "./hero-upload";
 
 export const metadata: Metadata = { title: "首頁內容" };
 
@@ -32,9 +42,11 @@ const DONE: Record<string, string> = {
   scheduled: "已儲存時程，首頁依新的時間切換狀態。",
   moved: "已調整順序。",
   deleted: "已刪除。",
+  heroUploaded: "已上傳，首頁已經換成這張圖。",
+  heroRemoved: "已刪除這張圖。",
 };
 
-const ERRORS: Record<ContentError, string> = {
+const ERRORS: Record<ContentError | HeroError, string> = {
   not_admin: "只有總管理員能編輯首頁內容。",
   date_invalid: "請填大會日期。",
   time_invalid: "時間格式不對；只填結束時間不行，結束要比開始晚。",
@@ -47,11 +59,24 @@ const ERRORS: Record<ContentError, string> = {
   body_required: "請填中文答案。",
   button_label_required: "有按鈕網址時，請填中文按鈕文字。",
   button_url_invalid: "按鈕網址要是 https:// 開頭的完整網址，或 / 開頭的站內網址（例如 /lookup），不能有空白。",
+  file_type: "只收 JPG、PNG、WebP 格式的圖片。",
+  file_too_large: "圖片超過 5 MB，請請美編組另存小一點的檔案（例如存成 JPG）。",
+  alt_required: "有主視覺圖片時，中文圖片說明一定要填。",
+  upload_failed: "圖片沒有上傳成功，請檢查網路後再試一次。格式要是 JPG、PNG、WebP，5 MB 以內。",
+  upload_unknown: "連線中斷，不確定圖片有沒有換好。請重新整理頁面，看看這個位置現在是哪一張圖；不是新的那張再上傳一次。",
+  hero_changed: "這個位置的圖剛被換過（可能是另一位總管理員），這次沒有改。請看看現在是哪一張，再決定要不要換或刪除。",
   not_found: "找不到這一項，可能已經被刪除，或目前年度已經換了。請重新整理頁面再試一次。",
   unavailable: "系統暫時出了問題，請稍後再試。",
 };
 
 const TITLE_LABELS: Record<HomeItemKind, string> = { faq: "問題", block: "標題", highlight: "名稱" };
+
+const HERO_LABELS: Record<HeroSlot, { label: string; ratio: string }> = {
+  mobileZh: { label: "手機版（中文）", ratio: "4:5，建議 1080×1350。" },
+  mobileEn: { label: "手機版（英文）", ratio: "4:5，建議 1080×1350。" },
+  desktopZh: { label: "電腦版（中文）", ratio: "3:1，建議 2400×800。" },
+  desktopEn: { label: "電腦版（英文）", ratio: "3:1，建議 2400×800。" },
+};
 
 const PHASE_LABELS: Record<SchedulePhase, string> = {
   unannounced: "公告上線前（首頁只顯示「即將公布」）",
@@ -61,7 +86,8 @@ const PHASE_LABELS: Record<SchedulePhase, string> = {
 };
 
 /**
- * 首頁內容（只有總管理員）：目前年度的時程、日期與時間、主題經文、歡迎詞、管理員 LINE、常見問題、自訂區塊與大會特色。
+ * 首頁內容（只有總管理員）：目前年度的時程、主視覺、日期與時間、主題經文、歡迎詞與署名、管理員 LINE、
+ * 常見問題、自訂區塊與大會特色。
  * 每個內容欄位中英並排，英文沒填時有缺漏警示。存檔後首頁立即反映。
  */
 export default async function ContentPage({ searchParams }: PageProps<"/staff/content">) {
@@ -99,6 +125,8 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
     [content.themeScriptureZh, content.themeScriptureEn],
     [content.themeScriptureReferenceZh, content.themeScriptureReferenceEn],
     [content.welcomeZh, content.welcomeEn],
+    [content.welcomeSignatureZh, content.welcomeSignatureEn],
+    [content.heroAltZh, content.heroAltEn],
     ...[...content.faqs, ...content.customBlocks, ...content.highlights].flatMap((item) => [
       [item.titleZh, item.titleEn],
       [item.bodyZh, item.bodyEn],
@@ -160,6 +188,8 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
         </form>
       </section>
 
+      <HeroSection content={content} />
+
       <section className={cardClass}>
         <h2 className="text-xl font-bold">大會資訊</h2>
         <form action={saveContentDetails} className="flex flex-col gap-4">
@@ -183,6 +213,12 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
             en={content.themeScriptureReferenceEn}
           />
           <TextPair name="welcome" label="歡迎詞" zh={content.welcomeZh} en={content.welcomeEn} multiline />
+          <TextPair
+            name="welcomeSignature"
+            label="歡迎詞署名"
+            zh={content.welcomeSignatureZh}
+            en={content.welcomeSignatureEn}
+          />
           <Field label="管理員 LINE ID" hint="首頁「需要幫忙」顯示，報名者按了可以加好友。官方帳號以 @ 開頭；不填時不顯示。">
             <input name="adminLineId" defaultValue={content.adminLineId} className={cn(inputClass, "sm:max-w-xs")} />
           </Field>
@@ -215,6 +251,76 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
         description="臨時要公告的內容，顯示在首頁最後面，依這裡的順序。"
       />
     </main>
+  );
+}
+
+/**
+ * 主視覺（#81）：圖片說明與四張圖。有圖時中文圖片說明必填，所以要先存好說明才能上傳。
+ * 圖片由瀏覽器直接上傳（HeroUpload），刪圖走一般的伺服器動作。
+ */
+function HeroSection({ content }: { content: NonNullable<Awaited<ReturnType<typeof getContentEditor>>> }) {
+  const hasAlt = content.heroAltZh.trim() !== "";
+  return (
+    <section className={cardClass}>
+      <h2 className="text-xl font-bold">主視覺</h2>
+      <p>
+        美編組每年做的大圖，顯示在首頁最上面。手機寬度用手機版、電腦寬度用電腦版；
+        英文版沒有英文圖就用中文圖，電腦版沒有就用手機版。沒有手機版時，手機上改用文字顯示主題經文（不讓手機下載電腦版的大圖）。
+      </p>
+      <form action={saveHeroAltAction} className="flex flex-col gap-3">
+        <input type="hidden" name="conferenceId" value={content.conferenceId} />
+        <TextPair name="heroAlt" label="圖片說明" zh={content.heroAltZh} en={content.heroAltEn} multiline />
+        <span className="text-sm text-muted-foreground">
+          給看不到圖的人（螢幕閱讀器）聽的文字，寫出圖裡的字，例如「2026 台灣姐妹大會主視覺：你要把你的重擔卸給耶和華……詩篇
+          55:22」。有圖時中文一定要填。
+        </span>
+        <SubmitButton className={submitClass}>儲存圖片說明</SubmitButton>
+      </form>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {HERO_SLOTS.map((slot) => {
+          const image = content.heroImages[slot];
+          const { label, ratio } = HERO_LABELS[slot];
+          return (
+            <div key={slot} className="flex flex-col gap-3 rounded-lg border p-3">
+              <h3 className="text-lg font-bold">{label}</h3>
+              {image ? (
+                // 存放空間的公開網址，不經過 Next.js 的圖片最佳化（後台只是預覽）。
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={image.url} alt={`目前的${label}主視覺`} className="max-h-60 self-start rounded border object-contain" />
+              ) : (
+                <p className="text-muted-foreground">還沒有圖。</p>
+              )}
+              {hasAlt ? (
+                <HeroUpload
+                  conferenceId={content.conferenceId}
+                  slot={slot}
+                  label={image ? "換一張圖" : "上傳圖片"}
+                  ratioHint={ratio}
+                />
+              ) : (
+                <p className="font-semibold">請先填好上面的中文圖片說明並儲存，才能上傳圖片。</p>
+              )}
+              {image && (
+                <details>
+                  <summary className="cursor-pointer font-semibold text-destructive">刪除這張圖</summary>
+                  <form action={removeHeroImageAction} className="mt-3 flex flex-col gap-2">
+                    <input type="hidden" name="conferenceId" value={content.conferenceId} />
+                    <input type="hidden" name="slot" value={slot} />
+                    <input type="hidden" name="path" value={image.path} />
+                    <p>確定要刪除{label}的主視覺嗎？首頁會立即拿掉，不能復原。</p>
+                    <SubmitButton
+                      className={cn(buttonVariants(), buttonClass, "self-start bg-destructive text-white hover:bg-destructive/80")}
+                    >
+                      確定刪除
+                    </SubmitButton>
+                  </form>
+                </details>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

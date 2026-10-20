@@ -1,4 +1,5 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { HERO_SLOTS, heroImageUrl, heroPathsOf, type HeroSlot } from "./hero";
 import { trimBlank, UUID_PATTERN } from "./registration";
 
 /*
@@ -92,6 +93,9 @@ export type ConferenceDetailsInput = {
   themeScriptureReferenceEn: string;
   welcomeZh: string;
   welcomeEn: string;
+  /** 歡迎詞的署名，例如「2026台灣姐妹大會籌備委員會」。 */
+  welcomeSignatureZh: string;
+  welcomeSignatureEn: string;
   /** 空白表示首頁「需要幫忙」不顯示 LINE。 */
   adminLineId: string;
 };
@@ -127,6 +131,8 @@ export async function saveConferenceDetails(
     theme_scripture_reference_en: text(input.themeScriptureReferenceEn),
     welcome_zh: text(input.welcomeZh),
     welcome_en: text(input.welcomeEn),
+    welcome_signature_zh: text(input.welcomeSignatureZh),
+    welcome_signature_en: text(input.welcomeSignatureEn),
     admin_line_id: adminLineId || null,
   });
 }
@@ -399,7 +405,13 @@ export type ContentEditor = {
   themeScriptureReferenceEn: string;
   welcomeZh: string;
   welcomeEn: string;
+  welcomeSignatureZh: string;
+  welcomeSignatureEn: string;
   adminLineId: string;
+  /** 主視覺四個位置的圖：路徑與公開網址；沒有圖時是 null。 */
+  heroImages: Record<HeroSlot, { path: string; url: string } | null>;
+  heroAltZh: string;
+  heroAltEn: string;
   /** 三個時間點，資料庫的時間；沒填是 null。 */
   announceAt: string | null;
   registrationOpensAt: string | null;
@@ -422,7 +434,8 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       `id, year, conference_date, start_time, end_time, admin_line_id,
       announce_at, registration_opens_at, registration_closes_at,
       theme_scripture_zh, theme_scripture_en, theme_scripture_reference_zh, theme_scripture_reference_en,
-      welcome_zh, welcome_en,
+      welcome_zh, welcome_en, welcome_signature_zh, welcome_signature_en, hero_alt_zh, hero_alt_en,
+      hero_mobile_zh_path, hero_mobile_en_path, hero_desktop_zh_path, hero_desktop_en_path,
       faqs(id, question_zh, question_en, answer_zh, answer_en),
       custom_blocks(id, title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
       highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en, courses(count))`,
@@ -452,7 +465,17 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
     themeScriptureReferenceEn: data.theme_scripture_reference_en,
     welcomeZh: data.welcome_zh,
     welcomeEn: data.welcome_en,
+    welcomeSignatureZh: data.welcome_signature_zh,
+    welcomeSignatureEn: data.welcome_signature_en,
     adminLineId: data.admin_line_id ?? "",
+    heroImages: Object.fromEntries(
+      HERO_SLOTS.map((slot) => {
+        const path = heroPathsOf(data)[slot];
+        return [slot, path ? { path, url: heroImageUrl(supabase, path) } : null];
+      }),
+    ) as ContentEditor["heroImages"],
+    heroAltZh: data.hero_alt_zh,
+    heroAltEn: data.hero_alt_en,
     announceAt: data.announce_at,
     registrationOpensAt: opensAt,
     registrationClosesAt: data.registration_closes_at,
