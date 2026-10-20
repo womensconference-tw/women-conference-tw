@@ -80,7 +80,8 @@ describe("上傳主視覺", () => {
     expect(remove).toHaveBeenCalledWith([upload.mock.calls[0][0]]);
   });
 
-  it("伺服器動作連不上時一樣刪掉剛上傳的檔案，說明沒上傳成功", async () => {
+  // 伺服器可能已經記好新圖、刪了舊圖，只是回應沒送回來；這時刪掉新圖首頁就破圖了（Codex 審查）。
+  it("記錄時沒拿到回應：不刪剛上傳的檔案，請她重新整理確認", async () => {
     attach.mockRejectedValue(new Error("network"));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const user = userEvent.setup();
@@ -89,8 +90,8 @@ describe("上傳主視覺", () => {
     await user.upload(screen.getByLabelText("上傳圖片"), file("image/png"));
     await user.click(screen.getByRole("button", { name: "上傳" }));
 
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/staff/content?error=upload_failed"));
-    expect(remove).toHaveBeenCalledWith([upload.mock.calls[0][0]]);
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/staff/content?error=upload_unknown"));
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it("上傳失敗時說明，不記路徑", async () => {

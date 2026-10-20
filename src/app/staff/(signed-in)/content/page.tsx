@@ -63,6 +63,7 @@ const ERRORS: Record<ContentError | HeroError, string> = {
   file_too_large: "圖片超過 5 MB，請請美編組另存小一點的檔案（例如存成 JPG）。",
   alt_required: "有主視覺圖片時，中文圖片說明一定要填。",
   upload_failed: "圖片沒有上傳成功，請檢查網路後再試一次。格式要是 JPG、PNG、WebP，5 MB 以內。",
+  upload_unknown: "連線中斷，不確定圖片有沒有換好。請重新整理頁面，看看這個位置現在是哪一張圖；不是新的那張再上傳一次。",
   hero_changed: "這個位置的圖剛被換過（可能是另一位總管理員），這次沒有改。請看看現在是哪一張，再決定要不要換或刪除。",
   not_found: "找不到這一項，可能已經被刪除，或目前年度已經換了。請重新整理頁面再試一次。",
   unavailable: "系統暫時出了問題，請稍後再試。",

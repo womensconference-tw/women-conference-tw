@@ -71,11 +71,16 @@ export function HeroUpload({
       console.error("上傳主視覺失敗", uploaded.error);
       return router.push("/staff/content?error=upload_failed");
     }
-    // 伺服器動作連不上（網路斷掉）也算記不成功：刪掉剛上傳的檔案，說明沒上傳成功（Codex 審查）。
-    const result = await attachHeroImageAction({ conferenceId, slot, path }).catch((error: unknown) => {
-      console.error("記錄主視覺失敗", error);
-      return { ok: false, error: "upload_failed" } as const;
-    });
+    // 沒拿到回應（斷線、逾時）時不知道有沒有記成功：可能已經記好、舊圖也刪了，這時刪掉新圖首頁就破圖了。
+    // 所以不刪，請她重新整理看看；最多留下一個沒人用的檔案（Codex 審查）。
+    let result;
+    try {
+      result = await attachHeroImageAction({ conferenceId, slot, path });
+    } catch (error) {
+      console.error("記錄主視覺沒有回應", error);
+      return router.push("/staff/content?error=upload_unknown");
+    }
+    // 伺服器明確說沒記：刪掉剛上傳的檔案。
     if (!result.ok) {
       await storage.remove([path]).catch(() => {});
       return router.push(`/staff/content?error=${result.error}`);

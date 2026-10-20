@@ -38,6 +38,8 @@ export type HeroError =
   | "file_too_large"
   | "alt_required"
   | "upload_failed"
+  /** 後台送出記錄後沒拿到回應（斷線、逾時），不知道有沒有記成功。 */
+  | "upload_unknown"
   | "hero_changed"
   | "not_found"
   | "unavailable";
