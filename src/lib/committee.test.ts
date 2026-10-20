@@ -545,6 +545,14 @@ describe("文字頁的草稿與發布（#76）", () => {
     expect(await publishCommitteeTexts(headAdmin, conferenceId, "不是代號")).toEqual({ ok: false, error: "draft_changed" });
   });
 
+  it("直接呼叫資料庫、沒帶版本代號：不發布（#76，Codex 審查）", async () => {
+    await ok(saveCommitteeTextDraft(headAdmin, texts({ introduction: "草稿" })));
+    const { error } = await headAdmin.rpc("publish_committee_texts", { p_conference_id: conferenceId, p_revision: null });
+    expect(error?.message).toBe("draft_changed");
+    expect((await getCommittee(anonClient(), conferenceId)).introduction).toBe("已發布的簡介");
+    expect((await getCommitteeTextDraft(headAdmin, conferenceId))?.introduction).toBe("草稿");
+  });
+
   it("課務組、報報組、訪客不能存草稿、發布或捨棄", async () => {
     const { revision } = await ok(saveCommitteeTextDraft(headAdmin, texts({ introduction: "草稿" })));
     for (const client of [courseTeam, registrationTeam, anonClient()]) {

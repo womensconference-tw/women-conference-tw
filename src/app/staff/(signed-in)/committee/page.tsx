@@ -203,8 +203,10 @@ function Texts({
               {draft && "編輯框裡是尚未發布的草稿。"}兩位總管理員同時編輯時，後存的草稿會蓋掉先存的。
             </p>
             {COMMITTEE_TEXT_PAGES.map((page) => (
+              // 編輯框是非受控的，換了 defaultValue 也不會重設。內容一變（捨棄草稿、別人發布或存了草稿）就重新建立，
+              // 不然編輯框留著舊的內容，再按「儲存草稿」會把它存回去（#76，Codex 審查）。
               <MarkdownEditor
-                key={page.key}
+                key={`${page.key}:${(draft ?? texts)[page.key]}`}
                 name={page.name}
                 label={page.label}
                 hint={page.hint}

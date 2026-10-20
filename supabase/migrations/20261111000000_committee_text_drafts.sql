@@ -93,7 +93,8 @@ begin
   if not found then
     raise exception 'no_draft';
   end if;
-  if v_draft.revision <> p_revision then
+  -- 沒帶代號（null）也不發布：<> 遇到 null 不成立，會跳過檢查。
+  if v_draft.revision is distinct from p_revision then
     raise exception 'draft_changed';
   end if;
 
