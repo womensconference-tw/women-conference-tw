@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { getCurrentStaff } from "../../current-staff";
 import { DateTimeField, Field } from "../../fields";
+import { MarkdownEditor } from "../../markdown-editor";
 import { PreviewLinks } from "../../preview-links";
 import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
@@ -42,13 +43,15 @@ const ERRORS: Record<ContentError, string> = {
   schedule_incomplete: "目前年度的公告上線、報名開放、報名截止三個時間都要填。",
   schedule_order: "時間要依序：公告上線不能晚於報名開放，報名開放要早於報名截止。",
   opens_at_locked: "報名已經開放，報名開放時間不能再改。",
-  title_required: "請填中文標題。",
+  title_required: "請填中文標題（大會特色是名稱）。",
   body_required: "請填中文答案。",
   button_label_required: "有按鈕網址時，請填中文按鈕文字。",
   button_url_invalid: "按鈕網址要是 https:// 開頭的完整網址，或 / 開頭的站內網址（例如 /lookup），不能有空白。",
   not_found: "找不到這一項，可能已經被刪除，或目前年度已經換了。請重新整理頁面再試一次。",
   unavailable: "系統暫時出了問題，請稍後再試。",
 };
+
+const TITLE_LABELS: Record<HomeItemKind, string> = { faq: "問題", block: "標題", highlight: "名稱" };
 
 const PHASE_LABELS: Record<SchedulePhase, string> = {
   unannounced: "公告上線前（首頁只顯示「即將公布」）",
@@ -58,7 +61,7 @@ const PHASE_LABELS: Record<SchedulePhase, string> = {
 };
 
 /**
- * 首頁內容（只有總管理員）：目前年度的時程、日期與時間、主題經文、歡迎詞、管理員 LINE、常見問題與自訂區塊。
+ * 首頁內容（只有總管理員）：目前年度的時程、日期與時間、主題經文、歡迎詞、管理員 LINE、常見問題、自訂區塊與大會特色。
  * 每個內容欄位中英並排，英文沒填時有缺漏警示。存檔後首頁立即反映。
  */
 export default async function ContentPage({ searchParams }: PageProps<"/staff/content">) {
@@ -96,10 +99,11 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
     [content.themeScriptureZh, content.themeScriptureEn],
     [content.themeScriptureReferenceZh, content.themeScriptureReferenceEn],
     [content.welcomeZh, content.welcomeEn],
-    ...[...content.faqs, ...content.customBlocks].flatMap((item) => [
+    ...[...content.faqs, ...content.customBlocks, ...content.highlights].flatMap((item) => [
       [item.titleZh, item.titleEn],
       [item.bodyZh, item.bodyEn],
       [item.buttonLabelZh, item.buttonLabelEn],
+      [item.summaryZh, item.summaryEn],
     ]),
   ].filter(([zh, en]) => missingEnglish(zh, en)).length;
   const conferenceId = content.conferenceId;
@@ -187,6 +191,14 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
       </section>
 
       <ItemList
+        kind="highlight"
+        heading="大會有什麼（大會特色）"
+        noun="大會特色"
+        items={content.highlights}
+        conferenceId={conferenceId}
+        description="首頁「大會有什麼」的卡片，依這裡的順序。寫了介紹內容的卡片可以點進介紹頁；沒寫的只顯示名稱和一句話，不能點。"
+      />
+      <ItemList
         kind="faq"
         heading="常見問題"
         noun="問題"
@@ -235,6 +247,14 @@ function ItemList({
             <h3 className="text-lg font-bold">
               {index + 1}. {item.titleZh}
             </h3>
+            {kind === "highlight" &&
+              (item.bodyZh ? (
+                <Link href={`/preview/highlights/${item.id}`} target="_blank" className="self-start font-semibold underline">
+                  預覽介紹頁
+                </Link>
+              ) : (
+                <p className="text-muted-foreground">還沒寫介紹內容，首頁的卡片不能點。</p>
+              ))}
             <div className="flex flex-wrap gap-3">
               {index > 0 && <MoveButton kind={kind} id={item.id} direction="up" />}
               {index < items.length - 1 && <MoveButton kind={kind} id={item.id} direction="down" />}
@@ -300,15 +320,38 @@ function ItemForm({
       <input type="hidden" name="kind" value={kind} />
       {item && <input type="hidden" name="id" value={item.id} />}
       <input type="hidden" name="conferenceId" value={conferenceId} />
-      <TextPair name="title" label={kind === "faq" ? "問題" : "標題"} zh={item?.titleZh} en={item?.titleEn} required />
-      <TextPair
-        name="body"
-        label={kind === "faq" ? "答案" : "內文"}
-        zh={item?.bodyZh}
-        en={item?.bodyEn}
-        required={kind === "faq"}
-        multiline
-      />
+      <TextPair name="title" label={TITLE_LABELS[kind]} zh={item?.titleZh} en={item?.titleEn} required />
+      {kind === "highlight" ? (
+        <>
+          <TextPair name="summary" label="卡片上的一句話" zh={item?.summaryZh} en={item?.summaryEn} />
+          <MarkdownEditor
+            name="bodyZh"
+            label="介紹內容（中文）"
+            hint="介紹頁的內容，例如練唱影片的連結、要帶什麼。不寫的話首頁的卡片不能點。"
+            defaultValue={item?.bodyZh ?? ""}
+            saveLabel={submitLabel}
+          />
+          <MarkdownEditor
+            name="bodyEn"
+            label="介紹內容（英文）"
+            hint="不寫的話英文版顯示中文。"
+            defaultValue={item?.bodyEn ?? ""}
+            saveLabel={submitLabel}
+          />
+          {item && missingEnglish(item.bodyZh, item.bodyEn) && (
+            <span className="text-sm font-semibold text-destructive">⚠ 介紹內容的英文還沒填，英文版會顯示中文。</span>
+          )}
+        </>
+      ) : (
+        <TextPair
+          name="body"
+          label={kind === "faq" ? "答案" : "內文"}
+          zh={item?.bodyZh}
+          en={item?.bodyEn}
+          required={kind === "faq"}
+          multiline
+        />
+      )}
       {kind === "block" && (
         <>
           <TextPair name="buttonLabel" label="按鈕文字" zh={item?.buttonLabelZh} en={item?.buttonLabelEn} />

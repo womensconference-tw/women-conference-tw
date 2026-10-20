@@ -18,7 +18,7 @@ import {
   type HomeItemInput,
   type ScheduleInput,
 } from "./content";
-import { getHomeContent } from "./home-content";
+import { getHighlight, getHomeContent } from "./home-content";
 
 const admin = adminClient();
 const MINUTE = 60 * 1000;
@@ -469,6 +469,114 @@ describe("常見問題", () => {
       { question: "What to bring?", answer: "Scriptures" },
     ]);
     expect((await getContentEditor(headAdmin))!.faqs.map((faq) => faq.titleZh)).toEqual(["可以停車嗎？", "要帶什麼？"]);
+  });
+});
+
+describe("大會特色", () => {
+  async function cards(locale: "zh" | "en" = "zh") {
+    return (await getHomeContent(anonClient(), locale))!.highlights.map(({ name, summary, hasDescription }) => ({
+      name,
+      summary,
+      hasDescription,
+    }));
+  }
+
+  it("新增的大會特色依序顯示在首頁，可以往前、往後移、修改、刪除", async () => {
+    const choir = await savedItem({ kind: "highlight", titleZh: "即席唱詩班", summaryZh: " 跟著影片練唱 " });
+    const service = await savedItem({ kind: "highlight", titleZh: "公益服務" });
+    expect(await cards()).toEqual([
+      { name: "即席唱詩班", summary: "跟著影片練唱", hasDescription: false },
+      { name: "公益服務", summary: "", hasDescription: false },
+    ]);
+
+    expect(await moveHomeItem(headAdmin, "highlight", service, "up")).toEqual({ ok: true });
+    expect((await cards()).map((card) => card.name)).toEqual(["公益服務", "即席唱詩班"]);
+
+    expect(
+      await saveItem({ kind: "highlight", id: choir, titleZh: "唱詩班", titleEn: "Choir", summaryZh: "練唱", bodyZh: "## 練唱" }),
+    ).toMatchObject({ ok: true, id: choir });
+    expect((await getContentEditor(headAdmin))!.highlights).toMatchObject([
+      { id: service, titleZh: "公益服務" },
+      { id: choir, titleZh: "唱詩班", titleEn: "Choir", summaryZh: "練唱", summaryEn: "", bodyZh: "## 練唱", bodyEn: "" },
+    ]);
+
+    expect(await deleteHomeItem(headAdmin, "highlight", service)).toEqual({ ok: true });
+    expect((await cards()).map((card) => card.name)).toEqual(["唱詩班"]);
+  });
+
+  it("名稱要填", async () => {
+    expect(await saveItem({ kind: "highlight", titleZh: " ", bodyZh: "內容" })).toEqual({ ok: false, error: "title_required" });
+  });
+
+  it("寫了介紹內容的才有介紹頁；英文沒填時顯示中文", async () => {
+    const choir = await savedItem({
+      kind: "highlight",
+      titleZh: "即席唱詩班",
+      titleEn: "Choir",
+      summaryZh: "跟著影片練唱",
+      bodyZh: "先看[練唱影片](https://www.youtube.com/)",
+    });
+    const empty = await savedItem({ kind: "highlight", titleZh: "靜態展示" });
+
+    expect(await cards("en")).toEqual([
+      { name: "Choir", summary: "跟著影片練唱", hasDescription: true },
+      { name: "靜態展示", summary: "", hasDescription: false },
+    ]);
+    expect(await getHighlight(anonClient(), choir, "en")).toEqual({
+      name: "Choir",
+      description: "先看[練唱影片](https://www.youtube.com/)",
+    });
+    expect(await getHighlight(anonClient(), empty, "zh")).toBeNull();
+    expect(await getHighlight(anonClient(), "不是編號", "zh")).toBeNull();
+  });
+
+  it("過去年度的大會特色沒有介紹頁", async () => {
+    const other = must(
+      await admin.from("conferences").insert({ year: 2098, conference_date: "2098-05-15" }).select("id").single(),
+    ).id;
+    try {
+      const old = must(
+        await admin
+          .from("highlights")
+          .insert({ conference_id: other, name_zh: "去年的", description_zh: "去年的內容" })
+          .select("id")
+          .single(),
+      ).id;
+      // 總管理員讀得到每個年度的資料，也一樣只有目前年度的才有介紹頁。
+      expect(await getHighlight(anonClient(), old, "zh")).toBeNull();
+      expect(await getHighlight(headAdmin, old, "zh")).toBeNull();
+    } finally {
+      must(await admin.from("conferences").delete().eq("id", other));
+    }
+  });
+
+  it("課務組、報報組與訪客都不能新增、修改、排序、刪除", async () => {
+    const id = await savedItem({ kind: "highlight", titleZh: "原本的" });
+    for (const client of [courseTeam, registrationTeam, anonClient()]) {
+      expect(await saveItem({ kind: "highlight", titleZh: "新的" }, client)).toEqual({ ok: false, error: "not_admin" });
+      expect(await saveItem({ kind: "highlight", id, titleZh: "被改了" }, client)).toEqual({ ok: false, error: "not_admin" });
+      expect(await moveHomeItem(client, "highlight", id, "up")).toEqual({ ok: false, error: "not_admin" });
+      expect(await deleteHomeItem(client, "highlight", id)).toEqual({ ok: false, error: "not_admin" });
+
+      // 直接寫資料庫也改不到。
+      expect((await client.from("highlights").insert({ conference_id: conferenceId, name_zh: "偷加" })).error).not.toBeNull();
+      expect((await client.from("highlights").update({ name_zh: "被改了" }).eq("id", id).select("id")).data ?? []).toEqual([]);
+      expect((await client.from("highlights").delete().eq("id", id).select("id")).data ?? []).toEqual([]);
+      expect((await client.rpc("move_home_item", { p_table: "highlights", p_id: id, p_up: true })).error).not.toBeNull();
+    }
+    expect((await cards()).map((card) => card.name)).toEqual(["原本的"]);
+  });
+
+  it("權限規則：總管理員也不能直接把大會特色換到別的年度", async () => {
+    const id = await savedItem({ kind: "highlight", titleZh: "特色" });
+    const other = must(
+      await admin.from("conferences").insert({ year: 2098, conference_date: "2098-05-15" }).select("id").single(),
+    ).id;
+    try {
+      expect((await headAdmin.from("highlights").update({ conference_id: other }).eq("id", id)).error?.code).toBe("42501");
+    } finally {
+      must(await admin.from("conferences").delete().eq("id", other));
+    }
   });
 });
 

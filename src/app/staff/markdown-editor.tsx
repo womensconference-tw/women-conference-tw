@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import { applyEdit, formatMarkdown, type MarkdownFormat } from "@/lib/markdown-format";
 import { cn } from "@/lib/utils";
-import { inputClass, noticeClass } from "../../ui";
+import { inputClass, noticeClass } from "./ui";
 
 const FORMATS: { format: MarkdownFormat; label: string }[] = [
   { format: "heading", label: "標題" },
@@ -18,7 +18,7 @@ const FORMATS: { format: MarkdownFormat; label: string }[] = [
 ];
 
 /**
- * 籌備委員會文字頁的編輯框（#75）。上方的樣式按鈕在游標位置插入（或包住選取的文字）對應的 Markdown，
+ * 籌備委員會文字頁與大會特色介紹內容（#82）的編輯框（#75）。上方的樣式按鈕在游標位置插入（或包住選取的文字）對應的 Markdown，
  * 不會 Markdown 的人也能排版。編輯框不受 React 控制，表單照舊用 name 送出。
  *
  * 同一頁重新畫出來、內容換了（存草稿、捨棄草稿、別人發布或存了草稿，#76）：沒動過的編輯框換成新的內容；
@@ -30,12 +30,15 @@ export function MarkdownEditor({
   label,
   hint,
   defaultValue,
+  saveLabel,
   resetToken,
 }: {
   name: string;
   label: string;
   hint: string;
   defaultValue: string;
+  /** 存檔按鈕上的字，用在「這一頁剛被更新」的提醒裡。 */
+  saveLabel: string;
   /** 換成新的值時，不管有沒有動過都換成 defaultValue。 */
   resetToken?: string;
 }) {
@@ -109,7 +112,7 @@ export function MarkdownEditor({
       </div>
       {updatedElsewhere && (
         <p role="alert" className={noticeClass}>
-          這一頁剛被更新（可能是另一位總管理員）。編輯框裡留著你還沒存的修改，按「儲存草稿」會蓋掉更新的內容。
+          這一頁剛被更新（可能是另一位總管理員）。編輯框裡留著你還沒存的修改，按「{saveLabel}」會蓋掉更新的內容。
         </p>
       )}
       <textarea

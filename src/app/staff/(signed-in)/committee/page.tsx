@@ -35,11 +35,11 @@ import { cn } from "@/lib/utils";
 import { listConferences } from "@/lib/years";
 import { getCurrentStaff } from "../../current-staff";
 import { Field } from "../../fields";
+import { MarkdownEditor } from "../../markdown-editor";
 import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
 import { buttonClass, formatTime, inputClass, noticeClass } from "../../ui";
 import { CopyUrl } from "./copy-url";
-import { MarkdownEditor } from "./markdown-editor";
 import { COMMITTEE_DONE, COMMITTEE_ERRORS } from "./messages";
 import {
   deleteItemAction,
@@ -217,6 +217,7 @@ function Texts({
                 label={page.label}
                 hint={page.hint}
                 defaultValue={(draft ?? texts)[page.key]}
+                saveLabel="儲存草稿"
                 resetToken={resetToken}
               />
             ))}

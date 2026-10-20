@@ -61,6 +61,8 @@ export async function saveContentItem(formData: FormData) {
     buttonLabelZh: field("buttonLabelZh"),
     buttonLabelEn: field("buttonLabelEn"),
     buttonUrl: field("buttonUrl"),
+    summaryZh: field("summaryZh"),
+    summaryEn: field("summaryEn"),
   });
   done(result, "saved");
 }

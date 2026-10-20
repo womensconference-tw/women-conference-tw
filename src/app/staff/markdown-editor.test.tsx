@@ -15,7 +15,7 @@ function renderEditor(defaultValue: string) {
   const submit = vi.fn((event: Event) => event.preventDefault());
   render(
     <form onSubmit={(event) => submit(event.nativeEvent)}>
-      <MarkdownEditor name="memorandum" label="籌備委員會備忘錄" hint="組織章程。" defaultValue={defaultValue} />
+      <MarkdownEditor name="memorandum" label="籌備委員會備忘錄" hint="組織章程。" defaultValue={defaultValue} saveLabel="儲存草稿" />
     </form>,
   );
   return submit;
@@ -67,6 +67,7 @@ describe("內容換了", () => {
       label="籌備委員會備忘錄"
       hint="組織章程。"
       defaultValue={defaultValue}
+      saveLabel="儲存草稿"
       resetToken={resetToken}
     />
   );
