@@ -84,7 +84,7 @@ describe("公告上線前", () => {
     expect(screen.getByRole("status").textContent).toBe("預覽模式：訪客還看不到這些內容。");
     expect(screen.getByText("歡迎參加 2099 年姐妹大會")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "台北金華教堂" })).toBeTruthy();
-    expect(screen.getByText(/^報名將於 .* 開放$/)).toBeTruthy();
+    expect(screen.getByText("4月1日（星期三）開放報名")).toBeTruthy();
     expect(screen.queryByText(messages.zh.home.comingSoon)).toBeNull();
   });
 

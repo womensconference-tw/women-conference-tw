@@ -24,9 +24,14 @@ describe("介面文字對照檔", () => {
   // 要帶入資料的文字，每一則都要在這裡列出測試用的資料。
   const sampleArgs: Record<string, unknown[]> = {
     "email.greeting": ["SAMPLE_NAME"],
-    "home.conferenceDate": [2099, "SAMPLE_DATE"],
-    "home.registrationOpensAt": ["SAMPLE_DATE_TIME"],
-    "home.registrationOpenUntil": ["SAMPLE_DATE_TIME"],
+    "home.statusOpensOn": ["SAMPLE_DATE"],
+    "home.statusOpenUntil": ["SAMPLE_DATE"],
+    "home.showCourses": [5],
+    "home.pairedFirst": ["SAMPLE_SESSION"],
+    "home.pairedSecond": ["SAMPLE_SESSION"],
+    "home.opensOn": ["SAMPLE_DATE_TIME"],
+    "home.closesOn": ["SAMPLE_DATE_TIME"],
+    "home.canChangeUntil": ["SAMPLE_DATE"],
     "home.conferenceTime": ["SAMPLE_START", "SAMPLE_END"],
     "home.conferenceStartsAt": ["SAMPLE_START"],
     "home.simultaneous": ["SAMPLE_PLACES"],

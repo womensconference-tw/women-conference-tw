@@ -9,6 +9,7 @@ import type { Messages } from "@/lib/i18n/messages";
 import { getLocale, getMessages } from "@/lib/i18n/server";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
+import { HomeAgenda } from "./home-agenda";
 import { PreviewBanner } from "./preview/preview-banner";
 
 // 預覽首頁的報名按鈕連到預覽報名表，工作人員點了不會真的報名。
@@ -27,8 +28,9 @@ const primaryActionClass =
   "min-h-(--button-primary-min-height) text-(length:--text-lead-size) font-bold";
 
 /*
- * 首頁區塊順序依規格：報名 → 幫家人或朋友報名（報名中才有）→ 已報名查詢 → 報名三步驟 → 場地 → 需要幫忙 → 關於大會
- * → 大會有什麼，自訂區塊接在最後（新設計的順序見 #85）。不用下拉選單、不用輪播，所有內容直接攤開。
+ * 首頁區塊順序照美編組的設計稿（ADR 0010，手機與電腦相同）：Header → 主視覺 → 狀態列（日期、時間、三地同步、
+ * 報名狀態與「前往報名」）→ 歡迎詞 → 大會有什麼 → 大會程序 → 報名參加 → 常見問題 → 需要幫忙 → 自訂區塊 → Footer。
+ * 設計稿沒有常見問題與自訂區塊，沒有內容時不顯示。不用下拉選單、不用輪播。
  * 前台首頁（/）與後台的預覽首頁（/preview）共用：預覽時最上方有提示，公告上線前也照報名前的樣子顯示（見 homePhase）。
  */
 export async function HomePage({ preview }: { preview: boolean }) {
@@ -41,222 +43,346 @@ export async function HomePage({ preview }: { preview: boolean }) {
   ]);
   const phase = homePhase(conference, { preview });
   const registerPath = preview ? registerPaths.preview : registerPaths.live;
+  const highlightPath = preview ? highlightPaths.preview : highlightPaths.live;
+  const shown = conference && content && phase ? { conference, content, phase } : null;
+  const hasAbout = !!shown && (!!shown.content.welcome || shown.content.highlights.length > 0);
+  const hasAgenda = !!shown && shown.content.venues.length > 0;
 
   return (
-    <main className="mx-auto flex w-full max-w-(--content-max-width) flex-1 flex-col gap-12 px-5 pt-3 pb-8 text-body leading-relaxed">
+    <>
       {preview && (
-        <PreviewBanner>
-          {conference?.phase === "unannounced" ? t.preview.homeNotAnnounced : t.preview.homeAnnounced}
-        </PreviewBanner>
+        <div className="px-5 pt-3">
+          <PreviewBanner>
+            {conference?.phase === "unannounced" ? t.preview.homeNotAnnounced : t.preview.homeAnnounced}
+          </PreviewBanner>
+        </div>
       )}
-      {!conference || !content || !phase ? (
-        <section className="flex flex-col gap-3">
-          <div className="flex justify-end">
-            <LanguageSwitch />
-          </div>
-          <h1 className="text-title leading-tight font-bold">{t.site.title}</h1>
-          <p>{t.home.comingSoon}</p>
-        </section>
-      ) : (
-        <>
-          {content.hero && <HeroImage hero={content.hero} />}
-          <RegistrationSection
-            conference={conference}
-            phase={phase}
-            content={content}
-            registerPath={registerPath}
-            t={t}
-            locale={locale}
-          />
-          {phase === "open" && <ProxySection href={registerPath + proxyQuery} t={t} />}
-          {/* 已截止時第一屏已經是查詢按鈕，也不能再報名，這兩區就不重複顯示。 */}
-          {phase !== "closed" && (
-            <>
-              <LookupSection t={t} />
-              <StepsSection t={t} />
-            </>
-          )}
-          <VenuesSection content={content} t={t} />
-          <HelpSection content={content} t={t} />
-          <AboutSection content={content} t={t} />
-          <HighlightsSection
-            content={content}
-            path={preview ? highlightPaths.preview : highlightPaths.live}
-            t={t}
-          />
-          {content.customBlocks.map((block, index) => (
-            <Section key={index} heading={block.title}>
-              {block.body && <p className="whitespace-pre-line">{block.body}</p>}
-              {block.button && (
-                <ActionLink href={block.button.url} variant="outline">
-                  {block.button.label}
-                </ActionLink>
-              )}
-            </Section>
-          ))}
-        </>
-      )}
-    </main>
+      <SiteHeader
+        t={t}
+        links={
+          shown
+            ? [
+                hasAbout && { href: "#about", label: t.home.navAbout },
+                hasAgenda && { href: "#agenda", label: t.home.navAgenda },
+                { href: "#register", label: t.home.navRegister },
+                { href: "#help", label: t.home.navHelp },
+              ].filter((link) => !!link)
+            : []
+        }
+      />
+      <main className="mx-auto flex w-full max-w-(--content-max-width) flex-1 flex-col gap-12 px-5 pb-12 text-body leading-relaxed md:max-w-5xl">
+        {!shown ? (
+          <p className="pt-6">{t.home.comingSoon}</p>
+        ) : (
+          <>
+            {/* 主視覺與狀態列貼在一起，是第一屏。 */}
+            <div className="-mx-5 flex flex-col md:mx-0">
+              <HeroArea content={shown.content} t={t} locale={locale} />
+              <StatusBar {...shown} t={t} locale={locale} />
+            </div>
+            {hasAbout && (
+              <div id="about" className="grid scroll-mt-4 gap-12 md:grid-cols-2">
+                <WelcomeSection content={shown.content} t={t} />
+                <HighlightsSection content={shown.content} path={highlightPath} t={t} />
+              </div>
+            )}
+            {hasAgenda && <HomeAgenda venues={shown.content.venues} locale={locale} highlightPath={highlightPath} />}
+            <RegisterSection {...shown} registerPath={registerPath} t={t} locale={locale} />
+            <FaqSection content={shown.content} t={t} />
+            <HelpSection content={shown.content} t={t} />
+            {shown.content.customBlocks.map((block, index) => (
+              <Section key={index} heading={block.title}>
+                {block.body && <p className="whitespace-pre-line">{block.body}</p>}
+                {block.button && (
+                  <ActionLink href={block.button.url} variant="outline">
+                    {block.button.label}
+                  </ActionLink>
+                )}
+              </Section>
+            ))}
+          </>
+        )}
+      </main>
+      <SiteFooter t={t} />
+    </>
   );
 }
 
 type SectionProps = { t: Messages };
 type ShownPhase = Exclude<SchedulePhase, "unannounced">;
-
-/**
- * 第一屏：日期、時間、報名狀態、最大的「我要報名」與三地同步。
- * 小手機（375×667）、英文版、LINE 內建瀏覽器的工具列都算進去，按鈕還是要在第一屏看得到，
- * 所以這裡間距收緊、次要的字用內文字級，場地名稱放在按鈕下方（英文名稱很長，會佔四行）。
- */
-function RegistrationSection({
-  conference,
-  phase,
-  content,
-  registerPath,
-  t,
-  locale,
-}: SectionProps & {
+type PhaseProps = SectionProps & {
   conference: CurrentConference;
   phase: ShownPhase;
   content: HomeContent;
-  registerPath: string;
   locale: Locale;
-}) {
+};
+
+/** 網站名稱與語言切換；電腦寬度另有頁內連結（手機上連結太多會擠掉第一屏）。 */
+function SiteHeader({ t, links }: SectionProps & { links: { href: string; label: string }[] }) {
+  return (
+    <header id="top" className="border-b border-card-outline">
+      <div className="mx-auto flex w-full max-w-(--content-max-width) items-center justify-between gap-4 px-5 py-3 md:max-w-5xl">
+        <h1 className="text-lead leading-tight font-bold">{t.site.title}</h1>
+        <div className="flex items-center gap-2">
+          {links.length > 0 && (
+            <nav aria-label={t.home.navLabel} className="hidden md:block">
+              <ul className="flex items-center">
+                {links.map((link) => (
+                  <li key={link.href}>
+                    <a href={link.href} className="inline-flex min-h-11 items-center px-3 font-semibold hover:underline">
+                      {link.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
+          <LanguageSwitch />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function SiteFooter({ t }: SectionProps) {
+  return (
+    <footer className="bg-foreground text-background">
+      <div className="mx-auto flex w-full max-w-(--content-max-width) flex-col gap-1 px-5 pt-7 pb-10 md:max-w-5xl">
+        <p className="font-bold">{t.site.title}</p>
+        <p>{t.home.church}</p>
+        <a href="#top" className="inline-flex min-h-11 items-center self-start underline">
+          {t.home.backToTop}
+        </a>
+      </div>
+    </footer>
+  );
+}
+
+/**
+ * 第一屏的主視覺：有圖時顯示圖（圖裡已經有主題經文），沒有圖時用文字顯示主題經文。
+ * 只有電腦版的圖時，手機上看不到圖，主題經文只在手機上用文字顯示。
+ */
+function HeroArea({ content, t, locale }: SectionProps & { content: HomeContent; locale: Locale }) {
+  const themeScripture = content.hero?.mobileUrl ? null : content.themeScripture;
+  return (
+    <>
+      {content.hero && <HeroImage hero={content.hero} locale={locale} />}
+      {themeScripture?.text && (
+        <figure className={cn("flex flex-col gap-2 bg-muted px-5 py-8 md:rounded-lg", content.hero && "md:hidden")}>
+          <figcaption className="font-bold">{t.home.themeScriptureHeading}</figcaption>
+          <blockquote className="border-l-4 border-quote-line pl-4 text-lead leading-snug">
+            <p className="whitespace-pre-line">{themeScripture.text}</p>
+            {themeScripture.reference && <p className="mt-2 text-body">— {themeScripture.reference}</p>}
+          </blockquote>
+        </figure>
+      )}
+    </>
+  );
+}
+
+// 375 寬的手機上，英文的網站名稱和狀態列第一行都會折成兩行，要多留一點。
+const heroMaxHeight: Record<Locale, string> = {
+  zh: "max-h-[calc(100svh-11rem)]",
+  en: "max-h-[calc(100svh-16rem)]",
+};
+
+// 1×1 透明的圖：只有電腦版主視覺時給手機用，瀏覽器不用另外下載。
+const BLANK_IMAGE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+/**
+ * 主視覺（#81）：手機寬度用手機版、電腦寬度用電腦版；用 <picture>，手機不會下載電腦版的大圖。
+ * 缺圖時用哪一張已經在 pickHeroPaths 挑好；電腦版用的是手機版的圖時置中，不拉伸變形。
+ * 只有電腦版的圖時，手機上整張隱藏（給的是透明的小圖，不會下載電腦版），改用文字顯示主題經文（HeroArea）。
+ * 高度最多是一屏扣掉 Header 與狀態列第一行，LINE 內建瀏覽器的工具列也算進去，「前往報名」才在第一屏（ADR 0010）。
+ */
+function HeroImage({ hero, locale }: { hero: NonNullable<HomeContent["hero"]>; locale: Locale }) {
+  return (
+    <picture className={hero.mobileUrl ? undefined : "hidden md:block"}>
+      {/* 和 Tailwind 的 md（48rem）同一個寬度，使用者把瀏覽器字級調大時，隱藏與不下載的寬度才一致（Codex 審查）。 */}
+      <source media="(min-width: 48rem)" srcSet={hero.desktopUrl} />
+      {/* 存放空間的公開網址，美編組已經做好尺寸，不經過 Next.js 的圖片最佳化。 */}
+      <img
+        src={hero.mobileUrl ?? BLANK_IMAGE}
+        alt={hero.alt}
+        fetchPriority="high"
+        className={cn("mx-auto block h-auto w-auto max-w-full object-contain md:rounded-lg", heroMaxHeight[locale])}
+      />
+    </picture>
+  );
+}
+
+/**
+ * 狀態列：依時期切換的報名狀態，以及日期、時間、三地同步。按鈕都捲到下面的「報名參加」（ADR 0010）。
+ * 設計稿的日期在報名狀態上面；三個教堂的完整名稱會佔兩三行，有主視覺圖時會把「前往報名」擠出第一屏，所以報名狀態放上面。
+ */
+function StatusBar({ conference, phase, content, t, locale }: PhaseProps) {
   const places = new Intl.ListFormat(languageTags[locale], { type: "conjunction" }).format(
     content.venues.map((venue) => venue.name),
   );
-
+  const closesAt = conference.registrationClosesAt;
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex justify-end">
-        <LanguageSwitch />
-      </div>
-      <h1 className="text-title leading-tight font-bold">{t.site.title}</h1>
-      <p className="text-lead leading-snug font-semibold">
-        {t.home.conferenceDate(
-          conference.year,
-          formatConferenceDate(conference.conferenceDate, locale),
-        )}
-      </p>
-      {content.time && (
-        <p>
-          {content.time.end
-            ? t.home.conferenceTime(
-                formatTime(conference.conferenceDate, content.time.start, locale),
-                formatTime(conference.conferenceDate, content.time.end, locale),
-              )
-            : t.home.conferenceStartsAt(
-                formatTime(conference.conferenceDate, content.time.start, locale),
-              )}
+    <section className="flex flex-col gap-3 border-b border-card-outline px-5 py-4 md:px-0">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="font-bold">
+          {phase === "upcoming" &&
+            (conference.registrationOpensAt
+              ? t.home.statusOpensOn(formatDay(conference.registrationOpensAt, locale))
+              : t.home.registrationOpensSoon)}
+          {phase === "open" &&
+            (closesAt ? t.home.statusOpenUntil(formatShortDay(lastDay(closesAt), locale)) : t.home.statusOpen)}
+          {phase === "closed" && t.home.registrationClosed}
         </p>
-      )}
-      <p className="font-semibold">{statusText(conference, phase, t, locale)}</p>
-      {phase === "open" && (
-        <ActionLink href={registerPath} className={primaryActionClass}>
-          {t.home.registerButton}
-        </ActionLink>
-      )}
+        {phase === "open" && <ActionLink href="#register">{t.home.goToRegister}</ActionLink>}
+        {phase === "closed" && (
+          <ActionLink href="#register" variant="outline">
+            {t.home.lookupButton}
+          </ActionLink>
+        )}
+      </div>
+      <p className="flex flex-wrap gap-x-4 gap-y-1">
+        <strong>{formatDay(conferenceDay(conference.conferenceDate), locale)}</strong>
+        {content.time && <span>{conferenceTime(conference, content.time, t, locale)}</span>}
+        {content.venues.length > 0 && <span>{t.home.simultaneous(places)}</span>}
+      </p>
+    </section>
+  );
+}
+
+function WelcomeSection({ content, t }: SectionProps & { content: HomeContent }) {
+  if (!content.welcome) return null;
+  return (
+    <Section heading={t.home.welcomeHeading}>
+      <p className="whitespace-pre-line">{content.welcome}</p>
+      {content.welcomeSignature && <p className="text-right">{content.welcomeSignature}</p>}
+    </Section>
+  );
+}
+
+/** 大會有什麼：每項大會特色一張卡片。寫了介紹內容的整張卡片可以點，連到介紹頁；沒寫的只是文字，不能點。 */
+function HighlightsSection({ content, path, t }: SectionProps & { content: HomeContent; path: string }) {
+  if (content.highlights.length === 0) return null;
+  const cardClass = "flex h-full flex-col gap-1 rounded-lg border-2 border-card-outline p-4";
+  return (
+    <Section heading={t.home.highlightsHeading}>
+      <ul className="grid grid-cols-2 gap-3">
+        {content.highlights.map((highlight) => {
+          const text = (
+            <>
+              <h3 className="font-bold">{highlight.name}</h3>
+              {highlight.summary && <p className="text-muted-foreground">{highlight.summary}</p>}
+            </>
+          );
+          return (
+            <li key={highlight.id}>
+              {highlight.hasDescription ? (
+                <Link href={path + highlight.id} className={cn(cardClass, "hover:bg-muted")}>
+                  {text}
+                  <span aria-hidden className="mt-auto pt-1 font-semibold text-primary underline">
+                    {t.home.highlightMore} →
+                  </span>
+                </Link>
+              ) : (
+                <div className={cardClass}>{text}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Section>
+  );
+}
+
+/**
+ * 報名參加：報名前只有說明卡（開放當天才出現按鈕）；報名中有三步驟、我要報名、幫家人或朋友報名（ADR 0003）、
+ * 已報名查詢；已截止只能查詢。
+ */
+function RegisterSection({ conference, phase, t, locale, registerPath }: PhaseProps & { registerPath: string }) {
+  const { registrationOpensAt: opensAt, registrationClosesAt: closesAt } = conference;
+  return (
+    <Section id="register" heading={t.home.registerHeading}>
       {phase === "upcoming" && (
-        // 報名前按鈕不可用。不用半透明，文字才保有高對比。
-        <button
-          type="button"
-          disabled
-          className={cn(
-            buttonVariants({ variant: "secondary" }),
-            actionClass,
-            primaryActionClass,
-            "border-2 border-dashed border-foreground/40 disabled:opacity-100",
-          )}
-        >
-          {t.home.registerNotOpenYet}
-        </button>
+        <div className="flex flex-col gap-2 rounded-lg bg-muted p-5">
+          <h3 className="text-lead font-bold">{t.home.notOpenHeading}</h3>
+          {opensAt && <p className="font-semibold">{t.home.opensOn(formatDayTime(opensAt, locale))}</p>}
+          {closesAt && <p>{t.home.closesOn(formatDayTime(closesAt, locale))}</p>}
+          <p>{t.home.notOpenHint}</p>
+        </div>
+      )}
+      {phase === "open" && (
+        <>
+          <div className="flex flex-col gap-1 rounded-lg bg-muted p-5">
+            <h3 className="text-lead font-bold">{t.home.openHeading}</h3>
+            {closesAt && <p>{t.home.closesOn(formatDayTime(closesAt, locale))}</p>}
+          </div>
+          <ol className="flex flex-col gap-3">
+            {t.home.steps.map((step, index) => (
+              <li key={index} className="flex gap-4">
+                <span
+                  aria-hidden
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary font-bold text-primary-foreground"
+                >
+                  {index + 1}
+                </span>
+                <span className="pt-1">{step}</span>
+              </li>
+            ))}
+          </ol>
+          <ActionLink href={registerPath} className={primaryActionClass}>
+            {t.home.registerButton}
+          </ActionLink>
+          <div className="flex flex-col gap-2">
+            <ActionLink href={registerPath + proxyQuery} variant="outline">
+              {t.home.proxyButton}
+            </ActionLink>
+            <p>{t.home.proxyDescription}</p>
+          </div>
+          <div className="mt-2 flex flex-col gap-3 border-t border-card-outline pt-5">
+            <h3 className="text-lead font-bold">{t.home.lookupHeading}</h3>
+            <p>
+              {t.home.lookupDescription}
+              {/* 英文句子之間要空一格，中文不用。 */}
+              {closesAt && (locale === "en" ? " " : "") + t.home.canChangeUntil(formatDay(lastDay(closesAt), locale))}
+            </p>
+            <ActionLink href={lookupPath} variant="outline">
+              {t.home.lookupOrChangeButton}
+            </ActionLink>
+          </div>
+        </>
       )}
       {phase === "closed" && (
         <>
-          <p>{t.home.closedCanStillLookUp}</p>
+          <div className="flex flex-col gap-1 rounded-lg bg-muted p-5">
+            <h3 className="text-lead font-bold">{t.home.closedHeading}</h3>
+            <p>{t.home.closedDescription}</p>
+          </div>
           <ActionLink href={lookupPath} className={primaryActionClass}>
             {t.home.lookupButton}
           </ActionLink>
         </>
       )}
-      {content.venues.length > 0 && <p>{t.home.simultaneous(places)}</p>}
-    </section>
-  );
-}
-
-/** 代報人的入口（ADR 0003）：說明可以用自己的電話幫別人報名，報完一位可以接著報下一位。 */
-function ProxySection({ href, t }: SectionProps & { href: string }) {
-  return (
-    <Section heading={t.home.proxyHeading}>
-      <p>{t.home.proxyDescription}</p>
-      <ActionLink href={href} variant="outline">
-        {t.home.proxyButton}
-      </ActionLink>
     </Section>
   );
 }
 
-function LookupSection({ t }: SectionProps) {
+function FaqSection({ content, t }: SectionProps & { content: HomeContent }) {
+  if (content.faqs.length === 0) return null;
   return (
-    <Section heading={t.home.lookupHeading}>
-      <p>{t.home.lookupDescription}</p>
-      <ActionLink href={lookupPath} variant="outline">
-        {t.home.lookupButton}
-      </ActionLink>
-    </Section>
-  );
-}
-
-function StepsSection({ t }: SectionProps) {
-  return (
-    <Section heading={t.home.stepsHeading}>
-      <ol className="flex flex-col gap-3">
-        {t.home.steps.map((step, index) => (
-          <li key={index} className="flex gap-4">
-            <span
-              aria-hidden
-              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary font-bold text-primary-foreground"
-            >
-              {index + 1}
-            </span>
-            <span className="pt-1">{step}</span>
-          </li>
+    <Section heading={t.home.faqHeading}>
+      <dl className="flex flex-col gap-4">
+        {content.faqs.map((faq, index) => (
+          <div key={index}>
+            <dt className="font-semibold">{faq.question}</dt>
+            <dd className="whitespace-pre-line">{faq.answer}</dd>
+          </div>
         ))}
-      </ol>
-    </Section>
-  );
-}
-
-function VenuesSection({ content, t }: SectionProps & { content: HomeContent }) {
-  if (content.venues.length === 0) return null;
-  return (
-    <Section heading={t.home.venuesHeading}>
-      <ul className="flex flex-col gap-4">
-        {content.venues.map((venue, index) => (
-          <li key={index} className="flex flex-col gap-2 rounded-lg border-2 border-card-outline p-5">
-            <h3 className="text-lead font-bold">{venue.name}</h3>
-            {venue.address && (
-              <p>
-                <span className="font-semibold">{t.home.venueAddress}</span>
-                {venue.address}
-              </p>
-            )}
-            {venue.features && (
-              <p className="whitespace-pre-line">
-                <span className="font-semibold">{t.home.venueFeatures}</span>
-                {venue.features}
-              </p>
-            )}
-          </li>
-        ))}
-      </ul>
+      </dl>
     </Section>
   );
 }
 
 function HelpSection({ content, t }: SectionProps & { content: HomeContent }) {
   return (
-    <Section heading={t.home.helpHeading}>
+    <Section id="help" heading={t.home.helpHeading}>
       {content.adminLine ? (
         <>
           <p>{t.home.helpDescription}</p>
@@ -272,115 +398,16 @@ function HelpSection({ content, t }: SectionProps & { content: HomeContent }) {
   );
 }
 
-// 1×1 透明的圖：只有電腦版主視覺時給手機用，瀏覽器不用另外下載。
-const BLANK_IMAGE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-
-/**
- * 主視覺（#81）：手機寬度用手機版、電腦寬度用電腦版；用 <picture>，手機不會下載電腦版的大圖。
- * 缺圖時用哪一張已經在 pickHeroPaths 挑好；電腦版用的是手機版的圖時置中，不拉伸變形。
- * 只有電腦版的圖時，手機上整張隱藏（給的是透明的小圖，不會下載電腦版），改用文字顯示主題經文（AboutSection）。
- */
-function HeroImage({ hero }: { hero: NonNullable<HomeContent["hero"]> }) {
+function Section({ id, heading, children }: { id?: string; heading: string; children: ReactNode }) {
   return (
-    <picture className={hero.mobileUrl ? undefined : "hidden md:block"}>
-      {/* 和 Tailwind 的 md（48rem）同一個寬度，使用者把瀏覽器字級調大時，隱藏與不下載的寬度才一致（Codex 審查）。 */}
-      <source media="(min-width: 48rem)" srcSet={hero.desktopUrl} />
-      {/* 存放空間的公開網址，美編組已經做好尺寸，不經過 Next.js 的圖片最佳化。 */}
-      <img
-        src={hero.mobileUrl ?? BLANK_IMAGE}
-        alt={hero.alt}
-        fetchPriority="high"
-        className="mx-auto block h-auto max-h-[85vh] w-auto max-w-full rounded-lg object-contain"
-      />
-    </picture>
-  );
-}
-
-function AboutSection({ content, t }: SectionProps & { content: HomeContent }) {
-  const { welcome, welcomeSignature, faqs } = content;
-  // 主視覺的圖裡已經有主題經文；沒有圖時才用文字顯示。只有電腦版的圖時，手機上看不到圖，只在手機上顯示文字。
-  const themeScripture = content.hero?.mobileUrl ? { text: "", reference: "" } : content.themeScripture;
-  const scriptureOnlyOnPhone = !!content.hero;
-  if (!themeScripture.text && !welcome && faqs.length === 0) return null;
-  return (
-    <Section heading={t.home.aboutHeading}>
-      {themeScripture.text && (
-        <div className={cn("flex flex-col gap-2", scriptureOnlyOnPhone && "md:hidden")}>
-          <h3 className="text-lead font-bold">{t.home.themeScriptureHeading}</h3>
-          <blockquote className="border-l-4 border-quote-line pl-4">
-            <p className="whitespace-pre-line">{themeScripture.text}</p>
-            {themeScripture.reference && <p className="mt-2">— {themeScripture.reference}</p>}
-          </blockquote>
-        </div>
-      )}
-      {welcome && (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-lead font-bold">{t.home.welcomeHeading}</h3>
-          <p className="whitespace-pre-line">{welcome}</p>
-          {welcomeSignature && <p className="text-right">{welcomeSignature}</p>}
-        </div>
-      )}
-      {faqs.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-lead font-bold">{t.home.faqHeading}</h3>
-          <dl className="flex flex-col gap-4">
-            {faqs.map((faq, index) => (
-              <div key={index}>
-                <dt className="font-semibold">{faq.question}</dt>
-                <dd className="whitespace-pre-line">{faq.answer}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      )}
-    </Section>
-  );
-}
-
-/** 大會有什麼：每項大會特色一張卡片。寫了介紹內容的整張卡片可以點，連到介紹頁；沒寫的只是文字，不能點。 */
-function HighlightsSection({ content, path, t }: SectionProps & { content: HomeContent; path: string }) {
-  if (content.highlights.length === 0) return null;
-  const cardClass = "flex h-full flex-col gap-1 rounded-lg border-2 border-card-outline p-5";
-  return (
-    <Section heading={t.home.highlightsHeading}>
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {content.highlights.map((highlight) => {
-          const text = (
-            <>
-              <h3 className="text-lead font-bold">{highlight.name}</h3>
-              {highlight.summary && <p>{highlight.summary}</p>}
-            </>
-          );
-          return (
-            <li key={highlight.id}>
-              {highlight.hasDescription ? (
-                <Link href={path + highlight.id} className={cn(cardClass, "hover:bg-muted")}>
-                  {text}
-                  <span aria-hidden className="mt-1 font-semibold text-primary underline">
-                    {t.home.highlightMore} →
-                  </span>
-                </Link>
-              ) : (
-                <div className={cardClass}>{text}</div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </Section>
-  );
-}
-
-function Section({ heading, children }: { heading: string; children: ReactNode }) {
-  return (
-    <section className="flex flex-col gap-4">
+    <section id={id} className="flex scroll-mt-4 flex-col gap-4">
       <h2 className="text-heading font-bold">{heading}</h2>
       {children}
     </section>
   );
 }
 
-/** 寫完整文字的大按鈕。站內用 Link，站外用一般連結（同一個分頁開，不開彈出視窗）。 */
+/** 寫完整文字的大按鈕。站內用 Link，頁內與站外用一般連結（同一個分頁開，不開彈出視窗）。 */
 function ActionLink({
   href,
   variant = "default",
@@ -404,48 +431,54 @@ function ActionLink({
   );
 }
 
-function statusText(conference: CurrentConference, phase: ShownPhase, t: Messages, locale: Locale): string {
-  switch (phase) {
-    case "upcoming":
-      return conference.registrationOpensAt
-        ? t.home.registrationOpensAt(formatDateTime(conference.registrationOpensAt, locale))
-        : t.home.registrationOpensSoon;
-    case "open":
-      return conference.registrationClosesAt
-        ? t.home.registrationOpenUntil(formatDateTime(conference.registrationClosesAt, locale))
-        : t.home.registrationOpen;
-    case "closed":
-      return t.home.registrationClosed;
-  }
+function conferenceTime(
+  conference: CurrentConference,
+  time: NonNullable<HomeContent["time"]>,
+  t: Messages,
+  locale: Locale,
+): string {
+  const at = (hhmm: string) => formatTime(new Date(`${conference.conferenceDate}T${hhmm}:00+08:00`), locale);
+  return time.end ? t.home.conferenceTime(at(time.start), at(time.end)) : t.home.conferenceStartsAt(at(time.start));
 }
 
 // conference_date is a calendar date (YYYY-MM-DD), not an instant; anchor it at noon Taiwan time.
-function formatConferenceDate(date: string, locale: Locale): string {
-  return new Intl.DateTimeFormat(languageTags[locale], {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-  }).format(new Date(`${date}T12:00:00+08:00`));
+function conferenceDay(date: string): Date {
+  return new Date(`${date}T12:00:00+08:00`);
 }
 
-// time is a wall-clock time (HH:MM) in Taiwan on the conference date.
-function formatTime(date: string, time: string, locale: Locale): string {
-  return new Intl.DateTimeFormat(languageTags[locale], {
-    timeZone: "Asia/Taipei",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(`${date}T${time}:00+08:00`));
+// 截止時間是 1/14 00:00 時，姐妹可以報到 1/13 為止，只寫日期時寫 1/13。
+function lastDay(closesAt: Date): Date {
+  return new Date(closesAt.getTime() - 1);
 }
 
-function formatDateTime(moment: Date, locale: Locale): string {
+const TAIPEI = "Asia/Taipei";
+
+// 「12月26日（星期五）」；英文是「Friday, December 26」。
+function formatDay(moment: Date, locale: Locale): string {
+  const tag = languageTags[locale];
+  if (locale === "en") {
+    return new Intl.DateTimeFormat(tag, { timeZone: TAIPEI, weekday: "long", month: "long", day: "numeric" }).format(moment);
+  }
+  const day = new Intl.DateTimeFormat(tag, { timeZone: TAIPEI, month: "long", day: "numeric" }).format(moment);
+  const weekday = new Intl.DateTimeFormat(tag, { timeZone: TAIPEI, weekday: "long" }).format(moment);
+  return `${day}（${weekday}）`;
+}
+
+// 狀態列的「截止 1/13」；英文寫月份名稱（Jan 13），外國姐妹不會把日、月看反。
+function formatShortDay(moment: Date, locale: Locale): string {
   return new Intl.DateTimeFormat(languageTags[locale], {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "long",
+    timeZone: TAIPEI,
+    month: locale === "en" ? "short" : "numeric",
     day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
   }).format(moment);
+}
+
+function formatTime(moment: Date, locale: Locale): string {
+  return new Intl.DateTimeFormat(languageTags[locale], { timeZone: TAIPEI, hour: "numeric", minute: "2-digit" }).format(
+    moment,
+  );
+}
+
+function formatDayTime(moment: Date, locale: Locale): string {
+  return `${formatDay(moment, locale)} ${formatTime(moment, locale)}`;
 }

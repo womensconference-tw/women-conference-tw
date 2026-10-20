@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Locale } from "@/lib/i18n/locale";
@@ -104,7 +104,7 @@ describe("首頁主視覺", () => {
     const picture = image.closest("picture")!;
     expect(picture.className).toBe("hidden md:block");
     expect(picture.querySelector("source")!.getAttribute("srcset")).toContain(desktop);
-    expect(screen.getByText("你要把你的重擔卸給耶和華").closest("div")!.className).toContain("md:hidden");
+    expect(screen.getByText("你要把你的重擔卸給耶和華").closest("figure")!.className).toContain("md:hidden");
   });
 
   it("英文版沒有英文圖就用中文圖", async () => {
@@ -122,5 +122,220 @@ describe("首頁主視覺", () => {
     const image = screen.getByRole<HTMLImageElement>("img", { name: "2099 key visual" });
     expect(image.getAttribute("src")).toContain(mobile);
     expect(image.closest("picture")!.querySelector("source")!.getAttribute("srcset")).toContain(mobile);
+  });
+});
+
+const insert = async (table: string, row: Record<string, unknown>) =>
+  must(await admin.from(table).insert({ conference_id: fixtureId, ...row }).select("id").single()).id as string;
+
+/** 報名開放與截止時間（台灣時間），都在 2026-01-01 公告之後。報名開放後不能新增場地，要先建好。 */
+async function setSchedule(opensAt: string, closesAt: string) {
+  must(
+    await admin
+      .from("conferences")
+      .update({ announce_at: "2026-01-01T00:00:00+08:00", registration_opens_at: opensAt, registration_closes_at: closesAt })
+      .eq("id", fixtureId!),
+  );
+}
+
+describe("首頁區塊", () => {
+  it("依新設計的順序：主視覺、狀態列、歡迎詞、大會有什麼、大會程序、報名、常見問題、需要幫忙、自訂區塊", async () => {
+    await insert("highlights", { name_zh: "即席唱詩班" });
+    await insert("venues", { region: "north", name_zh: "台北金華教堂" });
+    await insert("faqs", { question_zh: "要帶什麼？", answer_zh: "經文" });
+    await insert("custom_blocks", { title_zh: "交通資訊" });
+    await insert("agenda_items", { start_time: "08:30", end_time: "09:15", name_zh: "報到" });
+
+    await renderPage(HomePage({ preview: false }));
+
+    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      "歡迎來到姐妹大會",
+      "大會有什麼",
+      "大會程序",
+      "報名參加",
+      "常見問題",
+      "需要幫忙嗎？",
+      "交通資訊",
+    ]);
+    // 沒有主視覺圖時，主題經文在最上面、狀態列前面。
+    const text = document.body.textContent!;
+    expect(text.indexOf("你要把你的重擔卸給耶和華")).toBeLessThan(text.indexOf("開放報名"));
+    expect(text.indexOf("開放報名")).toBeLessThan(text.indexOf("歡迎姐妹們"));
+    // 電腦版 Header 的頁內連結都跳得到。
+    const nav = screen.getByRole("navigation", { name: "頁面內容" });
+    const links = within(nav).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual(["認識大會", "大會程序", "報名與查詢", "聯絡管理員"]);
+    for (const link of links) expect(document.querySelector(link.getAttribute("href")!), link.textContent!).not.toBeNull();
+    expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "回到最上面" }).getAttribute("href")).toBe("#top");
+    expect(document.getElementById("top")).not.toBeNull();
+  });
+
+  it("沒有歡迎詞、大會特色、場地、常見問題時，這幾區與頁內連結都不顯示", async () => {
+    must(await admin.from("conferences").update({ welcome_zh: "" }).eq("id", fixtureId!));
+
+    await renderPage(HomePage({ preview: false }));
+
+    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      "報名參加",
+      "需要幫忙嗎？",
+    ]);
+    const nav = screen.getByRole("navigation", { name: "頁面內容" });
+    expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["#register", "#help"]);
+  });
+});
+
+describe("狀態列與報名區", () => {
+  it("報名前：狀態列寫開放日期，報名區是說明卡，沒有報名與查詢按鈕", async () => {
+    await setSchedule("2099-04-01T09:00:00+08:00", "2099-05-01T00:00:00+08:00");
+
+    await renderPage(HomePage({ preview: false }));
+
+    expect(screen.getByText("4月1日（星期三）開放報名")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "報名還沒開始" })).toBeTruthy();
+    expect(screen.getByText("開放報名：4月1日（星期三） 上午9:00")).toBeTruthy();
+    expect(screen.getByText("報名截止：5月1日（星期五） 上午12:00")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "前往報名" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "我要報名" })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^查詢/ })).toBeNull();
+  });
+
+  it("報名中：狀態列寫截止日期與「前往報名」（捲到報名區），報名區有三步驟、報名、代報與查詢", async () => {
+    // 截止在 1/14 00:00，姐妹可以報到 1/13，只寫日期時寫 1/13。
+    await setSchedule("2026-01-01T09:00:00+08:00", "2099-01-14T00:00:00+08:00");
+
+    await renderPage(HomePage({ preview: false }));
+
+    expect(screen.getByText("報名中・截止 1/13")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "前往報名" }).getAttribute("href")).toBe("#register");
+    const register = document.getElementById("register")!;
+    expect(within(register).getByRole("heading", { name: "現在可以報名" })).toBeTruthy();
+    expect(within(register).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(register).getByRole("link", { name: "我要報名" }).getAttribute("href")).toBe("/register");
+    expect(within(register).getByRole("link", { name: "幫家人或朋友報名" }).getAttribute("href")).toBe(
+      "/register?for=others",
+    );
+    expect(within(register).getByText(/1月13日（星期二）以前都可以自己修改。$/)).toBeTruthy();
+    expect(within(register).getByRole("link", { name: "查詢或修改我的報名" }).getAttribute("href")).toBe("/lookup");
+  });
+
+  it("已截止：狀態列寫已截止與「查詢我的報名」，報名區只有說明與查詢", async () => {
+    await setSchedule("2026-01-01T09:00:00+08:00", "2026-02-01T00:00:00+08:00");
+
+    await renderPage(HomePage({ preview: false }));
+
+    expect(screen.getByText("報名已截止")).toBeTruthy();
+    const [statusLink, registerLink] = screen.getAllByRole("link", { name: "查詢我的報名" });
+    expect(statusLink.getAttribute("href")).toBe("#register");
+    expect(registerLink.getAttribute("href")).toBe("/lookup");
+    expect(screen.getByRole("heading", { name: "報名已經截止" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "我要報名" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "幫家人或朋友報名" })).toBeNull();
+  });
+
+  it("英文版：狀態列、報名區、大會程序都是英文", async () => {
+    await insert("venues", { region: "north", name_zh: "台北金華教堂", name_en: "Taipei Jinhua Chapel" });
+    await setSchedule("2026-01-01T09:00:00+08:00", "2099-01-14T00:00:00+08:00");
+    locale = "en";
+
+    await renderPage(HomePage({ preview: false }));
+
+    expect(screen.getByText("Registration open · closes Jan 13")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Go to registration" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      "Welcome to the Women's Conference",
+      "Programme",
+      "Register",
+      "Need help?",
+    ]);
+    expect(screen.getByRole("button", { name: "Taipei Jinhua Chapel" })).toBeTruthy();
+    expect(screen.getByText(/You can change it yourself until Tuesday, January 13\.$/)).toBeTruthy();
+  });
+});
+
+describe("大會程序", () => {
+  let jinhua: string;
+  let daya: string;
+
+  // 金華有兩個場次接到時間軸，大雅一個；金華的課程有教室，首頁不能顯示。
+  beforeEach(async () => {
+    jinhua = await insert("venues", { position: 1, region: "north", name_zh: "台北金華教堂", address_zh: "台北市金華街" });
+    daya = await insert("venues", { position: 2, region: "central", name_zh: "台中大雅教堂", address_zh: "台中市大雅區" });
+    const [first, second, dayaFirst] = [
+      await insert("sessions", { venue_id: jinhua, position: 1, name_zh: "第一場次" }),
+      await insert("sessions", { venue_id: jinhua, position: 2, name_zh: "第二場次" }),
+      await insert("sessions", { venue_id: daya, position: 1, name_zh: "第一場次" }),
+    ];
+    const course = await insert("courses", { session_id: first, title_zh: "我會傾聽", speaker_zh: "錢繁萱" });
+    must(await admin.from("course_classrooms").insert({ course_id: course, classroom: "三樓福研" }));
+    await insert("courses", { session_id: second, title_zh: "寫下生活" });
+    await insert("courses", { session_id: second, title_zh: "大會堂唱詩班之旅" });
+    await insert("courses", { session_id: dayaFirst, title_zh: "沈思的力量" });
+    const [opening, row1, row2] = [
+      await insert("agenda_items", { position: 1, start_time: "09:30", end_time: "10:30", name_zh: "開幕式" }),
+      await insert("agenda_items", { position: 2, start_time: "11:00", end_time: "11:50", name_zh: "第一場次" }),
+      await insert("agenda_items", { position: 3, start_time: "13:30", end_time: "14:15", name_zh: "第二場次" }),
+    ];
+    const setting = async (agendaItem: string, venue: string, extra: Record<string, unknown>) =>
+      must(
+        await admin
+          .from("agenda_item_venues")
+          .insert({ conference_id: fixtureId, agenda_item_id: agendaItem, venue_id: venue, ...extra }),
+      );
+    await setting(opening, jinhua, { place_zh: "一樓大會堂" });
+    await setting(opening, daya, { place_zh: "3F 大會堂" });
+    await setting(row1, jinhua, { session_id: first });
+    await setting(row2, jinhua, { session_id: second });
+    await setting(row1, daya, { session_id: dayaFirst });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("預設第一間教堂：地址、地圖、時間軸與課程講師，不顯示教室；手機只展開第一個場次", async () => {
+    await renderPage(HomePage({ preview: false }));
+
+    const agenda = document.getElementById("agenda")!;
+    expect(within(agenda).getByRole("button", { name: "台北金華教堂" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(agenda).getByRole("button", { name: "台中大雅教堂" }).getAttribute("aria-pressed")).toBe("false");
+    expect(within(agenda).getByRole("heading", { name: "台北金華教堂" })).toBeTruthy();
+    expect(within(agenda).getByText("台北市金華街")).toBeTruthy();
+    expect(within(agenda).getByRole("link", { name: "開啟地圖導航" }).getAttribute("href")).toContain(
+      encodeURIComponent("台北市金華街"),
+    );
+    expect(within(agenda).getByText("一樓大會堂")).toBeTruthy();
+    expect(within(agenda).getByText("錢繁萱")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("三樓福研");
+    const [first, second] = agenda.querySelectorAll("details");
+    expect(first.open).toBe(true);
+    expect(second.open).toBe(false);
+    expect(second.querySelector("summary")!.textContent).toContain("看 2 個選項");
+  });
+
+  it("電腦寬度：所有場次都展開", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(min-width: 48rem)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+
+    await renderPage(HomePage({ preview: false }));
+
+    const details = [...document.getElementById("agenda")!.querySelectorAll("details")];
+    expect(details.map((element) => element.open)).toEqual([true, true]);
+  });
+
+  it("按另一間教堂的按鈕，就在畫面上換成那間教堂的地址、地點與課程", async () => {
+    await renderPage(HomePage({ preview: false }));
+
+    const agenda = document.getElementById("agenda")!;
+    fireEvent.click(within(agenda).getByRole("button", { name: "台中大雅教堂" }));
+
+    expect(within(agenda).getByRole("button", { name: "台中大雅教堂" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(agenda).getByRole("heading", { name: "台中大雅教堂" })).toBeTruthy();
+    expect(within(agenda).getByText("台中市大雅區")).toBeTruthy();
+    expect(within(agenda).getByText("3F 大會堂")).toBeTruthy();
+    expect(within(agenda).getByText("沈思的力量")).toBeTruthy();
+    expect(within(agenda).queryByText("我會傾聽")).toBeNull();
   });
 });
