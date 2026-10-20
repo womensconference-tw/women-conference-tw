@@ -587,9 +587,14 @@ describe("教室只有後台看得到", () => {
       p_description_en: "",
       p_capacity: null,
       p_classroom: "   ",
+      p_speaker_zh: "",
+      p_speaker_en: "",
+      p_highlight_id: null,
     });
 
-    expect(error).not.toBeNull();
+    // 是教室的檢查擋下的，不是參數對不上、根本沒執行（Codex 審查）。
+    expect(error?.code).toBe("23514");
+    expect(error?.message).toContain("course_classrooms_classroom_valid");
     expect(must(await admin.from("courses").select("id").eq("title_zh", "存不了教室的課"))).toEqual([]);
   });
 
