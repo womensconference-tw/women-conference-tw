@@ -19,6 +19,7 @@ const zh = {
     register: "預覽模式：這是報名表的樣子，不能送出，也不會寄信。",
     registerNoOptions: "還沒有場地或支聯會，報名表沒有東西可選。",
     submitDisabled: "預覽模式不能送出",
+    highlight: "預覽模式：這是大會特色介紹頁的樣子；公告上線前訪客還看不到。",
   },
   home: {
     comingSoon: "大會資訊即將公布，請稍後再來看看。",
@@ -55,6 +56,14 @@ const zh = {
     themeScriptureHeading: "主題經文",
     welcomeHeading: "歡迎詞",
     faqHeading: "常見問題",
+    highlightsHeading: "大會有什麼",
+    highlightMore: "看介紹",
+  },
+  // 大會特色的介紹頁（#82）。
+  highlight: {
+    backHome: "回首頁",
+    notFound: "找不到這一頁，內容可能已經拿掉了。",
+    opensInNewTab: "（在新分頁開啟）",
   },
   register: {
     title: "報名台灣姐妹大會",
@@ -266,6 +275,7 @@ const en = {
     register: "Preview mode: this is how the registration form looks. It can't be submitted and sends no email.",
     registerNoOptions: "There are no venues or stakes yet, so the registration form has nothing to choose.",
     submitDisabled: "Can't submit in preview mode",
+    highlight: "Preview mode: this is how the page looks. Visitors can't see it before the conference is announced.",
   },
   home: {
     comingSoon: "Conference details are coming soon. Please check back later.",
@@ -309,6 +319,13 @@ const en = {
     themeScriptureHeading: "Theme scripture",
     welcomeHeading: "Welcome",
     faqHeading: "Frequently asked questions",
+    highlightsHeading: "What's at the conference",
+    highlightMore: "Read more",
+  },
+  highlight: {
+    backHome: "Back to the homepage",
+    notFound: "This page could not be found. It may have been removed.",
+    opensInNewTab: " (opens in a new tab)",
   },
   register: {
     title: "Register for the Taiwan Women's Conference",

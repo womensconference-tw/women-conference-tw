@@ -2,7 +2,8 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { trimBlank, UUID_PATTERN } from "./registration";
 
 /*
- * 後台編輯目前年度的內容（日期、時間、主題經文、歡迎詞、管理員 LINE）、時程時間點、常見問題與自訂區塊（#21）。
+ * 後台編輯目前年度的內容（日期、時間、主題經文、歡迎詞、管理員 LINE）、時程時間點、常見問題與自訂區塊（#21）、
+ * 大會特色（#82）。
  * 只有總管理員能寫入，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
  * 時程的先後順序、報名開放後不能改開放時間，都由資料庫擋下，這裡把錯誤轉成代碼。
  * 首頁每次都向資料庫讀內容，存檔後立即反映。
@@ -205,17 +206,24 @@ async function checkCurrentConference(
   return data ? { ok: true, registrationOpensAt: data.registration_opens_at } : { ok: false, error: "not_found" };
 }
 
-/** 可以新增、修改、排序、刪除的首頁項目：常見問題、自訂區塊。 */
-export const HOME_ITEM_KINDS = ["faq", "block"] as const;
+/** 可以新增、修改、排序、刪除的首頁項目：常見問題、自訂區塊、大會特色。 */
+export const HOME_ITEM_KINDS = ["faq", "block", "highlight"] as const;
 export type HomeItemKind = (typeof HOME_ITEM_KINDS)[number];
 
-/** 每種項目存在哪張表、標題與內文欄位叫什麼。常見問題的標題是問題、內文是答案。 */
+/**
+ * 每種項目存在哪張表、標題與內文欄位叫什麼。常見問題的標題是問題、內文是答案；
+ * 大會特色的標題是名稱、內文是介紹頁的內容（Markdown）。
+ */
 const HOME_ITEMS: Record<HomeItemKind, { table: string; title: string; body: string }> = {
   faq: { table: "faqs", title: "question", body: "answer" },
   block: { table: "custom_blocks", title: "title", body: "body" },
+  highlight: { table: "highlights", title: "name", body: "description" },
 };
 
-/** 新增或修改一個常見問題或自訂區塊時填的欄位，都是表單上的原始文字。按鈕只有自訂區塊有。 */
+/**
+ * 新增或修改一個常見問題、自訂區塊或大會特色時填的欄位，都是表單上的原始文字。
+ * 按鈕只有自訂區塊有，卡片上的一句話只有大會特色有。
+ */
 export type HomeItemInput = {
   kind: HomeItemKind;
   /** 有就是修改，沒有就是新增（排在最後）。 */
@@ -229,9 +237,11 @@ export type HomeItemInput = {
   buttonLabelEn?: string;
   /** 空白表示沒有按鈕。 */
   buttonUrl?: string;
+  summaryZh?: string;
+  summaryEn?: string;
 };
 
-/** 新增或修改一個常見問題或自訂區塊。 */
+/** 新增或修改一個常見問題、自訂區塊或大會特色。 */
 export async function saveHomeItem(
   supabase: SupabaseClient,
   input: HomeItemInput,
@@ -261,6 +271,9 @@ export async function saveHomeItem(
       button_label_en: text(input.buttonLabelEn),
     });
   }
+  if (input.kind === "highlight") {
+    Object.assign(values, { summary_zh: text(input.summaryZh), summary_en: text(input.summaryEn) });
+  }
 
   if (!validIds(input.id, input.conferenceId)) return { ok: false, error: "not_found" };
   const admin = await ensureAdmin(supabase);
@@ -276,7 +289,7 @@ export async function saveHomeItem(
   return error ? failure(error) : { ok: true, id: data as string };
 }
 
-/** 刪除一個常見問題或自訂區塊。只能刪目前年度的。 */
+/** 刪除一個常見問題、自訂區塊或大會特色。只能刪目前年度的。 */
 export async function deleteHomeItem(supabase: SupabaseClient, kind: HomeItemKind, id: string): Promise<ContentResult> {
   if (!validIds(id)) return { ok: false, error: "not_found" };
   const admin = await ensureAdmin(supabase);
@@ -287,7 +300,7 @@ export async function deleteHomeItem(supabase: SupabaseClient, kind: HomeItemKin
   return error ? failure(error) : { ok: true };
 }
 
-/** 把一個常見問題或自訂區塊往前或往後移一格；已經在最前或最後時不動。只能移目前年度的。 */
+/** 把一個常見問題、自訂區塊或大會特色往前或往後移一格；已經在最前或最後時不動。只能移目前年度的。 */
 export async function moveHomeItem(
   supabase: SupabaseClient,
   kind: HomeItemKind,
@@ -336,6 +349,7 @@ function failure(error: PostgrestError): { ok: false; error: ContentError } {
     case violates("custom_blocks_button_has_label"):
       return { ok: false, error: "button_label_required" };
     case violates("custom_blocks_title_not_blank"):
+    case violates("highlights_name_not_blank"):
       return { ok: false, error: "title_required" };
     // 問題或答案只有空白：表單上兩個都標了必填，用同一句說明。
     case violates("faqs_not_blank"):
@@ -353,7 +367,10 @@ function failure(error: PostgrestError): { ok: false; error: ContentError } {
   return { ok: false, error: "unavailable" };
 }
 
-/** 後台編輯用的一個常見問題或自訂區塊，中英兩欄都在。常見問題沒有按鈕，按鈕欄位是空的。 */
+/**
+ * 後台編輯用的一個常見問題、自訂區塊或大會特色，中英兩欄都在。
+ * 只有自訂區塊有按鈕、只有大會特色有卡片上的一句話，其他的這些欄位是空的。
+ */
 export type HomeItem = {
   id: string;
   titleZh: string;
@@ -363,6 +380,8 @@ export type HomeItem = {
   buttonLabelZh: string;
   buttonLabelEn: string;
   buttonUrl: string;
+  summaryZh: string;
+  summaryEn: string;
 };
 
 export type ContentEditor = {
@@ -387,9 +406,13 @@ export type ContentEditor = {
   registrationOpened: boolean;
   faqs: HomeItem[];
   customBlocks: HomeItem[];
+  highlights: HomeItem[];
 };
 
-/** 目前年度的內容，含中英兩欄、時程、常見問題與自訂區塊（依首頁的順序）。沒有目前年度時回傳 null。 */
+const noButton = { buttonLabelZh: "", buttonLabelEn: "", buttonUrl: "" };
+const noSummary = { summaryZh: "", summaryEn: "" };
+
+/** 目前年度的內容，含中英兩欄、時程、常見問題、自訂區塊與大會特色（依首頁的順序）。沒有目前年度時回傳 null。 */
 export async function getContentEditor(supabase: SupabaseClient): Promise<ContentEditor | null> {
   const { data, error } = await supabase
     .from("conferences")
@@ -399,13 +422,16 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       theme_scripture_zh, theme_scripture_en, theme_scripture_reference_zh, theme_scripture_reference_en,
       welcome_zh, welcome_en,
       faqs(id, question_zh, question_en, answer_zh, answer_en),
-      custom_blocks(id, title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url)`,
+      custom_blocks(id, title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
+      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en)`,
     )
     .eq("is_current", true)
     .order("position", { referencedTable: "faqs" })
     .order("id", { referencedTable: "faqs" })
     .order("position", { referencedTable: "custom_blocks" })
     .order("id", { referencedTable: "custom_blocks" })
+    .order("position", { referencedTable: "highlights" })
+    .order("id", { referencedTable: "highlights" })
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -435,9 +461,8 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       titleEn: faq.question_en,
       bodyZh: faq.answer_zh,
       bodyEn: faq.answer_en,
-      buttonLabelZh: "",
-      buttonLabelEn: "",
-      buttonUrl: "",
+      ...noButton,
+      ...noSummary,
     })),
     customBlocks: data.custom_blocks.map((block) => ({
       id: block.id,
@@ -448,6 +473,17 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       buttonLabelZh: block.button_label_zh,
       buttonLabelEn: block.button_label_en,
       buttonUrl: block.button_url ?? "",
+      ...noSummary,
+    })),
+    highlights: data.highlights.map((highlight) => ({
+      id: highlight.id,
+      titleZh: highlight.name_zh,
+      titleEn: highlight.name_en,
+      bodyZh: highlight.description_zh,
+      bodyEn: highlight.description_en,
+      ...noButton,
+      summaryZh: highlight.summary_zh,
+      summaryEn: highlight.summary_en,
     })),
   };
 }

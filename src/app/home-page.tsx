@@ -16,6 +16,8 @@ const registerPaths = { live: "/register", preview: "/preview/register" };
 // 代報的報名表：同一份表單，第一步多一句說明（見 RegisterPage）。
 const proxyQuery = "?for=others";
 const lookupPath = "/lookup";
+// 大會特色的介紹頁；預覽首頁連到預覽版，公告上線前也看得到。
+const highlightPaths = { live: "/highlights/", preview: "/preview/highlights/" };
 
 // 按鈕高度、字級來自 globals.css 的主視覺設定；文字太長時換行而不是被截掉。
 // 經過 cn() 的字級要寫成 text-(length:…)：寫 text-body 會被誤認成文字顏色，蓋掉按鈕的文字色。
@@ -25,8 +27,8 @@ const primaryActionClass =
   "min-h-(--button-primary-min-height) text-(length:--text-lead-size) font-bold";
 
 /*
- * 首頁區塊順序依規格：報名 → 幫家人或朋友報名（報名中才有）→ 已報名查詢 → 報名三步驟 → 場地 → 需要幫忙 → 關於大會，
- * 自訂區塊接在最後。不用下拉選單、不用輪播，所有內容直接攤開。
+ * 首頁區塊順序依規格：報名 → 幫家人或朋友報名（報名中才有）→ 已報名查詢 → 報名三步驟 → 場地 → 需要幫忙 → 關於大會
+ * → 大會有什麼，自訂區塊接在最後（新設計的順序見 #85）。不用下拉選單、不用輪播，所有內容直接攤開。
  * 前台首頁（/）與後台的預覽首頁（/preview）共用：預覽時最上方有提示，公告上線前也照報名前的樣子顯示（見 homePhase）。
  */
 export async function HomePage({ preview }: { preview: boolean }) {
@@ -76,6 +78,11 @@ export async function HomePage({ preview }: { preview: boolean }) {
           <VenuesSection content={content} t={t} />
           <HelpSection content={content} t={t} />
           <AboutSection content={content} t={t} />
+          <HighlightsSection
+            content={content}
+            path={preview ? highlightPaths.preview : highlightPaths.live}
+            t={t}
+          />
           {content.customBlocks.map((block, index) => (
             <Section key={index} heading={block.title}>
               {block.body && <p className="whitespace-pre-line">{block.body}</p>}
@@ -297,6 +304,40 @@ function AboutSection({ content, t }: SectionProps & { content: HomeContent }) {
           </dl>
         </div>
       )}
+    </Section>
+  );
+}
+
+/** 大會有什麼：每項大會特色一張卡片。寫了介紹內容的整張卡片可以點，連到介紹頁；沒寫的只是文字，不能點。 */
+function HighlightsSection({ content, path, t }: SectionProps & { content: HomeContent; path: string }) {
+  if (content.highlights.length === 0) return null;
+  const cardClass = "flex h-full flex-col gap-1 rounded-lg border-2 border-card-outline p-5";
+  return (
+    <Section heading={t.home.highlightsHeading}>
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {content.highlights.map((highlight) => {
+          const text = (
+            <>
+              <h3 className="text-lead font-bold">{highlight.name}</h3>
+              {highlight.summary && <p>{highlight.summary}</p>}
+            </>
+          );
+          return (
+            <li key={highlight.id}>
+              {highlight.hasDescription ? (
+                <Link href={path + highlight.id} className={cn(cardClass, "hover:bg-muted")}>
+                  {text}
+                  <span aria-hidden className="mt-1 font-semibold text-primary underline">
+                    {t.home.highlightMore} →
+                  </span>
+                </Link>
+              ) : (
+                <div className={cardClass}>{text}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </Section>
   );
 }

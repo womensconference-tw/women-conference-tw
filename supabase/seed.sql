@@ -71,6 +71,26 @@ from public.conferences, (values
 ) as b(position, title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url)
 where year = 2027;
 
+-- 大會特色：2026 的九項。只有幾項寫了介紹內容（其他的卡片不能點），有些英文故意留空。
+insert into public.highlights (conference_id, position, name_zh, name_en, summary_zh, summary_en, description_zh, description_en)
+select id, h.position, h.name_zh, h.name_en, h.summary_zh, h.summary_en, h.description_zh, h.description_en
+from public.conferences, (values
+  (1, '即席唱詩班', 'Impromptu choir', '跟著影片練唱〈主是我的牧羊人〉', 'Practise "The Lord Is My Shepherd" with the video',
+    E'大會開幕式由現場姐妹組成即席唱詩班獻唱。\n\n## 練唱\n\n1. 先看[練唱影片](https://www.youtube.com/)\n2. 選好聲部：**女高音**或**女低音**\n3. 報名時勾選「即席唱詩班」',
+    E'Sisters at the conference form an impromptu choir for the opening session.\n\n## Practice\n\n1. Watch the [practice video](https://www.youtube.com/)\n2. Choose your part: **soprano** or **alto**\n3. Tick "Choir" when you register'),
+  (2, '領袖演講', 'Leader addresses', '', '', '', ''),
+  (3, '靈性課程', 'Spiritual classes', '提昇內在靈魂的課程', 'Classes that lift the soul', '', ''),
+  (4, '角落課程', 'Corner classes', '在靜謐、歡樂與手作中療癒心靈', '', '', ''),
+  (5, '迷妳音樂會', 'Mini concert', '', '', '', ''),
+  (6, '向貴賓致敬', 'Honouring our guests', '80 歲長輩，持守到底的美好榜樣', 'Sisters aged 80 and over, examples of enduring to the end', '', ''),
+  (7, '與年長夫婦傳教士有約', 'Meet the senior missionary couples', '', '', '', ''),
+  (8, '公益服務', 'Service project', '歡迎姐妹一起來參加', 'All sisters are welcome',
+    E'今年的公益服務是製作新生兒包巾。\n\n| 要帶的東西 | 說明 |\n| --- | --- |\n| 剪刀 | 有的話請帶 |\n| 針線包 | 大會也有準備 |',
+    ''),
+  (9, '靜態展示', 'Exhibition', '', '', '', '')
+) as h(position, name_zh, name_en, summary_zh, summary_en, description_zh, description_en)
+where year = 2027;
+
 -- 支聯會、支會名單（假資料，正式名單由後台維護）。最後一個支聯會已停用，報名表上不會出現。
 insert into public.stakes (position, region, name_zh, name_en, is_active) values
   (1, 'north', '台北支聯會', 'Taipei Stake', true),

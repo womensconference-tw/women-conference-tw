@@ -94,7 +94,7 @@ async function switchedTo(conferenceId: string) {
 
 /**
  * 2099 年的完整安排：一個場地、兩個場次、三門課（其中兩門成對、一門有教室）、限量午餐、午后動態（第三個場次，裡面一門不限量的課）、
- * 首頁內容、常見問題、自訂區塊，以及一筆報名。建好後把時程移到過去（已截止），像去年一樣。
+ * 首頁內容、常見問題、自訂區塊、兩項大會特色，以及一筆報名。建好後把時程移到過去（已截止），像去年一樣。
  */
 async function lastYear() {
   must(
@@ -125,6 +125,14 @@ async function lastYear() {
   const lunch = await insert("lunch_options", { venue_id: venue, name_zh: "素食便當", capacity: 30 });
   await insert("faqs", { question_zh: "要收費嗎？", answer_zh: "不用。" });
   await insert("custom_blocks", { title_zh: "交通資訊", button_label_zh: "查看", button_url: "/lookup" });
+  await insert("highlights", { position: 2, name_zh: "公益服務" });
+  await insert("highlights", {
+    position: 1,
+    name_zh: "即席唱詩班",
+    name_en: "Choir",
+    summary_zh: "跟著影片練唱",
+    description_zh: "[練唱影片](https://www.youtube.com/)",
+  });
 
   const registration = await insert("registrations", {
     venue_id: venue,
@@ -270,7 +278,7 @@ describe("複製去年建立新年度", () => {
     expect(after.coursePairs).toEqual([]);
   });
 
-  it("首頁內容、常見問題、自訂區塊都複製過去", async () => {
+  it("首頁內容、常見問題、自訂區塊、大會特色都複製過去", async () => {
     await lastYear();
 
     await switchedTo(await copied());
@@ -286,7 +294,31 @@ describe("複製去年建立新年度", () => {
       adminLineId: "@twsisters",
       faqs: [{ titleZh: "要收費嗎？", bodyZh: "不用。" }],
       customBlocks: [{ titleZh: "交通資訊", buttonLabelZh: "查看", buttonUrl: "/lookup" }],
+      highlights: [
+        { titleZh: "即席唱詩班", titleEn: "Choir", summaryZh: "跟著影片練唱", bodyZh: "[練唱影片](https://www.youtube.com/)" },
+        { titleZh: "公益服務", summaryZh: "", bodyZh: "" },
+      ],
     });
+  });
+
+  it("大會特色的新編號由去年的編號固定算出（課程的分類才對得到新年度的那一項）", async () => {
+    await lastYear();
+    const before = must(await admin.from("highlights").select("id").eq("conference_id", sourceId)).map((row) => row.id);
+
+    const id = await copied();
+
+    const after = must(await admin.from("highlights").select("id").eq("conference_id", id)).map((row) => row.id);
+    expect(after).toHaveLength(2);
+    expect(after.some((highlight) => before.includes(highlight))).toBe(false);
+    const sql = databaseClient();
+    try {
+      const [{ ids }] = await sql<{ ids: string[] }[]>`
+        select array_agg(extensions.uuid_generate_v5(${id}::uuid, source::text)) as ids
+        from unnest(${before}::uuid[]) as source`;
+      expect([...after].sort()).toEqual([...ids].sort());
+    } finally {
+      await sql.end();
+    }
   });
 
   it("報名沒有被複製，新年度的名額都是空的", async () => {

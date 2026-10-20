@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 import { ExternalLink } from "./external-link";
 
 /*
- * 籌備委員會文字頁（大會簡介、主席的話、備忘錄）的 Markdown 排版（#75），後台與公開頁面共用。
+ * 籌備委員會文字頁（大會簡介、主席的話、備忘錄）與大會特色介紹頁（#82）的 Markdown 排版（#75），後台與公開頁面共用。
  * - GitHub 風格的 Markdown（含表格）；每個換行都保留，舊的純文字內容照樣顯示。
  * - 不接受 HTML：react-markdown 把 HTML 當成文字顯示，不會變成頁面上的元素。
  * - 連結只接受 http(s)，在新分頁開；其他網址（javascript:、mailto:、站內路徑等）只顯示文字。
@@ -51,7 +51,6 @@ const components: Components = {
   h5: ({ children }) => <h6 className={headingClass}>{children}</h6>,
   h6: ({ children }) => <h6 className={headingClass}>{children}</h6>,
   p: ({ children }) => <p className="break-words">{children}</p>,
-  a: ({ href, children }) => (href && SAFE_URL.test(href) ? <ExternalLink href={href}>{children}</ExternalLink> : <span>{children}</span>),
   img: ({ alt }) => (alt ? <span>{alt}</span> : null),
   ul: ({ children }) => <ul className="flex list-disc flex-col gap-1 pl-7">{children}</ul>,
   ol: ({ node, children, start }) => {
@@ -78,14 +77,26 @@ const components: Components = {
   pre: ({ children }) => <pre className="pl-8 font-sans whitespace-pre-wrap break-words [&_code]:font-sans">{children}</pre>,
 };
 
-export function Markdown({ children }: { children: string }) {
+/** newTabLabel：連結後面給讀螢幕軟體的「在新分頁開啟」，英文頁面換成英文。 */
+export function Markdown({ children, newTabLabel }: { children: string; newTabLabel?: string }) {
+  const withLinks: Components = {
+    ...components,
+    a: ({ href, children }) =>
+      href && SAFE_URL.test(href) ? (
+        <ExternalLink href={href} newTabLabel={newTabLabel}>
+          {children}
+        </ExternalLink>
+      ) : (
+        <span>{children}</span>
+      ),
+  };
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         rehypePlugins={[rehypeOrderedListDepth]}
         urlTransform={urlTransform}
-        components={components}
+        components={withLinks}
       >
         {children}
       </ReactMarkdown>
