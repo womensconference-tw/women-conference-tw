@@ -83,6 +83,10 @@ begin
   if p_conference_id is null or current_setting(v_setting, true) = txid_current()::text then
     return;
   end if;
+  -- 先拿年度的 for key share，和報名送出、修改、取消一樣：清除個資（for update）進行中時，
+  -- 會改變 Excel 的寫入（包括不經過報名函式的場地、課程名稱修改）要等清除結束才能提交，排在清除之後；
+  -- 已經拿到鎖的，清除要等它提交、讀到加過的版本號而拒絕。清除讀版本號與清除之間不會被插隊。
+  perform 1 from public.conferences where id = p_conference_id for key share;
   -- 年度在同一個交易裡被刪除時，版本那一列也不在了，不必加。
   update public.conference_data_versions set version = version + 1 where conference_id = p_conference_id;
   perform set_config(v_setting, txid_current()::text, true);
@@ -313,7 +317,7 @@ revoke insert, update, delete, truncate on public.year_exports from authenticate
 /*
  * 開始下載年度 Excel：只有總管理員、只在大會結束之後、還沒清除個資時。
  * 回傳匯出紀錄的編號，以及產生 Excel 需要的全部內容：
- * - venues：依顯示順序的場地，每個場地依順序列出有開課的場次（和報名表一樣）。
+ * - venues：依顯示順序的場地，每個場地依順序列出設定的全部場次（沒有開課的也列，報名者在那一欄是「不選課」）。
  * - registrations：有效報名（已取消的不列），依場地順序、報名先後排序；courses 是「場次編號 → 所選課程名稱」。
  * 名單、場次、版本號與記下匯出紀錄都在同一個指令裡，讀的是同一個資料快照：產檔期間有人修改，這份紀錄仍是讀到的那個版本。
  */
@@ -378,7 +382,7 @@ begin
           'sessions', coalesce((
             select jsonb_agg(jsonb_build_object('id', se.id, 'name', se.name_zh) order by se.position, se.id)
             from public.sessions se
-            where se.venue_id = v.id and exists (select 1 from public.courses co where co.session_id = se.id)
+            where se.venue_id = v.id
           ), '[]')
         )
         order by v.position, v.id

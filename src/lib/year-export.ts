@@ -32,7 +32,7 @@ export type YearExportData = {
   export_id: string;
   data_version: number;
   registration_count: number;
-  /** 依顯示順序的場地，各自依順序列出有開課的場次。 */
+  /** 依顯示順序的場地，各自依順序列出設定的全部場次。 */
   venues: { id: string; name: string; sessions: { id: string; name: string }[] }[];
   /** 有效報名，依場地順序、報名先後排序。 */
   registrations: {

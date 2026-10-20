@@ -38,9 +38,9 @@ export function readXlsx(bytes: Uint8Array): { files: Map<string, string>; sheet
 }
 
 function rowsOf(xml: string): string[][] {
-  return [...xml.matchAll(/<row r="(\d+)">(.*?)<\/row>/g)].map((row, r) => {
+  return [...xml.matchAll(/<row r="(\d+)">([\s\S]*?)<\/row>/g)].map((row, r) => {
     if (Number(row[1]) !== r + 1) throw new Error(`第 ${r + 1} 列的位置是 ${row[1]}`);
-    return [...row[2].matchAll(/<c r="([A-Z]+)(\d+)"[^>]*><is><t[^>]*>(.*?)<\/t><\/is><\/c>/g)].map((cell, c) => {
+    return [...row[2].matchAll(/<c r="([A-Z]+)(\d+)"[^>]*><is><t[^>]*>([\s\S]*?)<\/t><\/is><\/c>/g)].map((cell, c) => {
       if (cell[2] !== row[1]) throw new Error(`${cell[1]}${cell[2]} 不在第 ${row[1]} 列`);
       if (columnIndex(cell[1]) !== c) throw new Error(`${cell[1]}${cell[2]} 不是第 ${c + 1} 欄`);
       return unescape(cell[3]);
@@ -52,10 +52,13 @@ function columnIndex(name: string): number {
   return [...name].reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0) - 1;
 }
 
+// 照 Excel 讀檔的方式：先解開 XML 的跳脫（含 &#13;），再解開 _xHHHH_。
 function unescape(text: string): string {
   return text
+    .replace(/&#13;/g, "\r")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&");
+    .replace(/&amp;/g, "&")
+    .replace(/_x([0-9A-Fa-f]{4})_/g, (_, code: string) => String.fromCharCode(parseInt(code, 16)));
 }

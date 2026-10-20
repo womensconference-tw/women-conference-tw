@@ -12,6 +12,14 @@ describe("Excel 檔", () => {
     expect(read).toEqual(sheets);
   });
 
+  it("文字裡本來就有 _x000D_ 這種寫法、或有 CR 換行時，Excel 讀到的和原本一樣", () => {
+    const rows = [["課程_x000D_名稱", "第一行\r\n第二行", "_x005F_"]];
+    const { files, sheets } = readXlsx(writeXlsx([{ name: "名單", rows }]));
+    expect(sheets[0].rows).toEqual(rows);
+    expect(files.get("xl/worksheets/sheet1.xml")).toContain("課程_x005F_x000D_名稱");
+    expect(files.get("xl/worksheets/sheet1.xml")).toContain("第一行&#13;");
+  });
+
   it("超過 26 欄時欄名接著 AA、AB", () => {
     const row = Array.from({ length: 30 }, (_, index) => `第 ${index + 1} 欄`);
     const { files, sheets } = readXlsx(writeXlsx([{ name: "寬", rows: [row] }]));

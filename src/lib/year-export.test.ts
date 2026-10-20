@@ -53,7 +53,7 @@ function taipeiDate(offsetDays: number): string {
 /*
  * 每個測試有一個已經結束的 2099 目前年度（大會日期是台北時間的昨天，報名已截止）：
  * - 測試金華教堂（第一個場地）：第一場（家譜（上）、詩歌欣賞）、第二場（家譜（下）、健康飲食）、午后動態（手作花圈）、
- *   一個沒有開課的場次（Excel 不列）。家譜（上）（下）是成對課程。午餐素食便當。
+ *   最後一個沒有開課的場次（Excel 照樣列，每個人都是「不選課」）。家譜（上）（下）是成對課程。午餐素食便當。
  * - 測試大雅教堂（第二個場地）：只有第一場（拼布，限 1 人）。
  * 另有一個也已結束的 2098 年度（只有一個場地）。總管理員、課務組、全區報報組各一位。測完全部刪掉、復原原本的目前年度。
  */
@@ -358,6 +358,7 @@ describe("年度 Excel 的內容", () => {
         "第一場次課程",
         "第二場次課程",
         "第三場次課程",
+        "第四場次課程",
         "類別",
         "即席唱詩班",
         "事前準備志工",
@@ -366,14 +367,14 @@ describe("年度 Excel 的內容", () => {
         "事後復原志工",
         "是否要紙本手冊",
       ],
-      ["王小美", "測試金華教堂", "zh", "素食便當", "家譜（上）", "家譜（下）", "手作花圈", "與會姐妹", "女高音", "是", "否", "是", "否", "需要"],
-      ["Mary Chen", "測試金華教堂", "en", "不需要", "詩歌欣賞", "不選課", "不選課", "講師", "不參加", "否", "是", "否", "是", "不需要"],
-      ["林小華", "測試大雅教堂", "zh", "不需要", "拼布", "不適用", "不適用", "志工", "女低音", "否", "否", "否", "否", "不需要"],
+      ["王小美", "測試金華教堂", "zh", "素食便當", "家譜（上）", "家譜（下）", "手作花圈", "不選課", "與會姐妹", "女高音", "是", "否", "是", "否", "需要"],
+      ["Mary Chen", "測試金華教堂", "en", "不需要", "詩歌欣賞", "不選課", "不選課", "不選課", "講師", "不參加", "否", "是", "否", "是", "不需要"],
+      ["林小華", "測試大雅教堂", "zh", "不需要", "拼布", "不適用", "不適用", "不適用", "志工", "女低音", "否", "否", "否", "否", "不需要"],
     ]);
     expect(sheets[1].rows).toEqual([
-      ["場地", "第一場次", "第二場次", "第三場次"],
-      ["測試金華教堂", "第一場 10:00–10:50", "第二場 11:00–11:50", "午后動態 14:30–16:00"],
-      ["測試大雅教堂", "第一場 10:00–10:50", "不適用", "不適用"],
+      ["場地", "第一場次", "第二場次", "第三場次", "第四場次"],
+      ["測試金華教堂", "第一場 10:00–10:50", "第二場 11:00–11:50", "午后動態 14:30–16:00", "沒有開課的場次"],
+      ["測試大雅教堂", "第一場 10:00–10:50", "不適用", "不適用", "不適用"],
     ]);
     // 不含電話、Email、LINE ID、報名編號、支聯會、支會。
     const text = JSON.stringify(sheets);
@@ -517,7 +518,7 @@ describe("清除前的檢查", () => {
     });
     if (!result.ok) throw new Error(result.error);
     // 檔案裡是修改前的內容。
-    expect(readXlsx(result.bytes).sheets[0].rows[1][8]).toBe("不參加");
+    expect(readXlsx(result.bytes).sheets[0].rows[1][9]).toBe("不參加");
     expect(await clear(result.exportId)).toEqual({ ok: false, error: "export_outdated" });
     expect(await clearedAt()).toBeNull();
   });
@@ -562,6 +563,36 @@ describe("清除與修改同時送出", () => {
     expect(result).toEqual({ ok: false, errors: { form: "personalDataCleared" } });
     expect((await storedRegistrations())[0]).toMatchObject({ name: null, choir_part: null });
     expect(await clearedAt()).not.toBeNull();
+  });
+});
+
+describe("清除與場地、課程設定的修改同時發生", () => {
+  // 課程名稱這類修改不經過報名函式。清除已經比對過版本號、還在清除的時候（這裡被寄信紀錄的鎖擋住），
+  // 改名不能搶先提交：要嘛排在清除之後，要嘛其中一邊被中止；不能清除成功、改名也成功卻排在清除之前。
+  it("清除進行中改了課程名稱：不會清除成功又讓改名排在前面", async () => {
+    const id = await registered({ email: "may@example.com" });
+    expect(await sendConfirmationEmail(serverClient(), id, "resent", async () => ({ ok: true, id: null }))).toBe("sent");
+    const { exportId } = await downloaded();
+
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let result: Awaited<ReturnType<typeof clear>>;
+    try {
+      result = await submitWhileHolding(
+        (tx) => tx`select 1 from public.email_logs where registration_id = ${id} for update`,
+        () => clear(exportId),
+        (tx) => tx`update public.courses set title_zh = '清除中改的名稱' where id = ${wreathId}`,
+        "clear_personal_data",
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+    const [course] = must(await admin.from("courses").select("title_zh").eq("id", wreathId));
+    const renamed = course.title_zh === "清除中改的名稱";
+    expect(result.ok && renamed).toBe(false);
+    if (!result.ok) {
+      expect(await clearedAt()).toBeNull();
+      expect((await storedRegistrations())[0].name).toBe("王小美");
+    }
   });
 });
 

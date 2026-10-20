@@ -126,14 +126,17 @@ function columnName(index: number): string {
   return name;
 }
 
-// XML 不允許的控制字元拿掉，其他特殊符號跳脫。
+// XML 不允許的控制字元拿掉，其他特殊符號跳脫。Excel 把文字裡的 _xHHHH_ 當成跳脫的字元，
+// 原本就是這幾個字的話，開頭的底線要寫成 _x005F_ 才會原樣顯示；CR 寫成 &#13;，XML 才不會把它換成 LF。
 function escape(text: string): string {
   return text
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, "")
+    .replace(/_(x[0-9A-Fa-f]{4}_)/g, "_x005F_$1")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/\r/g, "&#13;");
 }
 
 // Excel 的工作表名稱最多 31 個字，不能有 \ / ? * [ ] :。
