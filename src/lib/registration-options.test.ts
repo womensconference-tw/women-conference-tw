@@ -175,21 +175,21 @@ describe("報名表的選項", () => {
           id: first.id,
           name: "第一場",
           courses: [
-            { id: full.id, name: "Family history", description: "", isFull: true, pairedWith: null },
-            { id: expect.any(String), name: "音樂", description: "王老師", isFull: false, pairedWith: null },
+            { id: full.id, name: "Family history", description: "", speaker: "", isFull: true, pairedWith: null },
+            { id: expect.any(String), name: "音樂", description: "王老師", speaker: "", isFull: false, pairedWith: null },
           ],
         },
         {
           id: second.id,
           name: "Session 2",
-          courses: [{ id: unlimited.id, name: "烹飪", description: "", isFull: false, pairedWith: null }],
+          courses: [{ id: unlimited.id, name: "烹飪", description: "", speaker: "", isFull: false, pairedWith: null }],
         },
       ],
       [
         {
           id: dayaSession.id,
           name: "大雅第一場",
-          courses: [{ id: expect.any(String), name: "插花", description: "", isFull: false, pairedWith: null }],
+          courses: [{ id: expect.any(String), name: "插花", description: "", speaker: "", isFull: false, pairedWith: null }],
         },
       ],
     ]);

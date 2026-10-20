@@ -13,6 +13,8 @@ export type LimitedOption = {
 };
 
 export type CourseOption = LimitedOption & {
+  /** 講師；沒填是空字串。 */
+  speaker: string;
   /** 成對課程的另一堂；選了這堂就要一起選。不是成對課程時是 null。 */
   pairedWith: PairedCourse | null;
 };
@@ -55,7 +57,7 @@ export async function getRegistrationOptions(
     supabase
       .from("venues")
       .select(
-        "id, name_zh, name_en, conferences!inner(is_current), sessions(id, name_zh, name_en, courses(id, title_zh, title_en, description_zh, description_en)), lunch_options(id, name_zh, name_en, description_zh, description_en)",
+        "id, name_zh, name_en, conferences!inner(is_current), sessions(id, name_zh, name_en, courses(id, title_zh, title_en, description_zh, description_en, speaker_zh, speaker_en)), lunch_options(id, name_zh, name_en, description_zh, description_en)",
       )
       .eq("conferences.is_current", true)
       .order("position")
@@ -116,6 +118,7 @@ export async function getRegistrationOptions(
         name: localized(session, "name", locale),
         courses: session.courses.map((course) => ({
           ...option(course, "title"),
+          speaker: localized(course, "speaker", locale),
           pairedWith: pairedCourse(venue.sessions, partners.get(course.id)),
         })),
       })),

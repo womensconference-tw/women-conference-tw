@@ -25,6 +25,7 @@ export const ERRORS: Record<ProgrammeError, string> = {
   capacity_invalid: "名額要填正整數；不限人數請留空白。",
   position_invalid: "排序要填整數。",
   classroom_invalid: "教室最多 50 個字。",
+  highlight_invalid: "選的分類找不到，可能剛被刪除。請重新整理頁面再選一次。",
   in_use:
     "已經有人報名選了這一項（包括已取消的報名），不能刪除，報名紀錄才不會少了它。請先處理這些報名。",
   programme_locked: "報名已經開放，不能再新增、刪除或換時段；只能修正文字、調整名額、排序與教室，以及停止報名。",

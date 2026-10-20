@@ -271,6 +271,11 @@ function ItemList({
                 <input type="hidden" name="kind" value={kind} />
                 <input type="hidden" name="id" value={item.id} />
                 <p>確定要刪除這個{noun}嗎？首頁會立即拿掉，不能復原。</p>
+                {item.courseCount > 0 && (
+                  <p className="font-semibold">
+                    有 {item.courseCount} 門課分在這一類，刪除後這些課變成沒有分類（課程本身不會刪除）。
+                  </p>
+                )}
                 <SubmitButton
                   className={cn(buttonVariants(), buttonClass, "self-start bg-destructive text-white hover:bg-destructive/80")}
                 >

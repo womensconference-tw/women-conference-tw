@@ -695,7 +695,7 @@ describe("只有總管理員能停止、重新開放、調名額、換教室", (
 
     const { error } = await db.rpc("set_registration_stopped", { p_kind: "course", p_id: course, p_stopped: true });
     expect(error).not.toBeNull();
-    await Promise.all([
+    const [, , , saved] = await Promise.all([
       db.from("courses").update({ registration_stopped: true, capacity: 999 }).eq("id", course),
       db.from("lunch_options").update({ registration_stopped: true, capacity: 999 }).eq("id", lunch),
       db.from("course_classrooms").update({ classroom: "大教室" }).eq("course_id", course),
@@ -710,8 +710,14 @@ describe("只有總管理員能停止、重新開放、調名額、換教室", (
         p_description_en: "",
         p_capacity: 999,
         p_classroom: "大教室",
+        p_speaker_zh: "",
+        p_speaker_en: "",
+        p_highlight_id: null,
       }),
     ]);
+    // 有執行到函式、被權限擋下，不是參數對不上（PGRST202）而根本沒執行（Codex 審查）。
+    expect(saved.error).not.toBeNull();
+    expect(saved.error?.code).not.toBe("PGRST202");
 
     for (const [table, id] of [
       ["courses", course],

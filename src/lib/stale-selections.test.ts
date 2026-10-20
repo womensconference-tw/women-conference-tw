@@ -8,6 +8,7 @@ describe("重新讀取選項後的選擇", () => {
   const option = (id: string, isFull = false): LimitedOption => ({ id, name: id, description: "", isFull });
   const course = (id: string, isFull = false, pairedWith: PairedCourse | null = null): CourseOption => ({
     ...option(id, isFull),
+    speaker: "",
     pairedWith,
   });
   const options: RegistrationOptions = {

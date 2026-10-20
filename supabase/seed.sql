@@ -137,11 +137,11 @@ insert into public.courses (conference_id, session_id, position, title_zh, title
 select s.conference_id, s.id, c.position, c.title_zh, c.title_en, c.description_zh, c.description_en, c.capacity
 from public.sessions s
 join (values
-  (1, 1, '在家庭中研讀經文', 'Studying the scriptures as a family', '講師：林姊妹', 'Teacher: Sister Lin', 40),
+  (1, 1, '在家庭中研讀經文', 'Studying the scriptures as a family', '', '', 40),
   (1, 2, '家譜入門', 'Getting started with family history', '請帶手機', 'Please bring your phone', 1),
   (1, 3, '詩歌欣賞', 'Enjoying sacred music', '', '', null),
   (2, 1, '健康的飲食', 'Healthy eating', '', '', 30),
-  (2, 2, '溝通與傾聽', 'Communicating and listening', '講師：陳姊妹', 'Teacher: Sister Chen', 30),
+  (2, 2, '溝通與傾聽', 'Communicating and listening', '', '', 30),
   -- 成對課程：第一場與第二場連著上，下面設成一組。
   (1, 4, '婦女會手冊研習（上）', 'Relief Society handbook study (part 1)', '與第二場的（下）連堂', 'Continues in session 2', 25),
   (2, 3, '婦女會手冊研習（下）', 'Relief Society handbook study (part 2)', '', '', 25),
@@ -176,6 +176,23 @@ join public.courses b on b.session_id = sb.id
 where a.title_zh = '婦女會手冊研習（上）' and b.title_zh = '婦女會手冊研習（下）';
 alter table public.course_pairs enable trigger course_pairs_checked;
 alter table public.course_pairs enable trigger course_pairs_stopped_together;
+
+-- 講師與分類（分類是同年度的一項大會特色）。有些英文講師故意留空，用來看缺漏警示與英文版退回中文。
+update public.courses c
+set speaker_zh = v.speaker_zh,
+  speaker_en = v.speaker_en,
+  highlight_id = (select h.id from public.highlights h where h.conference_id = c.conference_id and h.name_zh = v.category)
+from (values
+  ('在家庭中研讀經文', '林姊妹', 'Sister Lin', '靈性課程'),
+  ('家譜入門', '蔡婷儀', '', '靈性課程'),
+  ('詩歌欣賞', '', '', '迷妳音樂會'),
+  ('溝通與傾聽', '陳姊妹', 'Sister Chen', '角落課程'),
+  ('婦女會手冊研習（上）', '沈亦斌 姐妹、黃蘋 姐妹', '', '靈性課程'),
+  ('婦女會手冊研習（下）', '沈亦斌 姐妹、黃蘋 姐妹', '', '靈性課程'),
+  ('手作卡片', '', '', '角落課程'),
+  ('手作花圈', '余心愛', 'Yu Hsin-ai', '公益服務')
+) as v(title, speaker_zh, speaker_en, category)
+where c.title_zh = v.title;
 
 -- 教室是內部資料，只有後台看得到。
 insert into public.course_classrooms (course_id, classroom)

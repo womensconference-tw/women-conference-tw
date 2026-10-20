@@ -609,6 +609,7 @@ function Courses({
               checked={choices[session.id] === course.id}
               onChange={() => choose(session, course.id)}
               aria={errorAria("courses", errors, "courses-hint")}
+              speaker={course.speaker}
               note={pairNote(course, sessions, t)}
               t={t}
             />
@@ -637,7 +638,7 @@ function pairNote(course: CourseOption, sessions: SessionOption[], t: Messages):
   return session && partner ? t.register.pairedWith(session.name, partner.name) : undefined;
 }
 
-/** 一個可能額滿的單選選項（課程、午餐）：額滿時標示「已額滿」、不能選。note 是額外的說明。 */
+/** 一個可能額滿的單選選項（課程、午餐）：額滿時標示「已額滿」、不能選。speaker 是課程的講師，note 是額外的說明。 */
 function LimitedChoice({
   option,
   full,
@@ -645,6 +646,7 @@ function LimitedChoice({
   checked,
   onChange,
   aria,
+  speaker,
   note,
   t,
 }: {
@@ -654,6 +656,7 @@ function LimitedChoice({
   checked: boolean;
   onChange: () => void;
   aria: ReturnType<typeof errorAria>;
+  speaker?: string;
   note?: string;
   t: Messages;
 }) {
@@ -675,6 +678,7 @@ function LimitedChoice({
       />
       <span className="flex flex-1 flex-col">
         <span>{option.name}</span>
+        {speaker && <span className="font-normal">{t.register.speaker(speaker)}</span>}
         {option.description && <span className="font-normal">{option.description}</span>}
         {note && <span className="font-normal">{note}</span>}
       </span>
