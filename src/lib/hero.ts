@@ -90,8 +90,14 @@ export async function attachHeroImage(
   if (current.error) return failure(current.error);
   if (!current.data) return { ok: false, error: "not_found" };
 
-  const exists = await supabase.storage.from(HERO_BUCKET).exists(input.path);
-  if (exists.error || !exists.data) return { ok: false, error: "upload_failed" };
+  // 存放空間連不上時套件會直接丟出例外，不是回傳錯誤；一樣當成沒上傳成功，後台會刪掉剛上傳的檔案（Codex 審查）。
+  try {
+    const exists = await supabase.storage.from(HERO_BUCKET).exists(input.path);
+    if (exists.error || !exists.data) return { ok: false, error: "upload_failed" };
+  } catch (error) {
+    console.error("確認主視覺檔案失敗", input.path, error);
+    return { ok: false, error: "upload_failed" };
+  }
   const previous = (current.data as unknown as Record<string, string | null>)[column];
   return swapHeroImage(supabase, input.conferenceId, input.slot, previous, input.path);
 }
@@ -133,7 +139,9 @@ async function swapHeroImage(
   const { data, error } = await query.select("id");
   if (error) return failure(error);
   if (data.length === 0) {
-    // 沒改到：不是目前年度了，或這個位置剛被別人換掉。
+    // 沒改到：剛被移出總管理員（權限規則讓更新改不到、也不出錯，Codex 審查）、不是目前年度了，或這個位置剛被別人換掉。
+    const admin = await ensureAdmin(supabase);
+    if (admin) return admin;
     const still = await supabase.from("conferences").select("id").eq("id", conferenceId).eq("is_current", true).maybeSingle();
     if (still.error) return failure(still.error);
     return { ok: false, error: still.data ? "hero_changed" : "not_found" };

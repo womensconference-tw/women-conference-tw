@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminClient, anonClient, must, signedInClient } from "../../test/supabase";
 import { getContentEditor } from "./content";
@@ -246,6 +246,49 @@ describe("總管理員上傳、更換、刪除主視覺", () => {
     const current = (await getContentEditor(headAdmin))!.heroImages.desktopEn!.path;
     expect(paths).toContain(current);
     expect(await storedFiles()).toEqual([current]);
+  });
+
+  /** 總管理員的連線，只把確認檔案存不存在換成 exists。 */
+  function withExists(exists: (path: string) => Promise<{ data: boolean; error: null }>) {
+    return new Proxy(headAdmin, {
+      get(target, key, receiver) {
+        if (key !== "storage") return Reflect.get(target, key, receiver);
+        return { from: (bucket: string) => ({ ...target.storage.from(bucket), exists }) };
+      },
+    });
+  }
+
+  it("確認檔案時存放空間連不上（丟出例外）：當成沒上傳成功，不換掉原本的圖", async () => {
+    await alt();
+    const kept = await uploaded("mobileZh");
+    const path = heroImagePath(conferenceId!, "mobileZh", "image/png");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await attachHeroImage(
+      withExists(() => Promise.reject(new Error("503 Service Unavailable"))),
+      { conferenceId: conferenceId!, slot: "mobileZh", path },
+    );
+
+    expect(result).toEqual({ ok: false, error: "upload_failed" });
+    expect(errors).toHaveBeenCalled();
+    expect((await getContentEditor(headAdmin))!.heroImages.mobileZh?.path).toBe(kept);
+  });
+
+  it("檢查過身分、還沒寫入時被移出總管理員：回報不是總管理員，不說成圖剛被換過", async () => {
+    await alt();
+    const path = heroImagePath(conferenceId!, "mobileZh", "image/png");
+    must(await headAdmin.storage.from(HERO_BUCKET).upload(path, new Blob([PNG], { type: "image/png" }), { contentType: "image/png" }));
+
+    const result = await attachHeroImage(
+      withExists(async () => {
+        must(await admin.from("staff_members").delete().eq("role", "admin"));
+        return { data: true, error: null };
+      }),
+      { conferenceId: conferenceId!, slot: "mobileZh", path },
+    );
+
+    expect(result).toEqual({ ok: false, error: "not_admin" });
+    expect((await getContentEditor(adminClient()))!.heroImages.mobileZh).toBeNull();
   });
 
   it("路徑要是這個年度、這個位置的檔案", async () => {

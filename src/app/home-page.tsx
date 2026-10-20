@@ -283,7 +283,8 @@ const BLANK_IMAGE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAAL
 function HeroImage({ hero }: { hero: NonNullable<HomeContent["hero"]> }) {
   return (
     <picture className={hero.mobileUrl ? undefined : "hidden md:block"}>
-      <source media="(min-width: 768px)" srcSet={hero.desktopUrl} />
+      {/* 和 Tailwind 的 md（48rem）同一個寬度，使用者把瀏覽器字級調大時，隱藏與不下載的寬度才一致（Codex 審查）。 */}
+      <source media="(min-width: 48rem)" srcSet={hero.desktopUrl} />
       {/* 存放空間的公開網址，美編組已經做好尺寸，不經過 Next.js 的圖片最佳化。 */}
       <img
         src={hero.mobileUrl ?? BLANK_IMAGE}

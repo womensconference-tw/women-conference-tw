@@ -64,14 +64,20 @@ export function HeroUpload({
     const path = heroImagePath(conferenceId, slot, file.type);
     const storage = createClient().storage.from(HERO_BUCKET);
     // 每次都是新檔名，可以讓瀏覽器與 CDN 一直快取。
-    const uploaded = await storage.upload(path, file, { contentType: file.type, cacheControl: "31536000" });
+    const uploaded = await storage
+      .upload(path, file, { contentType: file.type, cacheControl: "31536000" })
+      .catch((error: unknown) => ({ error }));
     if (uploaded.error) {
       console.error("上傳主視覺失敗", uploaded.error);
       return router.push("/staff/content?error=upload_failed");
     }
-    const result = await attachHeroImageAction({ conferenceId, slot, path });
+    // 伺服器動作連不上（網路斷掉）也算記不成功：刪掉剛上傳的檔案，說明沒上傳成功（Codex 審查）。
+    const result = await attachHeroImageAction({ conferenceId, slot, path }).catch((error: unknown) => {
+      console.error("記錄主視覺失敗", error);
+      return { ok: false, error: "upload_failed" } as const;
+    });
     if (!result.ok) {
-      await storage.remove([path]);
+      await storage.remove([path]).catch(() => {});
       return router.push(`/staff/content?error=${result.error}`);
     }
     router.push("/staff/content?done=heroUploaded");

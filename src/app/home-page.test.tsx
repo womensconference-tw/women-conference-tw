@@ -87,7 +87,7 @@ describe("首頁主視覺", () => {
     const image = screen.getByRole<HTMLImageElement>("img", { name: "2099 主視覺" });
     expect(image.getAttribute("src")).toContain(mobile);
     const source = image.closest("picture")!.querySelector("source")!;
-    expect(source.getAttribute("media")).toBe("(min-width: 768px)");
+    expect(source.getAttribute("media")).toBe("(min-width: 48rem)");
     expect(source.getAttribute("srcset")).toContain(desktop);
     expect(screen.queryByText("你要把你的重擔卸給耶和華")).toBeNull();
   });
