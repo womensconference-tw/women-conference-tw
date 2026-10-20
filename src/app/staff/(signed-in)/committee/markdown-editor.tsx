@@ -43,15 +43,16 @@ export function MarkdownEditor({
   const ref = useRef<HTMLTextAreaElement>(null);
   // 編輯框目前依據的內容，用來判斷她有沒有動過。
   const shown = useRef(defaultValue);
-  const lastResetToken = useRef(resetToken);
+  // 處理過的重設代號。按上一頁回到舊的捨棄網址時，同一個代號不再換回（Codex 審查）。
+  const usedResetTokens = useRef(new Set(resetToken === undefined ? [] : [resetToken]));
   const [updatedElsewhere, setUpdatedElsewhere] = useState(false);
 
   useEffect(() => {
     const textarea = ref.current;
     if (!textarea) return;
-    // 代號拿掉（之後做了別的事）不算捨棄。
-    const reset = resetToken !== undefined && resetToken !== lastResetToken.current;
-    lastResetToken.current = resetToken;
+    // 代號拿掉（之後做了別的事）或是處理過的，不算捨棄。
+    const reset = resetToken !== undefined && !usedResetTokens.current.has(resetToken);
+    if (reset) usedResetTokens.current.add(resetToken);
     if (!reset && shown.current === defaultValue) return;
     const untouched = reset || textarea.value === shown.current || textarea.value === defaultValue;
     shown.current = defaultValue;
@@ -85,6 +86,8 @@ export function MarkdownEditor({
     const inserted = document.execCommand?.("insertText", false, edit.insert);
     if (!inserted || textarea.value !== result.value) textarea.value = result.value;
     textarea.setSelectionRange(result.selectionStart, result.selectionEnd);
+    // 直接換掉全文時不會觸發 input。
+    checkUpdated();
   }
 
   return (

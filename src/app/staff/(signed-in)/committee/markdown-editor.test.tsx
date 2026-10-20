@@ -128,4 +128,29 @@ describe("內容換了", () => {
     await waitFor(() => expect(updatedNotice()).toBeNull());
     expect(textarea().value).toBe("別人的版本");
   });
+
+  it("按上一頁回到舊的捨棄網址：同一個重設代號只換回一次，不會清掉她打的字（Codex 審查）", () => {
+    const { rerender } = render(editor("已發布", "reset-1"));
+    rerender(editor("已發布"));
+    fireEvent.input(textarea(), { target: { value: "繼續打" } });
+    rerender(editor("已發布", "reset-1"));
+    expect(textarea().value).toBe("繼續打");
+  });
+
+  it("提醒出現後，用樣式按鈕把內容改成和更新的一樣（瀏覽器不支援插入文字）：提醒拿掉", () => {
+    const execCommand = document.execCommand;
+    document.execCommand = () => false;
+    try {
+      const { rerender } = render(editor("原本的"));
+      fireEvent.input(textarea(), { target: { value: "# 最新內容" } });
+      rerender(editor("最新內容"));
+      expect(updatedNotice()).toBeTruthy();
+      textarea().setSelectionRange(2, 2);
+      fireEvent.click(screen.getByRole("button", { name: "標題" }));
+      expect(textarea().value).toBe("最新內容");
+      expect(updatedNotice()).toBeNull();
+    } finally {
+      document.execCommand = execCommand;
+    }
+  });
 });
