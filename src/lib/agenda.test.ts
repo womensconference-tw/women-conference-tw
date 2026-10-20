@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { adminClient, anonClient, must, signedInClient } from "../../test/supabase";
+import { adminClient, anonClient, databaseClient, must, signedInClient } from "../../test/supabase";
 import {
   deleteAgendaItem,
   getAgendaEditor,
@@ -328,6 +328,40 @@ describe("只有總管理員能編輯", () => {
       expect(await deleteAgendaItem(client, id)).toEqual({ ok: false, error: "not_admin" });
     }
     expect(await names()).toEqual(["原本的"]);
+  });
+
+  // 等這一列的列鎖時被移出工作人員名單：權限規則讓子項目刪不到也不出錯，不能只改了名稱就回報成功（Codex 審查）。
+  it("存一列途中失去總管理員身分時，名稱與子項目都不改", async () => {
+    const id = await saved({ nameZh: "開幕式", parts: [{ nameZh: "領袖演講", nameEn: "", highlightId: "" }] });
+    const { data } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    const headId = data.users.find((user) => user.email === "head@example.com")!.id;
+    const sql = databaseClient();
+    const watcher = databaseClient();
+    try {
+      let saving!: ReturnType<typeof save>;
+      await sql.begin(async (tx) => {
+        await tx`select 1 from public.agenda_items where id = ${id} for update`;
+        saving = save({ id, nameZh: "改過的名稱", parts: [] });
+        for (let waited = 0; ; waited += 50) {
+          const [{ blocked }] = await watcher<{ blocked: boolean }[]>`
+            select exists (
+              select 1 from pg_stat_activity where wait_event_type = 'Lock' and query ~ 'save_agenda_item'
+            ) as blocked`;
+          if (blocked) break;
+          if (waited > 3000) throw new Error("save_agenda_item 沒有等這一列的列鎖");
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        await tx`delete from public.staff_members where user_id = ${headId}`;
+      });
+
+      expect(await saving).toEqual({ ok: false, error: "not_admin" });
+    } finally {
+      await Promise.all([sql.end(), watcher.end()]);
+    }
+    expect(must(await admin.from("agenda_items").select("name_zh").eq("id", id).single()).name_zh).toBe("開幕式");
+    expect(must(await admin.from("agenda_item_parts").select("name_zh").eq("agenda_item_id", id))).toEqual([
+      { name_zh: "領袖演講" },
+    ]);
   });
 
   it("權限規則：非總管理員直接寫資料庫也改不到", async () => {

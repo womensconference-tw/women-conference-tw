@@ -164,6 +164,12 @@ begin
     (part.value ->> 'highlight_id')::uuid
   from jsonb_array_elements(coalesce(p_parts, '[]'::jsonb)) with ordinality as part(value, position);
 
+  -- 權限規則讓非總管理員的寫入找不到資料、不會出錯。等這一列的列鎖時被移出工作人員名單的話，
+  -- 這一列照舊更新、子項目卻刪不到（例如清空子項目時），所以最後再確認一次，不是總管理員就整筆不存（Codex 審查）。
+  if not public.is_staff_admin() then
+    raise exception 'not_admin';
+  end if;
+
   return v_id;
 end;
 $$;
@@ -212,6 +218,11 @@ begin
     note_en = excluded.note_en,
     session_id = excluded.session_id,
     updated_at = now();
+
+  -- 和 save_agenda_item 一樣，等鎖的時候被移出工作人員名單的話整筆不存。
+  if not public.is_staff_admin() then
+    raise exception 'not_admin';
+  end if;
 end;
 $$;
 
