@@ -4,10 +4,12 @@ import { redirect } from "next/navigation";
 import {
   COMMITTEE_ITEM_KINDS,
   deleteCommitteeItem,
+  discardCommitteeTextDraft,
   moveCommitteeLink,
+  publishCommitteeTexts,
   saveCommitteeLink,
   saveCommitteeMember,
-  saveCommitteeTexts,
+  saveCommitteeTextDraft,
   saveMeeting,
   saveTeamMember,
   type CommitteeItemKind,
@@ -20,15 +22,29 @@ import { createClient } from "@/lib/supabase/server";
  * 做完回到籌備委員會頁，停在原本選的年度。
  */
 
-export async function saveTextsAction(formData: FormData) {
+// 三個文字頁只存成草稿，預覽確定後才發布（#76）。
+export async function saveTextDraftAction(formData: FormData) {
   const field = fieldsOf(formData);
-  const result = await saveCommitteeTexts(await createClient(), {
+  const result = await saveCommitteeTextDraft(await createClient(), {
     conferenceId: field("conferenceId"),
     introduction: field("introduction"),
     chairMessage: field("chairMessage"),
     memorandum: field("memorandum"),
   });
-  done(formData, result, "saved");
+  done(formData, result, "draft_saved");
+}
+
+// 從預覽頁發布，帶著預覽時看到的草稿版本代號。預覽之後草稿又被改過時，回到預覽頁看最新的草稿。
+export async function publishTextsAction(formData: FormData) {
+  const field = fieldsOf(formData);
+  const result = await publishCommitteeTexts(await createClient(), field("conferenceId"), field("revision"));
+  done(formData, result, "published", result.ok || result.error !== "draft_changed" ? "/staff/committee" : "/preview/committee");
+}
+
+// 捨棄成功時帶一個新的重設代號，編輯框就算正在編輯也換回已發布的內容（MarkdownEditor 的 resetToken）。
+export async function discardTextDraftAction(formData: FormData) {
+  const result = await discardCommitteeTextDraft(await createClient(), fieldsOf(formData)("conferenceId"));
+  done(formData, result, "discarded", "/staff/committee", result.ok ? { reset: crypto.randomUUID() } : {});
 }
 
 export async function saveMeetingAction(formData: FormData) {
@@ -103,12 +119,18 @@ function kindFrom(formData: FormData): CommitteeItemKind {
   return kind as CommitteeItemKind;
 }
 
-function done(formData: FormData, result: CommitteeResult | { ok: true; id: string }, success: string): never {
-  const params = new URLSearchParams();
+function done(
+  formData: FormData,
+  result: CommitteeResult | { ok: true; id?: string; revision?: string },
+  success: string,
+  path = "/staff/committee",
+  extra: Record<string, string> = {},
+): never {
+  const params = new URLSearchParams(extra);
   // 表單帶著目前看的年度，做完停在同一個年度。格式不對時（網頁被改過）回到預設的目前年度。
   const year = String(formData.get("year") ?? "");
   if (/^\d{4}$/.test(year)) params.set("year", year);
   if (result.ok) params.set("done", success);
   else params.set("error", result.error);
-  redirect(`/staff/committee?${params}`);
+  redirect(`${path}?${params}`);
 }

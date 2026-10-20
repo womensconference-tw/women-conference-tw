@@ -9,9 +9,14 @@ import {
   roleLabel,
   saveCommitteeLink,
   saveCommitteeMember,
-  saveCommitteeTexts,
+  changedTextPages,
+  discardCommitteeTextDraft,
+  getCommitteeTextDraft,
+  publishCommitteeTexts,
+  saveCommitteeTextDraft,
   saveMeeting,
   saveTeamMember,
+  type CommitteeTextsInput,
   type MeetingInput,
   type TeamMemberInput,
 } from "./committee";
@@ -94,11 +99,18 @@ async function pastConference(): Promise<string> {
 
 // 每一種資料各一筆。
 async function fillCommittee(id: string) {
-  await ok(saveCommitteeTexts(headAdmin, { conferenceId: id, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄" }));
+  await ok(publishTexts(headAdmin, { conferenceId: id, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄" }));
   await ok(saveMeeting(headAdmin, meeting({ conferenceId: id })));
   await ok(saveCommitteeLink(headAdmin, { conferenceId: id, title: "執行計畫", url: "https://example.com/plan" }));
   await ok(saveTeamMember(headAdmin, teamMember({ conferenceId: id })));
   await ok(saveCommitteeMember(headAdmin, { conferenceId: id, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: true }));
+}
+
+// 三個文字頁存成草稿再發布，大家才看得到（#76）。
+async function publishTexts(client: SupabaseClient, input: CommitteeTextsInput) {
+  const saved = await saveCommitteeTextDraft(client, input);
+  if (!saved.ok) return saved;
+  return publishCommitteeTexts(client, input.conferenceId, saved.revision);
 }
 
 async function ok<T extends { ok: boolean }>(result: Promise<T>): Promise<Extract<T, { ok: true }>> {
@@ -130,7 +142,7 @@ describe("讀取", () => {
   });
 
   it("三種角色登入後都看得到所有內容", async () => {
-    await ok(saveCommitteeTexts(headAdmin, { conferenceId, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄" }));
     await ok(saveMeeting(headAdmin, meeting()));
     await ok(saveCommitteeLink(headAdmin, { conferenceId, title: "執行計畫", url: "https://docs.google.com/spreadsheets/d/x" }));
     await ok(saveTeamMember(headAdmin, teamMember()));
@@ -303,8 +315,8 @@ describe("讀取", () => {
 
 describe("總管理員編輯", () => {
   it("文字頁可以修改，去掉頭尾空白", async () => {
-    await ok(saveCommitteeTexts(headAdmin, { conferenceId, introduction: " 舊的 ", chairMessage: "", memorandum: "" }));
-    await ok(saveCommitteeTexts(headAdmin, { conferenceId, introduction: "新的簡介\n第二段", chairMessage: " 主席 ", memorandum: "章程" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: " 舊的 ", chairMessage: "", memorandum: "" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: "新的簡介\n第二段", chairMessage: " 主席 ", memorandum: "章程" }));
     expect(await getCommittee(headAdmin, conferenceId)).toMatchObject({
       introduction: "新的簡介\n第二段",
       chairMessage: "主席",
@@ -317,7 +329,7 @@ describe("總管理員編輯", () => {
     must(await admin.from("committee_texts").insert({ conference_id: conferenceId, introduction: "*舊的*", markdown: false }));
     expect(await getCommittee(anonClient(), conferenceId)).toMatchObject({ introduction: "", markdown: true });
     expect((await getCommittee(headAdmin, conferenceId)).markdown).toBe(false);
-    await ok(saveCommitteeTexts(headAdmin, { conferenceId, introduction: "*舊的*", chairMessage: "", memorandum: "" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: "*舊的*", chairMessage: "", memorandum: "" }));
     expect((await getCommittee(headAdmin, conferenceId)).markdown).toBe(true);
   });
 
@@ -433,17 +445,153 @@ describe("總管理員編輯", () => {
     expect(await deleteCommitteeItem(headAdmin, "member", missing)).toEqual({ ok: false, error: "not_found" });
     expect(await moveCommitteeLink(headAdmin, missing, "up")).toEqual({ ok: false, error: "not_found" });
     expect(await saveMeeting(headAdmin, meeting({ conferenceId: missing }))).toEqual({ ok: false, error: "not_found" });
-    expect(await saveCommitteeTexts(headAdmin, { conferenceId: missing, introduction: "", chairMessage: "", memorandum: "" })).toEqual({
+    expect(await saveCommitteeTextDraft(headAdmin, { conferenceId: missing, introduction: "", chairMessage: "", memorandum: "" })).toEqual({
       ok: false,
       error: "not_found",
     });
   });
 });
 
+describe("文字頁的草稿與發布（#76）", () => {
+  const texts = (changes: Partial<CommitteeTextsInput> = {}): CommitteeTextsInput => ({
+    conferenceId,
+    introduction: "已發布的簡介",
+    chairMessage: "已發布的主席的話",
+    memorandum: "已發布的備忘錄",
+    ...changes,
+  });
+
+  // 目前年度之前的年度，公開頁面看得到。
+  beforeEach(async () => {
+    conferenceId = await pastConference();
+    await ok(publishTexts(headAdmin, texts()));
+  });
+
+  it("存草稿後，公開頁面與課務組、報報組看到的仍是已發布版本；草稿只有總管理員讀得到", async () => {
+    await ok(saveCommitteeTextDraft(headAdmin, texts({ introduction: " 草稿的簡介 " })));
+
+    for (const client of [headAdmin, courseTeam, registrationTeam, anonClient()]) {
+      expect((await getCommittee(client, conferenceId)).introduction).toBe("已發布的簡介");
+    }
+    expect(await getCommitteeTextDraft(headAdmin, conferenceId)).toMatchObject({
+      introduction: "草稿的簡介",
+      chairMessage: "已發布的主席的話",
+      memorandum: "已發布的備忘錄",
+    });
+    for (const client of [courseTeam, registrationTeam, anonClient()]) {
+      expect(await getCommitteeTextDraft(client, conferenceId)).toBeNull();
+      // 直接讀資料表也讀不到（權限規則）。
+      const { data } = await client.from("committee_text_drafts").select("*").eq("conference_id", conferenceId);
+      expect(data ?? []).toEqual([]);
+    }
+  });
+
+  it("沒有草稿時讀到的是空的", async () => {
+    expect(await getCommitteeTextDraft(headAdmin, conferenceId)).toBeNull();
+  });
+
+  it("發布後大家立即看到新版本，草稿清掉", async () => {
+    const { revision } = await ok(saveCommitteeTextDraft(headAdmin, texts({ memorandum: "# 新的備忘錄" })));
+    await ok(publishCommitteeTexts(headAdmin, conferenceId, revision));
+
+    for (const client of [headAdmin, courseTeam, registrationTeam, anonClient()]) {
+      expect(await getCommittee(client, conferenceId)).toMatchObject({ memorandum: "# 新的備忘錄", markdown: true });
+    }
+    expect(await getCommitteeTextDraft(headAdmin, conferenceId)).toBeNull();
+    // 已經發布過了，再按一次發布：沒有草稿。
+    expect(await publishCommitteeTexts(headAdmin, conferenceId, revision)).toEqual({ ok: false, error: "no_draft" });
+  });
+
+  it("預覽之後草稿又被存過（例如另一位總管理員）：不發布，請她重新預覽", async () => {
+    const previewed = await ok(saveCommitteeTextDraft(headAdmin, texts({ introduction: "甲的草稿" })));
+    const other = await ok(saveCommitteeTextDraft(headAdmin, texts({ introduction: "乙的草稿" })));
+    expect(other.revision).not.toBe(previewed.revision);
+
+    expect(await publishCommitteeTexts(headAdmin, conferenceId, previewed.revision)).toEqual({
+      ok: false,
+      error: "draft_changed",
+    });
+    expect((await getCommittee(anonClient(), conferenceId)).introduction).toBe("已發布的簡介");
+    expect((await getCommitteeTextDraft(headAdmin, conferenceId))?.introduction).toBe("乙的草稿");
+
+    await ok(publishCommitteeTexts(headAdmin, conferenceId, other.revision));
+    expect((await getCommittee(anonClient(), conferenceId)).introduction).toBe("乙的草稿");
+  });
+
+  it("捨棄草稿後回到已發布的版本", async () => {
+    const { revision } = await ok(saveCommitteeTextDraft(headAdmin, texts({ introduction: "不要了" })));
+    await ok(discardCommitteeTextDraft(headAdmin, conferenceId));
+    expect(await getCommitteeTextDraft(headAdmin, conferenceId)).toBeNull();
+    expect((await getCommittee(headAdmin, conferenceId)).introduction).toBe("已發布的簡介");
+    expect(await publishCommitteeTexts(headAdmin, conferenceId, revision)).toEqual({ ok: false, error: "no_draft" });
+    // 沒有草稿時捨棄也沒關係（可能另一位總管理員剛捨棄或發布了）。
+    await ok(discardCommitteeTextDraft(headAdmin, conferenceId));
+  });
+
+  it("還沒發布過的年度也能存草稿、發布", async () => {
+    conferenceId = must(
+      await admin.from("conferences").insert({ year: 2002, conference_date: "2002-05-15" }).select("id").single(),
+    ).id;
+    conferenceIds.push(conferenceId);
+    await ok(saveCommitteeTextDraft(headAdmin, texts({ introduction: "第一版" })));
+    expect((await getCommittee(anonClient(), conferenceId)).introduction).toBe("");
+    const draft = await getCommitteeTextDraft(headAdmin, conferenceId);
+    await ok(publishCommitteeTexts(headAdmin, conferenceId, draft!.revision));
+    expect((await getCommittee(anonClient(), conferenceId)).introduction).toBe("第一版");
+  });
+
+  it("草稿的版本代號格式不對：當成草稿被改過", async () => {
+    await ok(saveCommitteeTextDraft(headAdmin, texts()));
+    expect(await publishCommitteeTexts(headAdmin, conferenceId, "不是代號")).toEqual({ ok: false, error: "draft_changed" });
+  });
+
+  it("直接呼叫資料庫、沒帶版本代號：不發布（#76，Codex 審查）", async () => {
+    await ok(saveCommitteeTextDraft(headAdmin, texts({ introduction: "草稿" })));
+    const { error } = await headAdmin.rpc("publish_committee_texts", { p_conference_id: conferenceId, p_revision: null });
+    expect(error?.message).toBe("draft_changed");
+    expect((await getCommittee(anonClient(), conferenceId)).introduction).toBe("已發布的簡介");
+    expect((await getCommitteeTextDraft(headAdmin, conferenceId))?.introduction).toBe("草稿");
+  });
+
+  it("課務組、報報組、訪客不能存草稿、發布或捨棄", async () => {
+    const { revision } = await ok(saveCommitteeTextDraft(headAdmin, texts({ introduction: "草稿" })));
+    for (const client of [courseTeam, registrationTeam, anonClient()]) {
+      expect(await saveCommitteeTextDraft(client, texts({ introduction: "x" }))).toEqual({ ok: false, error: "not_admin" });
+      expect(await publishCommitteeTexts(client, conferenceId, revision)).toEqual({ ok: false, error: "not_admin" });
+      expect(await discardCommitteeTextDraft(client, conferenceId)).toEqual({ ok: false, error: "not_admin" });
+      const inserted = await client.from("committee_text_drafts").insert({ conference_id: conferenceId });
+      expect(inserted.error).not.toBeNull();
+      const updated = await client
+        .from("committee_text_drafts")
+        .update({ introduction: "被改了" })
+        .eq("conference_id", conferenceId)
+        .select();
+      expect(updated.data ?? []).toEqual([]);
+    }
+    expect(await getCommitteeTextDraft(headAdmin, conferenceId)).toMatchObject({ introduction: "草稿", revision });
+  });
+
+  it("標出哪幾頁和已發布的版本不同", () => {
+    const texts = { introduction: "簡介", chairMessage: "主席", memorandum: "備忘錄" };
+    const published = { ...texts, markdown: true };
+    expect(changedTextPages(published, null)).toEqual([]);
+    expect(changedTextPages(published, texts)).toEqual([]);
+    expect(changedTextPages(published, { ...texts, chairMessage: "新的", memorandum: "" })).toEqual([
+      "chairMessage",
+      "memorandum",
+    ]);
+    // 改版前的純文字，發布後改依樣式排版：有內容的頁面都會變樣。
+    expect(changedTextPages({ ...published, chairMessage: "", markdown: false }, { ...texts, chairMessage: "" })).toEqual([
+      "introduction",
+      "memorandum",
+    ]);
+  });
+});
+
 describe("其他角色不能修改", () => {
   it("課務組、報報組、訪客用頁面的功能會被擋下", async () => {
     for (const client of [courseTeam, registrationTeam, anonClient()]) {
-      expect(await saveCommitteeTexts(client, { conferenceId, introduction: "x", chairMessage: "", memorandum: "" })).toEqual({
+      expect(await saveCommitteeTextDraft(client, { conferenceId, introduction: "x", chairMessage: "", memorandum: "" })).toEqual({
         ok: false,
         error: "not_admin",
       });
@@ -465,7 +613,7 @@ describe("其他角色不能修改", () => {
     ["公開的過去年度", true],
   ])("直接呼叫資料庫也被擋下（權限規則）：%s", async (_, isPast) => {
     const targetId = isPast ? await pastConference() : conferenceId;
-    await ok(saveCommitteeTexts(headAdmin, { conferenceId: targetId, introduction: "原本的", chairMessage: "", memorandum: "" }));
+    await ok(publishTexts(headAdmin, { conferenceId: targetId, introduction: "原本的", chairMessage: "", memorandum: "" }));
     const meetingId = (await ok(saveMeeting(headAdmin, meeting({ conferenceId: targetId })))).id;
     const linkId = (await ok(saveCommitteeLink(headAdmin, { conferenceId: targetId, title: "原本的", url: "https://example.com" }))).id;
     const teamId = (await ok(saveTeamMember(headAdmin, teamMember({ conferenceId: targetId })))).id;
@@ -506,12 +654,21 @@ describe("其他角色不能修改", () => {
         expect(deleted.data ?? [], `${table} 刪除`).toEqual([]);
       }
       const rpcs = [
+        // 改成草稿之前的儲存，留給還沒換版的網站用（#76）。
         client.rpc("save_committee_texts", {
           p_conference_id: targetId,
           p_introduction: "被改了",
           p_chair_message: "",
           p_memorandum: "",
         }),
+        client.rpc("save_committee_text_draft", {
+          p_conference_id: targetId,
+          p_introduction: "被改了",
+          p_chair_message: "",
+          p_memorandum: "",
+        }),
+        client.rpc("publish_committee_texts", { p_conference_id: targetId, p_revision: crypto.randomUUID() }),
+        client.rpc("discard_committee_text_draft", { p_conference_id: targetId }),
         client.rpc("move_committee_link", { p_id: linkId, p_up: false }),
       ];
       for (const { error } of await Promise.all(rpcs)) expect(error).not.toBeNull();
@@ -547,7 +704,7 @@ describe("支聯會名單", () => {
 
 describe("複製年度", () => {
   it("複製三個文字頁與重要連結；會議記錄與兩份名單不複製", async () => {
-    await ok(saveCommitteeTexts(headAdmin, { conferenceId, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄" }));
     await ok(saveCommitteeLink(headAdmin, { conferenceId, title: "執行計畫", url: "https://example.com/plan" }));
     const second = await ok(saveCommitteeLink(headAdmin, { conferenceId, title: "交接清單", url: "https://example.com/handover" }));
     await ok(moveCommitteeLink(headAdmin, second.id, "up"));
@@ -572,6 +729,20 @@ describe("複製年度", () => {
       ["交接清單", "https://example.com/handover"],
       ["執行計畫", "https://example.com/plan"],
     ]);
+  });
+
+  it("只複製已發布的文字頁，草稿不複製（#76）", async () => {
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: "已發布", chairMessage: "", memorandum: "" }));
+    await ok(saveCommitteeTextDraft(headAdmin, { conferenceId, introduction: "草稿", chairMessage: "", memorandum: "" }));
+
+    const copied = await copyConference(headAdmin, { sourceConferenceId: conferenceId, year: "2100", conferenceDate: "2100-05-15" });
+    if (!copied.ok) throw new Error(copied.error);
+    conferenceIds.push(copied.conferenceId);
+
+    expect((await getCommittee(headAdmin, copied.conferenceId)).introduction).toBe("已發布");
+    expect(await getCommitteeTextDraft(headAdmin, copied.conferenceId)).toBeNull();
+    // 原本年度的草稿還在。
+    expect((await getCommitteeTextDraft(headAdmin, conferenceId))?.introduction).toBe("草稿");
   });
 
   it("從還是純文字的舊年度複製，新年度也照純文字顯示（#75，Codex 審查）", async () => {

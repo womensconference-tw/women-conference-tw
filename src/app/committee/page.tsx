@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { SubmitButton } from "@/app/staff/submit-button";
-import { CommitteeTexts, LinkList, MeetingList, MemberTable, TeamTable } from "@/components/committee";
+import { committeePageClass, CommitteeView } from "@/components/committee";
 import { buttonVariants } from "@/components/ui/button";
 import { getCommittee, listPublicCommitteeYears } from "@/lib/committee";
 import { languageTags } from "@/lib/i18n/locale";
@@ -30,7 +30,7 @@ export default async function PublicCommitteePage({ searchParams }: PageProps<"/
 
   return (
     // 內容只有中文；前台選了英文的訪客，網頁的語言（html lang）會是英文，這裡標回中文。
-    <main lang={languageTags.zh} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-5 pt-6 pb-10 leading-relaxed">
+    <main lang={languageTags.zh} className={committeePageClass}>
       <h1 className="text-2xl font-bold">籌備委員會{selected && `（${selected.year} 年）`}</h1>
       {years.length > 1 && (
         <form className="flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -57,25 +57,7 @@ export default async function PublicCommitteePage({ searchParams }: PageProps<"/
       {!committee ? (
         <p>籌備委員會的資訊還沒公布。</p>
       ) : (
-        <>
-          <CommitteeTexts texts={committee} />
-          <section className="flex flex-col gap-4">
-            <h2 className="text-xl font-bold">會議記錄</h2>
-            <MeetingList meetings={committee.meetings} />
-          </section>
-          <section className="flex flex-col gap-4">
-            <h2 className="text-xl font-bold">重要連結</h2>
-            <LinkList links={committee.links} />
-          </section>
-          <section className="flex flex-col gap-4">
-            <h2 className="text-xl font-bold">工作團隊</h2>
-            <TeamTable members={committee.teamMembers} />
-          </section>
-          <section className="flex flex-col gap-4">
-            <h2 className="text-xl font-bold">籌備委員</h2>
-            <MemberTable members={committee.members} />
-          </section>
-        </>
+        <CommitteeView committee={committee} />
       )}
     </main>
   );
