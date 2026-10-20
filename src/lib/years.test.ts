@@ -107,6 +107,10 @@ async function lastYear() {
         theme_scripture_zh: "你的兒女都要受耶和華的教訓",
         theme_scripture_en: "All thy children shall be taught of the Lord",
         welcome_zh: "歡迎姐妹們",
+        welcome_signature_zh: "2099台灣姐妹大會籌備委員會",
+        welcome_signature_en: "2099 Organizing Committee",
+        hero_alt_zh: "2099 主視覺",
+        hero_mobile_zh_path: `${sourceId}/mobile-zh-${crypto.randomUUID()}.png`,
         admin_line_id: "@twsisters",
       })
       .eq("id", sourceId),
@@ -302,7 +306,7 @@ describe("複製去年建立新年度", () => {
     expect(after.coursePairs).toEqual([]);
   });
 
-  it("首頁內容、常見問題、自訂區塊、大會特色都複製過去", async () => {
+  it("首頁內容（含歡迎詞署名，不含主視覺）、常見問題、自訂區塊、大會特色都複製過去", async () => {
     await lastYear();
 
     await switchedTo(await copied());
@@ -315,7 +319,13 @@ describe("複製去年建立新年度", () => {
       themeScriptureZh: "你的兒女都要受耶和華的教訓",
       themeScriptureEn: "All thy children shall be taught of the Lord",
       welcomeZh: "歡迎姐妹們",
+      welcomeSignatureZh: "2099台灣姐妹大會籌備委員會",
+      welcomeSignatureEn: "2099 Organizing Committee",
       adminLineId: "@twsisters",
+      // 主視覺每年不同，圖與圖片說明都不複製。
+      heroImages: { mobileZh: null, mobileEn: null, desktopZh: null, desktopEn: null },
+      heroAltZh: "",
+      heroAltEn: "",
       faqs: [{ titleZh: "要收費嗎？", bodyZh: "不用。" }],
       customBlocks: [{ titleZh: "交通資訊", buttonLabelZh: "查看", buttonUrl: "/lookup" }],
       highlights: [

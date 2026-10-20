@@ -11,6 +11,7 @@ import {
   type ContentResult,
   type HomeItemKind,
 } from "@/lib/content";
+import { attachHeroImage, HERO_SLOTS, removeHeroImage, saveHeroAlt, type HeroResult, type HeroSlot } from "@/lib/hero";
 import { createClient } from "@/lib/supabase/server";
 
 /*
@@ -31,6 +32,8 @@ export async function saveContentDetails(formData: FormData) {
     themeScriptureReferenceEn: field("themeScriptureReferenceEn"),
     welcomeZh: field("welcomeZh"),
     welcomeEn: field("welcomeEn"),
+    welcomeSignatureZh: field("welcomeSignatureZh"),
+    welcomeSignatureEn: field("welcomeSignatureEn"),
     adminLineId: field("adminLineId"),
   });
   done(result, "saved");
@@ -83,6 +86,33 @@ export async function moveContentItem(formData: FormData) {
   done(result, "moved");
 }
 
+/**
+ * 瀏覽器把圖直接上傳到存放空間之後，呼叫這裡把路徑記到年度大會上（見 src/lib/hero.ts）。
+ * 回傳結果而不是導向：記不成功時，瀏覽器要把剛上傳的檔案刪掉。
+ */
+export async function attachHeroImageAction(input: { conferenceId: string; slot: HeroSlot; path: string }): Promise<HeroResult> {
+  return attachHeroImage(await createClient(), input);
+}
+
+export async function removeHeroImageAction(formData: FormData) {
+  const field = fieldsOf(formData);
+  const slot = field("slot");
+  // 表單送來不認得的位置，只可能是有人改了網頁，直接當成錯誤。
+  if (!(HERO_SLOTS as readonly string[]).includes(slot)) throw new Error(`不認得的主視覺位置：${slot}`);
+  const result = await removeHeroImage(await createClient(), { conferenceId: field("conferenceId"), slot: slot as HeroSlot });
+  done(result, "heroRemoved");
+}
+
+export async function saveHeroAltAction(formData: FormData) {
+  const field = fieldsOf(formData);
+  const result = await saveHeroAlt(await createClient(), {
+    conferenceId: field("conferenceId"),
+    altZh: field("heroAltZh"),
+    altEn: field("heroAltEn"),
+  });
+  done(result, "saved");
+}
+
 function fieldsOf(formData: FormData) {
   return (name: string) => String(formData.get(name) ?? "");
 }
@@ -94,6 +124,6 @@ function kindFrom(formData: FormData): HomeItemKind {
   return kind as HomeItemKind;
 }
 
-function done(result: ContentResult | { ok: true; id: string }, success: string): never {
+function done(result: ContentResult | HeroResult | { ok: true; id: string }, success: string): never {
   redirect(result.ok ? `/staff/content?done=${success}` : `/staff/content?error=${result.error}`);
 }

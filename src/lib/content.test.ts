@@ -91,6 +91,8 @@ const details: Omit<ConferenceDetailsInput, "conferenceId"> = {
   themeScriptureReferenceEn: "Isaiah 54:13",
   welcomeZh: "歡迎姐妹們",
   welcomeEn: "Welcome, sisters",
+  welcomeSignatureZh: "2099台灣姐妹大會籌備委員會",
+  welcomeSignatureEn: "",
   adminLineId: " @twsisters ",
 };
 
@@ -220,12 +222,15 @@ describe("總管理員編輯年度內容", () => {
       time: { start: "09:00", end: "16:30" },
       themeScripture: { text: "你的兒女都要受耶和華的教訓", reference: "以賽亞書 54:13" },
       welcome: "歡迎姐妹們",
+      welcomeSignature: "2099台灣姐妹大會籌備委員會",
       adminLine: { id: "@twsisters" },
     });
     const en = await getHomeContent(anonClient(), "en");
     expect(en).toMatchObject({
       themeScripture: { text: "All thy children shall be taught of the Lord", reference: "Isaiah 54:13" },
       welcome: "Welcome, sisters",
+      // 英文署名沒填，顯示中文。
+      welcomeSignature: "2099台灣姐妹大會籌備委員會",
     });
     expect((await getCurrentConference(anonClient(), new Date()))!.conferenceDate).toBe("2099-05-16");
   });

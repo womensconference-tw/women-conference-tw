@@ -59,6 +59,7 @@ export async function HomePage({ preview }: { preview: boolean }) {
         </section>
       ) : (
         <>
+          {content.hero && <HeroImage hero={content.hero} />}
           <RegistrationSection
             conference={conference}
             phase={phase}
@@ -271,8 +272,29 @@ function HelpSection({ content, t }: SectionProps & { content: HomeContent }) {
   );
 }
 
+/**
+ * 主視覺（#81）：手機寬度用手機版、電腦寬度用電腦版；用 <picture>，手機不會下載電腦版的大圖。
+ * 缺圖時用哪一張已經在 pickHeroPaths 挑好；電腦版用的是手機版的圖時置中，不拉伸變形。
+ */
+function HeroImage({ hero }: { hero: NonNullable<HomeContent["hero"]> }) {
+  return (
+    <picture>
+      <source media="(min-width: 768px)" srcSet={hero.desktopUrl} />
+      {/* 存放空間的公開網址，美編組已經做好尺寸，不經過 Next.js 的圖片最佳化。 */}
+      <img
+        src={hero.mobileUrl}
+        alt={hero.alt}
+        fetchPriority="high"
+        className="mx-auto block h-auto max-h-[85vh] w-auto max-w-full rounded-lg object-contain"
+      />
+    </picture>
+  );
+}
+
 function AboutSection({ content, t }: SectionProps & { content: HomeContent }) {
-  const { themeScripture, welcome, faqs } = content;
+  const { welcome, welcomeSignature, faqs } = content;
+  // 主視覺的圖裡已經有主題經文；四張都沒有時才用文字顯示。
+  const themeScripture = content.hero ? { text: "", reference: "" } : content.themeScripture;
   if (!themeScripture.text && !welcome && faqs.length === 0) return null;
   return (
     <Section heading={t.home.aboutHeading}>
@@ -289,6 +311,7 @@ function AboutSection({ content, t }: SectionProps & { content: HomeContent }) {
         <div className="flex flex-col gap-2">
           <h3 className="text-lead font-bold">{t.home.welcomeHeading}</h3>
           <p className="whitespace-pre-line">{welcome}</p>
+          {welcomeSignature && <p className="text-right">{welcomeSignature}</p>}
         </div>
       )}
       {faqs.length > 0 && (
