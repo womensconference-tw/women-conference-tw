@@ -182,8 +182,8 @@ function HeroArea({ content, t, locale }: SectionProps & { content: HomeContent;
 
 // 375 寬的手機上，英文的網站名稱和狀態列第一行都會折成兩行，要多留一點。
 const heroMaxHeight: Record<Locale, string> = {
-  zh: "max-h-[calc(100svh-11rem)]",
-  en: "max-h-[calc(100svh-16rem)]",
+  zh: "[--hero-reserve:11rem]",
+  en: "[--hero-reserve:16rem]",
 };
 
 // 1×1 透明的圖：只有電腦版主視覺時給手機用，瀏覽器不用另外下載。
@@ -205,7 +205,7 @@ function HeroImage({ hero, locale }: { hero: NonNullable<HomeContent["hero"]>; l
         src={hero.mobileUrl ?? BLANK_IMAGE}
         alt={hero.alt}
         fetchPriority="high"
-        className={cn("mx-auto block h-auto w-auto max-w-full object-contain md:rounded-lg", heroMaxHeight[locale])}
+        className={cn("hero-max-h mx-auto block h-auto w-auto max-w-full object-contain md:rounded-lg", heroMaxHeight[locale])}
       />
     </picture>
   );

@@ -198,3 +198,14 @@
   system: extends decimal;
   suffix: ") ";
 }
+
+/*
+ * 首頁主視覺的高度上限：一屏扣掉 --hero-reserve（Header 與狀態列第一行），「前往報名」才在第一屏（ADR 0010）。
+ * svh 不含手機瀏覽器會收起的工具列；不認得 svh 的瀏覽器改用 vh，不能整條忽略（Codex 審查）。
+ */
+@utility hero-max-h {
+  max-height: calc(100svh - var(--hero-reserve));
+  @supports not (height: 100svh) {
+    max-height: calc(100vh - var(--hero-reserve));
+  }
+}
