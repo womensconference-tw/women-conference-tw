@@ -4,7 +4,47 @@ import { localized } from "./i18n/localized";
 import { heroImageUrl, heroPathsOf, pickHeroPaths } from "./hero";
 import { UUID_PATTERN } from "./registration";
 
-export type Venue = { name: string; address: string; features: string };
+/** 首頁「大會程序」的一間教堂：名稱、地址、地圖連結與這間教堂的時間軸（#84）。 */
+export type Venue = {
+  id: string;
+  name: string;
+  /** 沒填是空字串。 */
+  address: string;
+  /** 用地址開 Google 地圖；沒填地址時是 null。 */
+  mapUrl: string | null;
+  agenda: AgendaRow[];
+};
+
+/** 時間軸的一列。時間、名稱、子項目各教堂相同，地點、補充說明、課程各教堂不同。 */
+export type AgendaRow = {
+  /** HH:MM，台灣時間。 */
+  start: string;
+  end: string;
+  name: string;
+  /** 沒填是空字串。 */
+  place: string;
+  note: string;
+  /** 子項目；連到有介紹內容的大會特色時有 highlightId，否則是 null（只是文字）。 */
+  parts: { name: string; highlightId: string | null }[];
+  /** 這一列在這間教堂接的場次的課程，依分類分組；沒接場次或場次還沒有課程時是 null。 */
+  courseGroups: CourseGroup[] | null;
+};
+
+/** 同一個分類的課程。沒有分類的課程放在最後一組，category 是 null。 */
+export type CourseGroup = {
+  /** 分類就是一項大會特色；有介紹內容才能點（highlightId 不是 null）。 */
+  category: { name: string; highlightId: string | null } | null;
+  courses: AgendaCourse[];
+};
+
+/** 首頁列出的一門課。教室不公開（GLOSSARY「教室」），所以沒有教室。 */
+export type AgendaCourse = {
+  title: string;
+  /** 沒填是空字串。 */
+  speaker: string;
+  /** 連續兩堂的另一堂在哪個場次，以及這堂是不是後面那一堂；不是連續兩堂時是 null。 */
+  pairedWith: { sessionName: string; isSecond: boolean } | null;
+};
 
 export type CustomBlock = {
   title: string;
@@ -56,7 +96,11 @@ export async function getHomeContent(
       welcome_zh, welcome_en, welcome_signature_zh, welcome_signature_en, hero_alt_zh, hero_alt_en,
       hero_mobile_zh_path, hero_mobile_en_path, hero_desktop_zh_path, hero_desktop_en_path,
       faqs(question_zh, question_en, answer_zh, answer_en),
-      venues(name_zh, name_en, address_zh, address_en, features_zh, features_en),
+      venues(id, name_zh, name_en, address_zh, address_en,
+        sessions(id, name_zh, name_en, courses(id, title_zh, title_en, speaker_zh, speaker_en, highlight_id))),
+      agenda_items(start_time, end_time, name_zh, name_en,
+        agenda_item_parts(name_zh, name_en, highlight_id),
+        agenda_item_venues(venue_id, place_zh, place_en, note_zh, note_en, session_id)),
       custom_blocks(title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
       highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh)`,
     )
@@ -66,6 +110,14 @@ export async function getHomeContent(
     .order("id", { referencedTable: "faqs" })
     .order("position", { referencedTable: "venues" })
     .order("id", { referencedTable: "venues" })
+    .order("position", { referencedTable: "venues.sessions" })
+    .order("id", { referencedTable: "venues.sessions" })
+    .order("position", { referencedTable: "venues.sessions.courses" })
+    .order("id", { referencedTable: "venues.sessions.courses" })
+    .order("position", { referencedTable: "agenda_items" })
+    .order("id", { referencedTable: "agenda_items" })
+    .order("position", { referencedTable: "agenda_items.agenda_item_parts" })
+    .order("id", { referencedTable: "agenda_items.agenda_item_parts" })
     .order("position", { referencedTable: "custom_blocks" })
     .order("id", { referencedTable: "custom_blocks" })
     .order("position", { referencedTable: "highlights" })
@@ -75,6 +127,11 @@ export async function getHomeContent(
   if (!data) return null;
   const adminLineId = data.admin_line_id?.trim();
   const hero = pickHeroPaths(heroPathsOf(data), locale);
+  const pairs = await supabase.from("course_pairs").select("first_course_id, second_course_id");
+  if (pairs.error) throw pairs.error;
+  // 有介紹內容的大會特色才連到介紹頁；英文沒填時顯示中文，所以只看中文有沒有寫。
+  const linkable = new Set(data.highlights.filter((h) => h.description_zh.trim() !== "").map((h) => h.id));
+  const highlightLink = (id: string | null) => (id && linkable.has(id) ? id : null);
 
   return {
     time: data.start_time
@@ -95,11 +152,34 @@ export async function getHomeContent(
       question: localized(faq, "question", locale),
       answer: localized(faq, "answer", locale),
     })),
-    venues: data.venues.map((venue) => ({
-      name: localized(venue, "name", locale),
-      address: localized(venue, "address", locale),
-      features: localized(venue, "features", locale),
-    })),
+    venues: data.venues.map((venue) => {
+      const address = localized(venue, "address", locale);
+      return {
+        id: venue.id,
+        name: localized(venue, "name", locale),
+        address,
+        mapUrl: address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : null,
+        agenda: data.agenda_items.map((item) => {
+          const setting = item.agenda_item_venues.find((row) => row.venue_id === venue.id);
+          const session = setting?.session_id ? venue.sessions.find((s) => s.id === setting.session_id) : undefined;
+          return {
+            start: hoursMinutes(item.start_time),
+            end: hoursMinutes(item.end_time),
+            name: localized(item, "name", locale),
+            place: setting ? localized(setting, "place", locale) : "",
+            note: setting ? localized(setting, "note", locale) : "",
+            parts: item.agenda_item_parts.map((part) => ({
+              name: localized(part, "name", locale),
+              highlightId: highlightLink(part.highlight_id),
+            })),
+            courseGroups:
+              session && session.courses.length > 0
+                ? groupCourses(session.courses, venue.sessions, data.highlights, pairs.data, highlightLink, locale)
+                : null,
+          };
+        }),
+      };
+    }),
     adminLine: adminLineId ? { id: adminLineId, url: lineAddFriendUrl(adminLineId) } : null,
     customBlocks: data.custom_blocks.map((block) => ({
       title: localized(block, "title", locale),
@@ -137,6 +217,48 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
   if (error) throw error;
   if (!data || data.description_zh.trim() === "") return null;
   return { name: localized(data, "name", locale), description: localized(data, "description", locale) };
+}
+
+type LocalizedRow<F extends string> = Record<`${F}_zh` | `${F}_en`, string>;
+type CourseRow = { id: string; highlight_id: string | null } & LocalizedRow<"title" | "speaker">;
+type SessionRow = { id: string; courses: { id: string }[] } & LocalizedRow<"name">;
+
+/**
+ * 一個場次的課程依分類分組：分類照「大會有什麼」的順序，沒有分類的放最後；組內照課程的順序。
+ * 連續兩堂的另一堂在同一間教堂；場次排在前面的是前面那一堂（同一門課不會出現在兩組，資料庫擋下）。
+ */
+function groupCourses(
+  courses: CourseRow[],
+  sessions: SessionRow[],
+  highlights: ({ id: string } & LocalizedRow<"name">)[],
+  pairs: { first_course_id: string; second_course_id: string }[],
+  highlightLink: (id: string | null) => string | null,
+  locale: Locale,
+): CourseGroup[] {
+  const sessionIndex = (courseId: string) => sessions.findIndex((s) => s.courses.some((c) => c.id === courseId));
+  const pairedWith = (course: CourseRow): AgendaCourse["pairedWith"] => {
+    const pair = pairs.find((p) => p.first_course_id === course.id || p.second_course_id === course.id);
+    if (!pair) return null;
+    const otherId = pair.first_course_id === course.id ? pair.second_course_id : pair.first_course_id;
+    const [mine, other] = [sessionIndex(course.id), sessionIndex(otherId)];
+    // 另一堂不在這間教堂（不該發生）時，當成不是連續兩堂。
+    if (other < 0) return null;
+    return { sessionName: localized(sessions[other], "name", locale), isSecond: other < mine };
+  };
+  const toCourse = (course: CourseRow): AgendaCourse => ({
+    title: localized(course, "title", locale),
+    speaker: localized(course, "speaker", locale),
+    pairedWith: pairedWith(course),
+  });
+
+  const groups: CourseGroup[] = highlights
+    .map((highlight) => ({
+      category: { name: localized(highlight, "name", locale), highlightId: highlightLink(highlight.id) },
+      courses: courses.filter((course) => course.highlight_id === highlight.id).map(toCourse),
+    }))
+    .filter((group) => group.courses.length > 0);
+  const uncategorized = courses.filter((course) => !highlights.some((h) => h.id === course.highlight_id));
+  return uncategorized.length > 0 ? [...groups, { category: null, courses: uncategorized.map(toCourse) }] : groups;
 }
 
 // 資料庫的 time 欄位讀出來是 "09:00:00"。
