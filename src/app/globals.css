@@ -200,12 +200,13 @@
 }
 
 /*
- * 首頁主視覺的高度上限：一屏扣掉 --hero-reserve（Header 與狀態列第一行），「前往報名」才在第一屏（ADR 0010）。
- * svh 不含手機瀏覽器會收起的工具列；不認得 svh 的瀏覽器改用 vh，不能整條忽略（Codex 審查）。
+ * 首頁主視覺的高度上限：一屏扣掉 --hero-reserve（Header 與狀態列第一行，沒設定時 11rem），「前往報名」才在第一屏（ADR 0010）。
+ * svh 是工具列展開時看得到的高度。不認得 svh 的瀏覽器改用 vh，但 vh 可能是工具列收起時的高度
+ * （375 寬的手機上 667 對 LINE 裡實際看得到的約 560），所以再多扣 7rem；只有這些舊瀏覽器上主視覺會小一點（Codex 審查）。
  */
 @utility hero-max-h {
-  max-height: calc(100svh - var(--hero-reserve));
+  max-height: calc(100svh - var(--hero-reserve, 11rem));
   @supports not (height: 100svh) {
-    max-height: calc(100vh - var(--hero-reserve));
+    max-height: calc(100vh - var(--hero-reserve, 11rem) - 7rem);
   }
 }
