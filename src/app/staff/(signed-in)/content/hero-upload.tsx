@@ -3,7 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState } from "react";
 import { buttonVariants } from "@/components/ui/button";
-import { checkHeroFile, HERO_BUCKET, heroImagePath, heroRatioOff, type HeroError, type HeroSlot } from "@/lib/hero";
+import {
+  checkHeroFile,
+  HERO_BUCKET,
+  heroImagePath,
+  heroNotRecorded,
+  heroRatioOff,
+  type HeroError,
+  type HeroSlot,
+} from "@/lib/hero";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { SubmitButton } from "../../submit-button";
@@ -80,10 +88,10 @@ export function HeroUpload({
       console.error("記錄主視覺沒有回應", error);
       return router.push("/staff/content?error=upload_unknown");
     }
-    // 伺服器明確說沒記：刪掉剛上傳的檔案。
     if (!result.ok) {
-      await storage.remove([path]).catch(() => {});
-      return router.push(`/staff/content?error=${result.error}`);
+      // 伺服器確定沒記上才刪掉剛上傳的檔案；不確定時留著，請她重新整理看看。
+      if (heroNotRecorded(result.error)) await storage.remove([path]).catch(() => {});
+      return router.push(`/staff/content?error=${heroNotRecorded(result.error) ? result.error : "upload_unknown"}`);
     }
     router.push("/staff/content?done=heroUploaded");
   }

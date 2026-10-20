@@ -120,6 +120,14 @@ export async function removeHeroImage(
 }
 
 /**
+ * 後台記不成功時，能不能刪掉剛上傳的檔案：只有確定沒記上的才能刪。
+ * 「不確定」「系統出了問題」時可能已經記好了，刪掉的話首頁會破圖（Codex 審查）。
+ */
+export function heroNotRecorded(error: HeroError): boolean {
+  return error !== "upload_unknown" && error !== "unavailable";
+}
+
+/**
  * 只在這個位置還是 from 的時候換成 to（同一句裡比對與寫入，不會被別人插隊），成功才刪掉 from 的檔案。
  * 這樣每張被換下來的圖只會被刪一次，同時換的兩張新圖也只有一張留下來。
  */
@@ -139,8 +147,15 @@ async function swapHeroImage(
     .eq("is_current", true);
   query = from === null ? query.is(column, null) : query.eq(column, from);
   const { data, error } = await query.select("id");
-  if (error) return failure(error);
-  if (data.length === 0) {
+  if (error) {
+    const known = failure(error);
+    if (known.error !== "unavailable") return known;
+    // 不認得的錯誤（例如資料庫已經改好、回應在半路斷掉）：不知道有沒有改到，回頭讀一次（Codex 審查）。
+    // 已經是新的就當成功，照常刪舊檔；確定不是才算失敗；連讀都讀不到時說不確定，後台不會刪檔。
+    const check = await supabase.from("conferences").select(column).eq("id", conferenceId).maybeSingle();
+    if (check.error || !check.data) return { ok: false, error: "upload_unknown" };
+    if ((check.data as unknown as Record<string, string | null>)[column] !== to) return known;
+  } else if (data.length === 0) {
     // 沒改到：剛被移出總管理員（權限規則讓更新改不到、也不出錯，Codex 審查）、不是目前年度了，或這個位置剛被別人換掉。
     const admin = await ensureAdmin(supabase);
     if (admin) return admin;

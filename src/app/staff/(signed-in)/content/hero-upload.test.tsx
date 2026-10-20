@@ -94,6 +94,18 @@ describe("上傳主視覺", () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
+  it("伺服器說系統出了問題（可能已經記好）：不刪剛上傳的檔案，請她重新整理確認", async () => {
+    attach.mockResolvedValue({ ok: false, error: "unavailable" });
+    const user = userEvent.setup();
+    renderUpload();
+
+    await user.upload(screen.getByLabelText("上傳圖片"), file("image/png"));
+    await user.click(screen.getByRole("button", { name: "上傳" }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/staff/content?error=upload_unknown"));
+    expect(remove).not.toHaveBeenCalled();
+  });
+
   it("上傳失敗時說明，不記路徑", async () => {
     upload.mockResolvedValue({ data: null, error: new Error("network") });
     vi.spyOn(console, "error").mockImplementation(() => {});

@@ -8,10 +8,12 @@ import {
   HERO_BUCKET,
   HERO_MAX_BYTES,
   heroImagePath,
+  heroNotRecorded,
   heroRatioOff,
   pickHeroPaths,
   removeHeroImage,
   saveHeroAlt,
+  type HeroError,
   type HeroPaths,
   type HeroSlot,
 } from "./hero";
@@ -289,6 +291,86 @@ describe("總管理員上傳、更換、刪除主視覺", () => {
 
     expect(result).toEqual({ ok: false, error: "not_admin" });
     expect((await getContentEditor(adminClient()))!.heroImages.mobileZh).toBeNull();
+  });
+
+  const LOST = { code: "", message: "TypeError: fetch failed", details: "", hint: "" };
+
+  /**
+   * 總管理員的連線，但改年度大會的回應在半路斷掉：資料庫真的改了，拿到的卻是錯誤。
+   * readFails 時，之後讀年度大會也讀不到（連線整個斷了）。
+   */
+  function lostResponse({ readFails = false } = {}) {
+    let updated = false;
+    // 把查詢串起來的每一步都包住，等到 await 時才決定回傳什麼。
+    const wrap = (query: object, outcome: (result: unknown) => unknown): object =>
+      new Proxy(query, {
+        get(target, key) {
+          const value = Reflect.get(target, key, target);
+          if (key === "then") {
+            return (resolve: (value: unknown) => void, reject: (reason: unknown) => void) =>
+              (target as PromiseLike<unknown>).then((result) => resolve(outcome(result)), reject);
+          }
+          return typeof value === "function" ? (...args: unknown[]) => wrap(value.apply(target, args), outcome) : value;
+        },
+      });
+    return new Proxy(headAdmin, {
+      get(target, key, receiver) {
+        if (key !== "from") return Reflect.get(target, key, receiver);
+        return (table: string) => {
+          const builder = target.from(table);
+          if (table !== "conferences") return builder;
+          if (updated && readFails) return wrap(builder, () => ({ data: null, error: LOST }));
+          return new Proxy(builder, {
+            get(inner, name) {
+              const value = Reflect.get(inner, name, inner);
+              if (name !== "update") return typeof value === "function" ? value.bind(inner) : value;
+              return (...args: unknown[]) =>
+                wrap(value.apply(inner, args), () => {
+                  updated = true;
+                  return { data: null, error: LOST };
+                });
+            },
+          });
+        };
+      },
+    });
+  }
+
+  it("資料庫已經換好、回應在半路斷掉：讀回來確認是新圖就當成功，舊檔照常刪掉", async () => {
+    await alt();
+    await uploaded("mobileZh");
+    const path = heroImagePath(conferenceId!, "mobileZh", "image/png");
+    must(await headAdmin.storage.from(HERO_BUCKET).upload(path, new Blob([PNG], { type: "image/png" }), { contentType: "image/png" }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(await attachHeroImage(lostResponse(), { conferenceId: conferenceId!, slot: "mobileZh", path })).toEqual({ ok: true });
+
+    expect((await getContentEditor(headAdmin))!.heroImages.mobileZh?.path).toBe(path);
+    expect(await storedFiles()).toEqual([path]);
+  });
+
+  it("資料庫已經換好、連線整個斷了讀不回來：說不確定（後台不會刪掉新圖）", async () => {
+    await alt();
+    const old = await uploaded("mobileZh");
+    const path = heroImagePath(conferenceId!, "mobileZh", "image/png");
+    must(await headAdmin.storage.from(HERO_BUCKET).upload(path, new Blob([PNG], { type: "image/png" }), { contentType: "image/png" }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await attachHeroImage(lostResponse({ readFails: true }), { conferenceId: conferenceId!, slot: "mobileZh", path });
+
+    expect(result).toEqual({ ok: false, error: "upload_unknown" });
+    expect(heroNotRecorded((result as { error: HeroError }).error)).toBe(false);
+    // 新圖已經生效，檔案都還在。
+    expect((await getContentEditor(headAdmin))!.heroImages.mobileZh?.path).toBe(path);
+    expect(await storedFiles()).toEqual([old, path].sort());
+  });
+
+  it("確定沒記上的錯誤才能刪掉剛上傳的檔案", () => {
+    for (const error of ["alt_required", "hero_changed", "not_found", "not_admin", "upload_failed"] as const) {
+      expect(heroNotRecorded(error)).toBe(true);
+    }
+    expect(heroNotRecorded("upload_unknown")).toBe(false);
+    expect(heroNotRecorded("unavailable")).toBe(false);
   });
 
   it("路徑要是這個年度、這個位置的檔案", async () => {
