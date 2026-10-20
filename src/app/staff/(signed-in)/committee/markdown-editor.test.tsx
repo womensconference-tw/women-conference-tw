@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "./markdown-editor";
 
 /*
@@ -57,4 +57,32 @@ it("按編號清單、往內縮一層，做出多層編號清單", () => {
 it("編輯框下面顯示欄位說明", () => {
   renderEditor("");
   expect(screen.getByText(/組織章程。/)).toBeTruthy();
+});
+
+// 存草稿、捨棄草稿、別人發布或存了草稿之後，同一頁重新畫出來，編輯框拿到新的內容（#76，Codex 審查）。
+describe("內容換了", () => {
+  const editor = (defaultValue: string) => (
+    <MarkdownEditor name="memorandum" label="籌備委員會備忘錄" hint="組織章程。" defaultValue={defaultValue} />
+  );
+  const updatedNotice = () => screen.queryByText(/剛被更新/);
+
+  it("沒動過的編輯框換成新的內容", () => {
+    const { rerender } = render(editor("草稿"));
+    rerender(editor("已發布"));
+    expect(textarea().value).toBe("已發布");
+    expect(updatedNotice()).toBeNull();
+  });
+
+  it("正在編輯、還沒存：留著打到一半的內容，提醒她別人更新過", () => {
+    const { rerender } = render(editor("原本的"));
+    fireEvent.change(textarea(), { target: { value: "打到一半" } });
+    rerender(editor("別人的版本"));
+    expect(textarea().value).toBe("打到一半");
+    expect(updatedNotice()).toBeTruthy();
+
+    // 她存了自己的版本，新的內容就是編輯框裡的：提醒拿掉。
+    rerender(editor("打到一半"));
+    expect(textarea().value).toBe("打到一半");
+    expect(updatedNotice()).toBeNull();
+  });
 });

@@ -1,10 +1,10 @@
 "use client";
 
-import { useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import { applyEdit, formatMarkdown, type MarkdownFormat } from "@/lib/markdown-format";
 import { cn } from "@/lib/utils";
-import { inputClass } from "../../ui";
+import { inputClass, noticeClass } from "../../ui";
 
 const FORMATS: { format: MarkdownFormat; label: string }[] = [
   { format: "heading", label: "標題" },
@@ -20,6 +20,9 @@ const FORMATS: { format: MarkdownFormat; label: string }[] = [
 /**
  * 籌備委員會文字頁的編輯框（#75）。上方的樣式按鈕在游標位置插入（或包住選取的文字）對應的 Markdown，
  * 不會 Markdown 的人也能排版。編輯框不受 React 控制，表單照舊用 name 送出。
+ *
+ * 同一頁重新畫出來、內容換了（存草稿、捨棄草稿、別人發布或存了草稿，#76）：沒動過的編輯框換成新的內容；
+ * 正在編輯、還沒存的留著她打的字，提醒她這一頁剛被更新，不會無聲無息蓋掉（Codex 審查）。
  */
 export function MarkdownEditor({
   name,
@@ -34,6 +37,18 @@ export function MarkdownEditor({
 }) {
   const id = useId();
   const ref = useRef<HTMLTextAreaElement>(null);
+  // 編輯框目前依據的內容，用來判斷她有沒有動過。
+  const shown = useRef(defaultValue);
+  const [updatedElsewhere, setUpdatedElsewhere] = useState(false);
+
+  useEffect(() => {
+    const textarea = ref.current;
+    if (!textarea || shown.current === defaultValue) return;
+    const untouched = textarea.value === shown.current || textarea.value === defaultValue;
+    shown.current = defaultValue;
+    if (untouched) textarea.value = defaultValue;
+    setUpdatedElsewhere(!untouched);
+  }, [defaultValue]);
 
   function apply(format: MarkdownFormat) {
     const textarea = ref.current;
@@ -66,6 +81,11 @@ export function MarkdownEditor({
           </button>
         ))}
       </div>
+      {updatedElsewhere && (
+        <p role="alert" className={noticeClass}>
+          這一頁剛被更新（可能是另一位總管理員）。編輯框裡留著你還沒存的修改，按「儲存草稿」會蓋掉更新的內容。
+        </p>
+      )}
       <textarea ref={ref} id={id} name={name} defaultValue={defaultValue} rows={12} className={cn(inputClass, "font-mono")} />
       <span className="text-sm text-muted-foreground">{hint}</span>
     </div>
