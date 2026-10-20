@@ -40,6 +40,7 @@ const course = (courseId: string, name: string) => ({
   id: courseId,
   name,
   description: "",
+  speaker: "",
   isFull: false,
   pairedWith: null,
 });
@@ -137,6 +138,28 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+describe("課程的講師", () => {
+  it("有講師的課程在選項上顯示講師，沒有的不顯示", async () => {
+    const user = userEvent.setup();
+    const withSpeaker: RegistrationOptions = {
+      ...options,
+      venues: options.venues.map((venue) => ({
+        ...venue,
+        sessions: venue.sessions.map((session) => ({
+          ...session,
+          courses: session.courses.map((option) => (option.id === QUILTING ? { ...option, speaker: "黃蘋 姐妹" } : option)),
+        })),
+      })),
+    };
+    render(<RegistrationForm locale="zh" options={withSpeaker} edit={edit} />);
+
+    await user.click(button("修改課程"));
+
+    expect(radio("上午", /^拼布/).closest("label")!.textContent).toContain("講師：黃蘋 姐妹");
+    expect(radio("上午", /^插花/).closest("label")!.textContent).not.toContain("講師");
+  });
+});
 
 describe("修改報名時換場地", () => {
   // 每一步都會先檢查，沒重選的話「改好了，回到確認頁」「下一步」都會停在要重選的那一步，到不了「確認送出修改」。

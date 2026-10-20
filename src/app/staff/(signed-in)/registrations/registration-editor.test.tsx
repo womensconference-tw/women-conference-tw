@@ -35,9 +35,9 @@ const options: RegistrationOptions = {
           id: SESSION,
           name: "上午",
           courses: [
-            { id: QUILTING, name: "拼布", description: "", isFull: true, pairedWith: null },
-            { id: FLOWERS, name: "插花", description: "", isFull: true, pairedWith: null },
-            { id: SINGING, name: "唱歌", description: "", isFull: false, pairedWith: null },
+            { id: QUILTING, name: "拼布", description: "", speaker: "", isFull: true, pairedWith: null },
+            { id: FLOWERS, name: "插花", description: "", speaker: "", isFull: true, pairedWith: null },
+            { id: SINGING, name: "唱歌", description: "", speaker: "", isFull: false, pairedWith: null },
           ],
         },
       ],

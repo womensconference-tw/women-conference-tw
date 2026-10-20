@@ -49,6 +49,11 @@ export type ItemInput = {
   capacity?: string;
   /** 課程的教室；空白表示還沒排。 */
   classroom?: string;
+  /** 課程的講師；空白表示不顯示。 */
+  speakerZh?: string;
+  speakerEn?: string;
+  /** 課程的分類：同一年度的一項大會特色；空白表示沒有分類。 */
+  highlightId?: string | null;
 };
 
 export type ProgrammeError =
@@ -58,6 +63,7 @@ export type ProgrammeError =
   | "capacity_invalid"
   | "position_invalid"
   | "classroom_invalid"
+  | "highlight_invalid"
   | "in_use"
   | "programme_locked"
   | "course_pair_invalid"
@@ -103,10 +109,11 @@ export async function saveItem(
   if (classroom.length > CLASSROOM_MAX_LENGTH) return { ok: false, error: "classroom_invalid" };
 
   if (!validIds(input.id, input.conferenceId, input.parentId)) return { ok: false, error: "not_found" };
+  if (!validIds(input.highlightId)) return { ok: false, error: "highlight_invalid" };
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
-  // 課程連同教室在同一個交易裡存（save_course），教室存不了時課程也不存。
+  // 課程連同教室、講師與分類在同一個交易裡存（save_course），教室存不了時課程也不存。
   if (input.kind === "course") {
     const { data, error } = await supabase.rpc("save_course", {
       p_id: input.id || null,
@@ -119,6 +126,9 @@ export async function saveItem(
       p_description_en: text(input.descriptionEn),
       p_capacity: capacity,
       p_classroom: classroom || null,
+      p_speaker_zh: text(input.speakerZh),
+      p_speaker_en: text(input.speakerEn),
+      p_highlight_id: input.highlightId || null,
     });
     return error ? failure(error) : { ok: true, id: data as string };
   }
@@ -247,6 +257,9 @@ function failure(error: PostgrestError): { ok: false; error: ProgrammeError } {
     // 同一堂課已經是另一組的第一堂或第二堂。
     case error.code === "23505" && /course_pairs/.test(error.message):
       return { ok: false, error: "course_pair_invalid" };
+    // 分類不是同一年度的大會特色（網頁開著時被刪掉、或網頁被改過）。
+    case error.code === "23503" && /courses_highlight_same_conference/.test(error.message):
+      return { ok: false, error: "highlight_invalid" };
     // 有報名（包括已取消的）指向它，外鍵擋下刪除。
     case error.code === "23503" && /registration/.test(error.message):
       return { ok: false, error: "in_use" };
@@ -275,7 +288,13 @@ export type ProgrammeOption = ProgrammeItem & {
   stopped: boolean;
 };
 
-export type ProgrammeCourse = ProgrammeOption & { classroom: string | null };
+export type ProgrammeCourse = ProgrammeOption & {
+  classroom: string | null;
+  speakerZh: string;
+  speakerEn: string;
+  /** 分類（大會特色）的編號；沒有分類是 null。 */
+  highlightId: string | null;
+};
 
 export type ProgrammeSession = ProgrammeItem & { courses: ProgrammeCourse[] };
 
@@ -296,6 +315,8 @@ export type Programme = {
   registrationOpened: boolean;
   venues: ProgrammeVenue[];
   coursePairs: { firstCourseId: string; secondCourseId: string }[];
+  /** 課程可以選的分類：目前年度的大會特色，依首頁的順序。 */
+  highlights: { id: string; nameZh: string }[];
 };
 
 /** 目前年度的完整課程安排，含教室。只要一個場地時給 venueId。沒有目前年度時回傳 null。 */
@@ -313,12 +334,14 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
       .from("venues")
       .select(
         `id, position, region, name_zh, name_en, address_zh, address_en, features_zh, features_en,
-        sessions(id, position, name_zh, name_en, courses(${option}, title_zh, title_en, course_classrooms(classroom))),
+        sessions(id, position, name_zh, name_en, courses(
+          ${option}, title_zh, title_en, speaker_zh, speaker_en, highlight_id, course_classrooms(classroom)
+        )),
         lunch_options(${option}, name_zh, name_en)`,
       )
       .eq("conference_id", conference.data.id);
   if (venueId) venueQuery = venueQuery.eq("id", venueId);
-  const [venues, pairs] = await Promise.all([
+  const [venues, pairs, highlights] = await Promise.all([
     venueQuery
       .order("position")
       .order("id")
@@ -333,9 +356,16 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
       .select("first_course_id, second_course_id")
       .eq("conference_id", conference.data.id)
       .order("created_at"),
+    supabase
+      .from("highlights")
+      .select("id, name_zh")
+      .eq("conference_id", conference.data.id)
+      .order("position")
+      .order("id"),
   ]);
   if (venues.error) throw venues.error;
   if (pairs.error) throw pairs.error;
+  if (highlights.error) throw highlights.error;
 
   type OptionRow = {
     id: string;
@@ -380,6 +410,9 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
           ...toOption(course, course.title_zh, course.title_en),
           // 一門課最多一間教室（course_id 是主鍵），所以是單一物件或 null。
           classroom: (course.course_classrooms as unknown as { classroom: string } | null)?.classroom ?? null,
+          speakerZh: course.speaker_zh,
+          speakerEn: course.speaker_en,
+          highlightId: course.highlight_id,
         })),
       })),
       lunchOptions: venue.lunch_options.map((lunch) => toOption(lunch, lunch.name_zh, lunch.name_en)),
@@ -388,5 +421,6 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
       firstCourseId: pair.first_course_id,
       secondCourseId: pair.second_course_id,
     })),
+    highlights: highlights.data.map((highlight) => ({ id: highlight.id, nameZh: highlight.name_zh })),
   };
 }

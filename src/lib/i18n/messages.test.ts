@@ -33,6 +33,7 @@ describe("介面文字對照檔", () => {
     "home.helpLineId": ["SAMPLE_LINE_ID"],
     "register.choirWithPart": ["SAMPLE_PART"],
     "register.pairedWith": ["SAMPLE_SESSION", "SAMPLE_COURSE"],
+    "register.speaker": ["SAMPLE_SPEAKER"],
     "register.stepProgress": [2, 3, "SAMPLE_STEP"],
     "register.wardsOf": ["SAMPLE_STAKE"],
     "register.wardWithStake": ["SAMPLE_WARD", "SAMPLE_STAKE"],

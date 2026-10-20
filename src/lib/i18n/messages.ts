@@ -94,6 +94,7 @@ const zh = {
     noCourses: "這個場地不用選課，請按「下一步」。",
     full: "已額滿",
     noCourse: "不選課",
+    speaker: (name: string) => `講師：${name}`,
     pairedWith: (session: string, course: string) => `兩堂連續的課：選這堂會一起選${session}的「${course}」。`,
     sessionAllFull: "這個場次的課程都額滿了。可以選「不選課」，或回上一步改選其他場地。",
     lunchLabel: "午餐",
@@ -366,6 +367,7 @@ const en = {
     noCourses: "There are no classes to choose at this venue. Please press \"Next\".",
     full: "Full",
     noCourse: "No class",
+    speaker: (name: string) => `Speaker: ${name}`,
     pairedWith: (session: string, course: string) =>
       `Two-part class: choosing it also chooses "${course}" in ${session}.`,
     sessionAllFull:

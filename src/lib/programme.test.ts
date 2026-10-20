@@ -10,6 +10,7 @@ import {
   saveItem,
   type ItemInput,
 } from "./programme";
+import { deleteHomeItem, getContentEditor } from "./content";
 import { getRegistrationOptions } from "./registration-options";
 
 const admin = adminClient();
@@ -177,6 +178,7 @@ describe("總管理員編輯課程安排", () => {
                 id: expect.any(String),
                 name: "Family history",
                 description: "Teacher: Sister Lin",
+                speaker: "",
                 isFull: false,
                 pairedWith: null,
               },
@@ -440,6 +442,98 @@ describe("成對課程", () => {
       ok: false,
       error: "programme_locked",
     });
+  });
+});
+
+describe("課程的講師與分類", () => {
+  /** 一項大會特色。year 不給時是目前年度的。 */
+  async function highlight(nameZh: string, conference = conferenceId!) {
+    return must(await admin.from("highlights").insert({ conference_id: conference, name_zh: nameZh }).select("id").single())
+      .id as string;
+  }
+
+  async function storedCourse(id: string) {
+    const programme = (await getProgramme(headAdmin))!;
+    return programme.venues.flatMap((venue) => venue.sessions.flatMap((session) => session.courses)).find((course) => course.id === id)!;
+  }
+
+  it("總管理員可以設定講師（中英）與分類，後台讀得到可選的分類", async () => {
+    const spiritual = await highlight("靈性課程");
+    const { session } = await venueWithCourse();
+
+    const id = await saved({
+      kind: "course",
+      parentId: session,
+      nameZh: "研讀經文",
+      speakerZh: " 蔡婷儀 ",
+      speakerEn: "Tsai Ting-yi",
+      highlightId: spiritual,
+    });
+
+    expect(await storedCourse(id)).toMatchObject({ speakerZh: "蔡婷儀", speakerEn: "Tsai Ting-yi", highlightId: spiritual });
+    expect((await getProgramme(headAdmin))!.highlights).toEqual([{ id: spiritual, nameZh: "靈性課程" }]);
+
+    expect(await save({ kind: "course", id, parentId: session, nameZh: "研讀經文", speakerZh: "", highlightId: null })).toMatchObject({
+      ok: true,
+    });
+    expect(await storedCourse(id)).toMatchObject({ speakerZh: "", speakerEn: "", highlightId: null });
+  });
+
+  it("分類只能選同一年度的大會特色", async () => {
+    const other = must(await admin.from("conferences").insert({ year: 2098, conference_date: "2098-05-15" }).select("id").single()).id;
+    try {
+      const oldHighlight = await highlight("去年的靈性課程", other);
+      const { session, course } = await venueWithCourse();
+
+      expect(await save({ kind: "course", id: course, parentId: session, nameZh: "家譜入門", highlightId: oldHighlight })).toEqual({
+        ok: false,
+        error: "highlight_invalid",
+      });
+      expect(await save({ kind: "course", parentId: session, nameZh: "新課", highlightId: oldHighlight })).toEqual({
+        ok: false,
+        error: "highlight_invalid",
+      });
+      expect(await save({ kind: "course", parentId: session, nameZh: "新課", highlightId: "不是編號" })).toEqual({
+        ok: false,
+        error: "highlight_invalid",
+      });
+      expect((await storedCourse(course)).highlightId).toBeNull();
+    } finally {
+      must(await admin.from("conferences").delete().eq("id", other));
+    }
+  });
+
+  it("報名開放後講師與分類都還能改", async () => {
+    const corner = await highlight("角落課程");
+    const { session, course } = await venueWithCourse();
+    await openRegistration();
+
+    expect(
+      await save({ kind: "course", id: course, parentId: session, nameZh: "家譜入門", capacity: "20", speakerZh: "陳姊妹", highlightId: corner }),
+    ).toMatchObject({ ok: true });
+    expect(await storedCourse(course)).toMatchObject({ speakerZh: "陳姊妹", highlightId: corner });
+  });
+
+  it("刪除大會特色後，原本分到它的課程變成沒有分類；刪除前後台知道有幾門課", async () => {
+    const service = await highlight("公益服務");
+    const { session, course } = await venueWithCourse();
+    await saved({ kind: "course", id: course, parentId: session, nameZh: "家譜入門", highlightId: service });
+    await saved({ kind: "course", parentId: session, nameZh: "包巾", highlightId: service });
+
+    expect((await getContentEditor(headAdmin))!.highlights).toMatchObject([{ id: service, courseCount: 2 }]);
+    expect(await deleteHomeItem(headAdmin, "highlight", service)).toEqual({ ok: true });
+
+    expect((await storedCourse(course)).highlightId).toBeNull();
+    expect((await getProgramme(headAdmin))!.venues[0].sessions[0].courses).toHaveLength(2);
+  });
+
+  it("報名表的課程顯示講師，英文沒填時顯示中文；前台訪客讀得到講師", async () => {
+    const { session } = await venueWithCourse();
+    await saved({ kind: "course", parentId: session, nameZh: "拼布", position: "1", speakerZh: "黃蘋 姐妹" });
+    await saved({ kind: "course", parentId: session, nameZh: "插花", position: "2", speakerZh: "林姊妹", speakerEn: "Sister Lin" });
+
+    const courses = (await getRegistrationOptions(anonClient(), "en")).venues[0].sessions[0].courses;
+    expect(courses.map((course) => course.speaker)).toEqual(["", "黃蘋 姐妹", "Sister Lin"]);
   });
 });
 

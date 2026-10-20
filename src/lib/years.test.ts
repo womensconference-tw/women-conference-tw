@@ -93,7 +93,7 @@ async function switchedTo(conferenceId: string) {
 }
 
 /**
- * 2099 年的完整安排：一個場地、兩個場次、三門課（其中兩門成對、一門有教室）、限量午餐、午后動態（第三個場次，裡面一門不限量的課）、
+ * 2099 年的完整安排：一個場地、兩個場次、三門課（其中兩門成對、一門有教室與講師）、限量午餐、午后動態（第三個場次，裡面一門不限量的課）、
  * 首頁內容、常見問題、自訂區塊、兩項大會特色，以及一筆報名。建好後把時程移到過去（已截止），像去年一樣。
  */
 async function lastYear() {
@@ -115,17 +115,7 @@ async function lastYear() {
   const venue = await insert("venues", { region: "north", name_zh: "台北金華教堂", features_zh: "另有午后動態" });
   const first = await insert("sessions", { venue_id: venue, position: 1, name_zh: "第一場" });
   const second = await insert("sessions", { venue_id: venue, position: 2, name_zh: "第二場" });
-  const genealogy = await insert("courses", { session_id: first, title_zh: "家譜入門", capacity: 20 });
-  await insert("courses", { session_id: first, position: 1, title_zh: "自由選課" });
-  const genealogyTwo = await insert("courses", { session_id: second, title_zh: "家譜進階", capacity: 20 });
-  const afternoon = await insert("sessions", { venue_id: venue, position: 3, name_zh: "午后動態" });
-  await insert("courses", { session_id: afternoon, title_zh: "手作花圈" });
-  must(await admin.from("course_classrooms").insert({ course_id: genealogy, classroom: "201 教室" }));
-  must(await admin.from("course_pairs").insert({ conference_id: sourceId, first_course_id: genealogy, second_course_id: genealogyTwo }));
-  const lunch = await insert("lunch_options", { venue_id: venue, name_zh: "素食便當", capacity: 30 });
-  await insert("faqs", { question_zh: "要收費嗎？", answer_zh: "不用。" });
-  await insert("custom_blocks", { title_zh: "交通資訊", button_label_zh: "查看", button_url: "/lookup" });
-  await insert("highlights", { position: 2, name_zh: "公益服務" });
+  const service = await insert("highlights", { position: 2, name_zh: "公益服務" });
   await insert("highlights", {
     position: 1,
     name_zh: "即席唱詩班",
@@ -133,6 +123,22 @@ async function lastYear() {
     summary_zh: "跟著影片練唱",
     description_zh: "[練唱影片](https://www.youtube.com/)",
   });
+  const genealogy = await insert("courses", {
+    session_id: first,
+    title_zh: "家譜入門",
+    capacity: 20,
+    speaker_zh: "蔡婷儀",
+    speaker_en: "Tsai Ting-yi",
+  });
+  await insert("courses", { session_id: first, position: 1, title_zh: "自由選課" });
+  const genealogyTwo = await insert("courses", { session_id: second, title_zh: "家譜進階", capacity: 20 });
+  const afternoon = await insert("sessions", { venue_id: venue, position: 3, name_zh: "午后動態" });
+  await insert("courses", { session_id: afternoon, title_zh: "手作花圈", speaker_zh: "余心愛", highlight_id: service });
+  must(await admin.from("course_classrooms").insert({ course_id: genealogy, classroom: "201 教室" }));
+  must(await admin.from("course_pairs").insert({ conference_id: sourceId, first_course_id: genealogy, second_course_id: genealogyTwo }));
+  const lunch = await insert("lunch_options", { venue_id: venue, name_zh: "素食便當", capacity: 30 });
+  await insert("faqs", { question_zh: "要收費嗎？", answer_zh: "不用。" });
+  await insert("custom_blocks", { title_zh: "交通資訊", button_label_zh: "查看", button_url: "/lookup" });
 
   const registration = await insert("registrations", {
     venue_id: venue,
@@ -299,6 +305,24 @@ describe("複製去年建立新年度", () => {
         { titleZh: "公益服務", summaryZh: "", bodyZh: "" },
       ],
     });
+  });
+
+  it("課程的講師與分類都帶過去，分類對到新年度複製出來的那一項", async () => {
+    await lastYear();
+
+    await switchedTo(await copied());
+
+    const programme = (await getProgramme(headAdmin))!;
+    const category = new Map(programme.highlights.map((highlight) => [highlight.id, highlight.nameZh]));
+    const courses = programme.venues[0].sessions.flatMap((session) => session.courses);
+    expect(
+      courses.map((course) => [course.nameZh, course.speakerZh, course.speakerEn, course.highlightId && category.get(course.highlightId)]),
+    ).toEqual([
+      ["家譜入門", "蔡婷儀", "Tsai Ting-yi", null],
+      ["自由選課", "", "", null],
+      ["家譜進階", "", "", null],
+      ["手作花圈", "余心愛", "", "公益服務"],
+    ]);
   });
 
   it("大會特色的新編號由去年的編號固定算出（課程的分類才對得到新年度的那一項）", async () => {

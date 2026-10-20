@@ -39,6 +39,9 @@ export async function saveProgrammeItem(formData: FormData) {
     featuresEn: field("featuresEn"),
     capacity: field("capacity"),
     classroom: field("classroom"),
+    speakerZh: field("speakerZh"),
+    speakerEn: field("speakerEn"),
+    highlightId: field("highlightId") || null,
   });
   // 新增場地後直接到它的編輯頁，接著加場次、課程。
   const venueId = field("venueId") || (result.ok && kindFrom(formData) === "venue" ? result.id : "");

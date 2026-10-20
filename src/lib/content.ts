@@ -382,6 +382,8 @@ export type HomeItem = {
   buttonUrl: string;
   summaryZh: string;
   summaryEn: string;
+  /** 大會特色：分在這一類的課程數（#83），刪除前提醒。其他的是 0。 */
+  courseCount: number;
 };
 
 export type ContentEditor = {
@@ -410,7 +412,7 @@ export type ContentEditor = {
 };
 
 const noButton = { buttonLabelZh: "", buttonLabelEn: "", buttonUrl: "" };
-const noSummary = { summaryZh: "", summaryEn: "" };
+const noSummary = { summaryZh: "", summaryEn: "", courseCount: 0 };
 
 /** 目前年度的內容，含中英兩欄、時程、常見問題、自訂區塊與大會特色（依首頁的順序）。沒有目前年度時回傳 null。 */
 export async function getContentEditor(supabase: SupabaseClient): Promise<ContentEditor | null> {
@@ -423,7 +425,7 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       welcome_zh, welcome_en,
       faqs(id, question_zh, question_en, answer_zh, answer_en),
       custom_blocks(id, title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
-      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en)`,
+      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en, courses(count))`,
     )
     .eq("is_current", true)
     .order("position", { referencedTable: "faqs" })
@@ -484,6 +486,7 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       ...noButton,
       summaryZh: highlight.summary_zh,
       summaryEn: highlight.summary_en,
+      courseCount: highlight.courses[0]?.count ?? 0,
     })),
   };
 }
