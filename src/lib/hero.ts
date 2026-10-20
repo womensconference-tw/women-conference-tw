@@ -38,6 +38,7 @@ export type HeroError =
   | "file_too_large"
   | "alt_required"
   | "upload_failed"
+  | "hero_changed"
   | "not_found"
   | "unavailable";
 
@@ -70,54 +71,78 @@ export function heroImageUrl(supabase: SupabaseClient, path: string): string {
   return supabase.storage.from(HERO_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
-/** 把剛上傳的圖記到目前年度的某個位置；原本的圖一併刪掉。 */
+/**
+ * 把剛上傳的圖記到目前年度的某個位置；原本的圖一併刪掉。
+ * 檔案要真的在存放空間裡（伺服器動作可以被直接呼叫，不能只看路徑格式，Codex 審查）。
+ * 兩位總管理員同時換同一個位置時只有一位成功，另一位拿到 hero_changed，由她的瀏覽器刪掉剛上傳的檔案。
+ */
 export async function attachHeroImage(
   supabase: SupabaseClient,
   input: { conferenceId: string; slot: HeroSlot; path: string },
 ): Promise<HeroResult> {
   if (!HERO_SLOTS.includes(input.slot) || !UUID_PATTERN.test(input.conferenceId)) return { ok: false, error: "not_found" };
   if (!isHeroPath(input.conferenceId, input.slot, input.path)) return { ok: false, error: "upload_failed" };
-  return replaceHeroImage(supabase, input.conferenceId, input.slot, input.path);
-}
-
-/** 刪掉目前年度某個位置的圖。 */
-export async function removeHeroImage(
-  supabase: SupabaseClient,
-  input: { conferenceId: string; slot: HeroSlot },
-): Promise<HeroResult> {
-  if (!HERO_SLOTS.includes(input.slot) || !UUID_PATTERN.test(input.conferenceId)) return { ok: false, error: "not_found" };
-  return replaceHeroImage(supabase, input.conferenceId, input.slot, null);
-}
-
-async function replaceHeroImage(
-  supabase: SupabaseClient,
-  conferenceId: string,
-  slot: HeroSlot,
-  path: string | null,
-): Promise<HeroResult> {
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
-  const column = SLOTS[slot].column;
-  const current = await supabase.from("conferences").select(column).eq("id", conferenceId).eq("is_current", true).maybeSingle();
+  const column = SLOTS[input.slot].column;
+  const current = await supabase.from("conferences").select(column).eq("id", input.conferenceId).eq("is_current", true).maybeSingle();
   if (current.error) return failure(current.error);
   if (!current.data) return { ok: false, error: "not_found" };
-  const previous = (current.data as unknown as Record<string, string | null>)[column];
 
+  const exists = await supabase.storage.from(HERO_BUCKET).exists(input.path);
+  if (exists.error || !exists.data) return { ok: false, error: "upload_failed" };
+  const previous = (current.data as unknown as Record<string, string | null>)[column];
+  return swapHeroImage(supabase, input.conferenceId, input.slot, previous, input.path);
+}
+
+/**
+ * 刪掉目前年度某個位置的圖。path 是畫面上看到的那一張：別人剛換成新圖時不刪（Codex 審查），
+ * 回傳 hero_changed 請她重新整理。
+ */
+export async function removeHeroImage(
+  supabase: SupabaseClient,
+  input: { conferenceId: string; slot: HeroSlot; path: string },
+): Promise<HeroResult> {
+  if (!HERO_SLOTS.includes(input.slot) || !UUID_PATTERN.test(input.conferenceId)) return { ok: false, error: "not_found" };
+  if (!isHeroPath(input.conferenceId, input.slot, input.path)) return { ok: false, error: "hero_changed" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+  return swapHeroImage(supabase, input.conferenceId, input.slot, input.path, null);
+}
+
+/**
+ * 只在這個位置還是 from 的時候換成 to（同一句裡比對與寫入，不會被別人插隊），成功才刪掉 from 的檔案。
+ * 這樣每張被換下來的圖只會被刪一次，同時換的兩張新圖也只有一張留下來。
+ */
+async function swapHeroImage(
+  supabase: SupabaseClient,
+  conferenceId: string,
+  slot: HeroSlot,
+  from: string | null,
+  to: string | null,
+): Promise<HeroResult> {
+  const column = SLOTS[slot].column;
   // 頁面開著時目前年度換了，不能改到舊年度（和首頁內容一樣，見 src/lib/content.ts）。
-  const { data, error } = await supabase
+  let query = supabase
     .from("conferences")
-    .update({ [column]: path, updated_at: new Date().toISOString() })
+    .update({ [column]: to, updated_at: new Date().toISOString() })
     .eq("id", conferenceId)
-    .eq("is_current", true)
-    .select("id");
+    .eq("is_current", true);
+  query = from === null ? query.is(column, null) : query.eq(column, from);
+  const { data, error } = await query.select("id");
   if (error) return failure(error);
-  if (data.length === 0) return { ok: false, error: "not_found" };
+  if (data.length === 0) {
+    // 沒改到：不是目前年度了，或這個位置剛被別人換掉。
+    const still = await supabase.from("conferences").select("id").eq("id", conferenceId).eq("is_current", true).maybeSingle();
+    if (still.error) return failure(still.error);
+    return { ok: false, error: still.data ? "hero_changed" : "not_found" };
+  }
 
   // 舊檔刪不掉只是多佔空間，首頁已經換了，不算失敗。
-  if (previous && previous !== path) {
-    const removed = await supabase.storage.from(HERO_BUCKET).remove([previous]);
-    if (removed.error) console.error("刪除舊的主視覺圖片失敗", previous, removed.error);
+  if (from && from !== to) {
+    const removed = await supabase.storage.from(HERO_BUCKET).remove([from]);
+    if (removed.error) console.error("刪除舊的主視覺圖片失敗", from, removed.error);
   }
   return { ok: true };
 }
@@ -170,13 +195,14 @@ export function heroPathsOf(row: Record<string, unknown>): HeroPaths {
 }
 
 /**
- * 首頁要顯示的圖（路徑）：英文版沒有英文圖就用中文圖；中文版只用中文圖。
- * 電腦版沒有就用手機版，手機版沒有就用電腦版。都沒有時是 null（首頁改用文字顯示主題經文）。
+ * 首頁要顯示的圖（路徑）：英文版沒有英文圖就用中文圖；中文版只用中文圖。電腦版沒有就用手機版。
+ * 手機版沒有時手機不顯示圖（mobile 是 null，手機改用文字顯示主題經文）：不能讓手機下載電腦版的大圖（Codex 審查）。
+ * 都沒有時是 null。
  */
-export function pickHeroPaths(paths: HeroPaths, locale: Locale): { mobile: string; desktop: string } | null {
+export function pickHeroPaths(paths: HeroPaths, locale: Locale): { mobile: string | null; desktop: string } | null {
   const pick = (form: "mobile" | "desktop") =>
     (locale === "en" ? paths[`${form}En`] : null) ?? paths[`${form}Zh`];
-  const mobile = pick("mobile") ?? pick("desktop");
-  const desktop = pick("desktop") ?? pick("mobile");
-  return mobile && desktop ? { mobile, desktop } : null;
+  const mobile = pick("mobile");
+  const desktop = pick("desktop") ?? mobile;
+  return desktop ? { mobile, desktop } : null;
 }

@@ -63,6 +63,7 @@ const ERRORS: Record<ContentError | HeroError, string> = {
   file_too_large: "圖片超過 5 MB，請請美編組另存小一點的檔案（例如存成 JPG）。",
   alt_required: "有主視覺圖片時，中文圖片說明一定要填。",
   upload_failed: "圖片沒有上傳成功，請檢查網路後再試一次。格式要是 JPG、PNG、WebP，5 MB 以內。",
+  hero_changed: "這個位置的圖剛被換過（可能是另一位總管理員），這次沒有改。請看看現在是哪一張，再決定要不要換或刪除。",
   not_found: "找不到這一項，可能已經被刪除，或目前年度已經換了。請重新整理頁面再試一次。",
   unavailable: "系統暫時出了問題，請稍後再試。",
 };
@@ -262,8 +263,8 @@ function HeroSection({ content }: { content: NonNullable<Awaited<ReturnType<type
     <section className={cardClass}>
       <h2 className="text-xl font-bold">主視覺</h2>
       <p>
-        美編組每年做的大圖，顯示在首頁最上面（新首頁上線後）。手機寬度用手機版、電腦寬度用電腦版；
-        英文版沒有英文圖就用中文圖，電腦版沒有就用手機版。四張都沒有時，首頁改用文字顯示主題經文。
+        美編組每年做的大圖，顯示在首頁最上面。手機寬度用手機版、電腦寬度用電腦版；
+        英文版沒有英文圖就用中文圖，電腦版沒有就用手機版。沒有手機版時，手機上改用文字顯示主題經文（不讓手機下載電腦版的大圖）。
       </p>
       <form action={saveHeroAltAction} className="flex flex-col gap-3">
         <input type="hidden" name="conferenceId" value={content.conferenceId} />
@@ -304,6 +305,7 @@ function HeroSection({ content }: { content: NonNullable<Awaited<ReturnType<type
                   <form action={removeHeroImageAction} className="mt-3 flex flex-col gap-2">
                     <input type="hidden" name="conferenceId" value={content.conferenceId} />
                     <input type="hidden" name="slot" value={slot} />
+                    <input type="hidden" name="path" value={image.path} />
                     <p>確定要刪除{label}的主視覺嗎？首頁會立即拿掉，不能復原。</p>
                     <SubmitButton
                       className={cn(buttonVariants(), buttonClass, "self-start bg-destructive text-white hover:bg-destructive/80")}

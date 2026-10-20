@@ -132,7 +132,8 @@ describe("首頁要顯示哪一張", () => {
     expect(pickHeroPaths(all, "en")).toEqual({ mobile: "me", desktop: "de" });
     expect(pickHeroPaths({ ...none, mobileZh: "mz", desktopZh: "dz" }, "en")).toEqual({ mobile: "mz", desktop: "dz" });
     expect(pickHeroPaths({ ...none, mobileZh: "mz" }, "zh")).toEqual({ mobile: "mz", desktop: "mz" });
-    expect(pickHeroPaths({ ...none, desktopZh: "dz" }, "zh")).toEqual({ mobile: "dz", desktop: "dz" });
+    // 只有電腦版時手機不顯示圖，不能讓手機下載電腦版的大圖。
+    expect(pickHeroPaths({ ...none, desktopZh: "dz" }, "zh")).toEqual({ mobile: null, desktop: "dz" });
     expect(pickHeroPaths({ ...none, mobileZh: "mz", desktopEn: "de" }, "en")).toEqual({ mobile: "mz", desktop: "de" });
   });
 
@@ -153,7 +154,7 @@ describe("總管理員上傳、更換、刪除主視覺", () => {
     const zh = (await getHomeContent(anonClient(), "zh"))!.hero!;
     expect(zh).toEqual({ mobileUrl: expect.stringContaining(mobile), desktopUrl: zh.mobileUrl, alt: "2099 主視覺" });
     expect((await getHomeContent(anonClient(), "en"))!.hero!.alt).toBe("2099 key visual");
-    const response = await fetch(zh.mobileUrl);
+    const response = await fetch(zh.mobileUrl!);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
 
@@ -171,7 +172,7 @@ describe("總管理員上傳、更換、刪除主視覺", () => {
     const second = await uploaded("desktopZh");
     expect(await storedFiles()).toEqual([second]);
 
-    expect(await removeHeroImage(headAdmin, { conferenceId: conferenceId!, slot: "desktopZh" })).toEqual({ ok: true });
+    expect(await removeHeroImage(headAdmin, { conferenceId: conferenceId!, slot: "desktopZh", path: second })).toEqual({ ok: true });
     expect(await storedFiles()).toEqual([]);
     expect((await getContentEditor(headAdmin))!.heroImages.desktopZh).toBeNull();
     expect(first).not.toBe(second);
@@ -193,8 +194,58 @@ describe("總管理員上傳、更換、刪除主視覺", () => {
     });
 
     // 圖都刪掉之後可以清空。
-    await removeHeroImage(headAdmin, { conferenceId: conferenceId!, slot: "mobileZh" });
+    await removeHeroImage(headAdmin, { conferenceId: conferenceId!, slot: "mobileZh", path });
     expect(await saveHeroAlt(headAdmin, { conferenceId: conferenceId!, altZh: "", altEn: "" })).toEqual({ ok: true });
+  });
+
+  it("檔案要真的上傳了才能記；沒上傳的路徑不能換掉原本的圖", async () => {
+    await alt();
+    const kept = await uploaded("mobileZh");
+
+    const missing = heroImagePath(conferenceId!, "mobileZh", "image/png");
+    expect(await attachHeroImage(headAdmin, { conferenceId: conferenceId!, slot: "mobileZh", path: missing })).toEqual({
+      ok: false,
+      error: "upload_failed",
+    });
+    expect((await getContentEditor(headAdmin))!.heroImages.mobileZh?.path).toBe(kept);
+    expect(await storedFiles()).toEqual([kept]);
+  });
+
+  it("刪圖時畫面上的圖已經被別人換掉：不刪別人剛換上的新圖", async () => {
+    await alt();
+    const old = await uploaded("mobileZh");
+    const replaced = await uploaded("mobileZh");
+
+    expect(await removeHeroImage(headAdmin, { conferenceId: conferenceId!, slot: "mobileZh", path: old })).toEqual({
+      ok: false,
+      error: "hero_changed",
+    });
+    expect((await getContentEditor(headAdmin))!.heroImages.mobileZh?.path).toBe(replaced);
+    expect(await storedFiles()).toEqual([replaced]);
+  });
+
+  it("兩位總管理員同時換同一個位置：最後只留一張圖，沒有用不到的檔案", async () => {
+    await alt();
+    await uploaded("desktopEn");
+    const paths = [heroImagePath(conferenceId!, "desktopEn", "image/png"), heroImagePath(conferenceId!, "desktopEn", "image/png")];
+    for (const path of paths) {
+      must(await headAdmin.storage.from(HERO_BUCKET).upload(path, new Blob([PNG], { type: "image/png" }), { contentType: "image/png" }));
+    }
+
+    const results = await Promise.all(
+      paths.map((path) => attachHeroImage(headAdmin, { conferenceId: conferenceId!, slot: "desktopEn", path })),
+    );
+    // 記不成功的，像後台一樣由瀏覽器刪掉剛上傳的檔案。
+    for (const [index, result] of results.entries()) {
+      if (!result.ok) {
+        expect(result.error).toBe("hero_changed");
+        must(await headAdmin.storage.from(HERO_BUCKET).remove([paths[index]]));
+      }
+    }
+
+    const current = (await getContentEditor(headAdmin))!.heroImages.desktopEn!.path;
+    expect(paths).toContain(current);
+    expect(await storedFiles()).toEqual([current]);
   });
 
   it("路徑要是這個年度、這個位置的檔案", async () => {
@@ -223,7 +274,7 @@ describe("總管理員上傳、更換、刪除主視覺", () => {
     try {
       const path = heroImagePath(other, "mobileZh", "image/png");
       expect(await attachHeroImage(headAdmin, { conferenceId: other, slot: "mobileZh", path })).toEqual({ ok: false, error: "not_found" });
-      expect(await removeHeroImage(headAdmin, { conferenceId: other, slot: "mobileZh" })).toEqual({ ok: false, error: "not_found" });
+      expect(await removeHeroImage(headAdmin, { conferenceId: other, slot: "mobileZh", path })).toEqual({ ok: false, error: "not_found" });
       expect(await saveHeroAlt(headAdmin, { conferenceId: other, altZh: "舊的", altEn: "" })).toEqual({ ok: false, error: "not_found" });
     } finally {
       must(await admin.from("conferences").delete().eq("id", other));
@@ -260,7 +311,10 @@ describe("只有總管理員能上傳、刪除", () => {
         ok: false,
         error: "not_admin",
       });
-      expect(await removeHeroImage(client, { conferenceId: conferenceId!, slot: "mobileZh" })).toEqual({ ok: false, error: "not_admin" });
+      expect(await removeHeroImage(client, { conferenceId: conferenceId!, slot: "mobileZh", path: kept })).toEqual({
+        ok: false,
+        error: "not_admin",
+      });
       expect(await saveHeroAlt(client, { conferenceId: conferenceId!, altZh: "被改了", altEn: "" })).toEqual({ ok: false, error: "not_admin" });
 
       // 直接刪檔、直接改欄位也不行。

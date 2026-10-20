@@ -92,6 +92,21 @@ describe("首頁主視覺", () => {
     expect(screen.queryByText("你要把你的重擔卸給耶和華")).toBeNull();
   });
 
+  it("只有電腦版的圖時：手機不下載電腦版，手機上隱藏圖、改用文字顯示主題經文", async () => {
+    const desktop = path("desktop-zh");
+    must(await admin.from("conferences").update({ hero_alt_zh: "2099 主視覺", hero_desktop_zh_path: desktop }).eq("id", fixtureId!));
+
+    await renderPage(HomePage({ preview: false }));
+
+    const image = screen.getByRole<HTMLImageElement>("img", { name: "2099 主視覺" });
+    // 手機用的是不用下載的透明小圖，電腦版只在寬螢幕的來源裡。
+    expect(image.getAttribute("src")).toMatch(/^data:image\/gif;base64,/);
+    const picture = image.closest("picture")!;
+    expect(picture.className).toBe("hidden md:block");
+    expect(picture.querySelector("source")!.getAttribute("srcset")).toContain(desktop);
+    expect(screen.getByText("你要把你的重擔卸給耶和華").closest("div")!.className).toContain("md:hidden");
+  });
+
   it("英文版沒有英文圖就用中文圖", async () => {
     const mobile = path("mobile-zh");
     must(

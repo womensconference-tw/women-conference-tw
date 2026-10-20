@@ -99,7 +99,12 @@ export async function removeHeroImageAction(formData: FormData) {
   const slot = field("slot");
   // 表單送來不認得的位置，只可能是有人改了網頁，直接當成錯誤。
   if (!(HERO_SLOTS as readonly string[]).includes(slot)) throw new Error(`不認得的主視覺位置：${slot}`);
-  const result = await removeHeroImage(await createClient(), { conferenceId: field("conferenceId"), slot: slot as HeroSlot });
+  // 帶著畫面上那張圖的路徑：別人剛換成新圖時不會刪到新圖。
+  const result = await removeHeroImage(await createClient(), {
+    conferenceId: field("conferenceId"),
+    slot: slot as HeroSlot,
+    path: field("path"),
+  });
   done(result, "heroRemoved");
 }
 

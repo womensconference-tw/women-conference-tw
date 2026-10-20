@@ -30,8 +30,11 @@ export type HomeContent = {
   welcome: string;
   /** 歡迎詞的署名；沒填是空字串。 */
   welcomeSignature: string;
-  /** 主視覺圖片的公開網址（已依語言與缺圖的規則挑好，見 pickHeroPaths）與圖片說明；沒有圖時是 null。 */
-  hero: { mobileUrl: string; desktopUrl: string; alt: string } | null;
+  /**
+   * 主視覺圖片的公開網址（已依語言與缺圖的規則挑好，見 pickHeroPaths）與圖片說明；沒有圖時是 null。
+   * 只有電腦版的圖時 mobileUrl 是 null：手機不顯示圖，改用文字顯示主題經文。
+   */
+  hero: { mobileUrl: string | null; desktopUrl: string; alt: string } | null;
   faqs: { question: string; answer: string }[];
   venues: Venue[];
   /** 「需要幫忙」顯示的管理員 LINE 與加好友連結；沒填時是 null。 */
@@ -84,7 +87,7 @@ export async function getHomeContent(
     welcome: localized(data, "welcome", locale),
     welcomeSignature: localized(data, "welcome_signature", locale),
     hero: hero && {
-      mobileUrl: heroImageUrl(supabase, hero.mobile),
+      mobileUrl: hero.mobile && heroImageUrl(supabase, hero.mobile),
       desktopUrl: heroImageUrl(supabase, hero.desktop),
       alt: localized(data, "hero_alt", locale),
     },
