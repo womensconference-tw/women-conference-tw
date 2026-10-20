@@ -204,6 +204,62 @@ alter table public.sessions enable trigger sessions_locked_after_opening;
 alter table public.sessions enable trigger course_pairs_valid_after_session_change;
 alter table public.courses enable trigger courses_locked_after_opening;
 
+-- 大會程序：2026 的時間軸（設計稿 docs/design/homepage-mobile.dc.html 的 VENUES）。三個場地共用，各場地的地點不同；
+-- 三個場次接到第一、二、三場次，金華的午后動態接到「公益服務說明」。有些英文故意留空。
+insert into public.agenda_items (conference_id, position, start_time, end_time, name_zh, name_en)
+select id, a.position, a.start_time, a.end_time, a.name_zh, a.name_en
+from public.conferences, (values
+  (1, time '08:30', time '09:15', '報到', 'Check-in'),
+  (2, '09:30', '10:30', '開幕式', 'Opening session'),
+  (3, '11:00', '11:50', '第一場次', 'Session 1'),
+  (4, '11:50', '12:30', '午餐聯誼', 'Lunch'),
+  (5, '12:30', '13:15', '公益服務說明', ''),
+  (6, '13:30', '14:15', '第二場次', 'Session 2'),
+  (7, '14:30', '15:15', '第三場次', 'Session 3'),
+  (8, '15:30', '16:30', '閉幕式', 'Closing session')
+) as a(position, start_time, end_time, name_zh, name_en)
+where year = 2027;
+
+insert into public.agenda_item_parts (conference_id, agenda_item_id, position, name_zh, name_en, highlight_id)
+select i.conference_id, i.id, p.position, p.name_zh, p.name_en,
+  (select h.id from public.highlights h where h.conference_id = i.conference_id and h.name_zh = p.highlight)
+from public.agenda_items i
+join (values
+  ('開幕式', 1, '即席唱詩班', 'Impromptu choir', '即席唱詩班'),
+  ('開幕式', 2, '80 歲年長貴賓', 'Honoured guests aged 80 and over', '向貴賓致敬'),
+  ('開幕式', 3, '領袖演講', 'Leader address', '領袖演講'),
+  ('閉幕式', 1, '見證', '', null),
+  ('閉幕式', 2, '領袖演講', 'Leader address', '領袖演講')
+) as p(item, position, name_zh, name_en, highlight) on p.item = i.name_zh;
+
+insert into public.agenda_item_venues (conference_id, agenda_item_id, venue_id, place_zh, place_en, note_zh, note_en, session_id)
+select i.conference_id, i.id, v.id, coalesce(x.place_zh, ''), coalesce(x.place_en, ''), coalesce(x.note_zh, ''), '',
+  (select s.id from public.sessions s where s.venue_id = v.id and s.position = x.session_position)
+from public.agenda_items i
+join public.venues v on v.conference_id = i.conference_id
+join (values
+  ('開幕式', '台北金華教堂', '一樓大會堂', '1F Assembly Hall', null, null),
+  ('開幕式', '台中大雅教堂', '3F 大會堂', '3F Assembly Hall', null, null),
+  ('開幕式', '高雄鳥松教堂', '3F 大會堂', '', null, null),
+  ('第一場次', '台北金華教堂', null, null, null, 1),
+  ('第一場次', '台中大雅教堂', null, null, null, 1),
+  ('第一場次', '高雄鳥松教堂', null, null, null, 1),
+  ('午餐聯誼', '台中大雅教堂', '3F 康樂廳', '3F Recreation Hall', null, null),
+  ('公益服務說明', '台北金華教堂', '一樓大會堂', '1F Assembly Hall',
+    '或改參加午后動態「聲之靜·心之境」・三樓大會堂（名額有限，報名時選擇）', 4),
+  ('公益服務說明', '台中大雅教堂', '3F 大會堂', '', null, null),
+  ('公益服務說明', '高雄鳥松教堂', '3F 大會堂', '', null, null),
+  ('第二場次', '台北金華教堂', null, null, null, 2),
+  ('第二場次', '台中大雅教堂', null, null, null, 2),
+  ('第二場次', '高雄鳥松教堂', null, null, null, 2),
+  ('第三場次', '台北金華教堂', null, null, null, 3),
+  ('第三場次', '台中大雅教堂', null, null, null, 3),
+  ('第三場次', '高雄鳥松教堂', null, null, null, 3),
+  ('閉幕式', '台北金華教堂', '一樓大會堂', '1F Assembly Hall', null, null),
+  ('閉幕式', '台中大雅教堂', '3F 大會堂', '3F Assembly Hall', null, null),
+  ('閉幕式', '高雄鳥松教堂', '3F 大會堂', '', null, null)
+) as x(item, venue, place_zh, place_en, note_zh, session_position) on x.item = i.name_zh and x.venue = v.name_zh;
+
 -- 午餐也在開放報名前定案，建立時同樣暫時關掉限制。
 alter table public.lunch_options disable trigger lunch_options_locked_after_opening;
 

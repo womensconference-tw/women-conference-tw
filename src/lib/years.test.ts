@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TransactionSql } from "postgres";
 import { adminClient, anonClient, databaseClient, must, serverClient, signedInClient } from "../../test/supabase";
 import { getCurrentConference } from "./conference";
+import { getAgendaEditor } from "./agenda";
 import { getContentEditor, toTaipeiDateTimeInput } from "./content";
 import { getProgramme, type Programme } from "./programme";
 import { cancelRegistration, submitRegistration, updateRegistration, type RegistrationInput } from "./registration";
@@ -134,6 +135,23 @@ async function lastYear() {
   const genealogyTwo = await insert("courses", { session_id: second, title_zh: "家譜進階", capacity: 20 });
   const afternoon = await insert("sessions", { venue_id: venue, position: 3, name_zh: "午后動態" });
   await insert("courses", { session_id: afternoon, title_zh: "手作花圈", speaker_zh: "余心愛", highlight_id: service });
+  const agendaItem = await insert("agenda_items", { position: 1, start_time: "11:00", end_time: "11:50", name_zh: "第一場次" });
+  await insert("agenda_items", { position: 2, start_time: "12:30", end_time: "13:15", name_zh: "公益服務說明", name_en: "Service" });
+  must(
+    await admin.from("agenda_item_parts").insert([
+      { conference_id: sourceId, agenda_item_id: agendaItem, position: 1, name_zh: "公益服務", name_en: "", highlight_id: service },
+      { conference_id: sourceId, agenda_item_id: agendaItem, position: 2, name_zh: "見證", name_en: "", highlight_id: null },
+    ]),
+  );
+  must(
+    await admin.from("agenda_item_venues").insert({
+      conference_id: sourceId,
+      agenda_item_id: agendaItem,
+      venue_id: venue,
+      place_zh: "一樓大會堂",
+      session_id: first,
+    }),
+  );
   must(await admin.from("course_classrooms").insert({ course_id: genealogy, classroom: "201 教室" }));
   must(await admin.from("course_pairs").insert({ conference_id: sourceId, first_course_id: genealogy, second_course_id: genealogyTwo }));
   const lunch = await insert("lunch_options", { venue_id: venue, name_zh: "素食便當", capacity: 30 });
@@ -323,6 +341,30 @@ describe("複製去年建立新年度", () => {
       ["家譜進階", "", "", null],
       ["手作花圈", "余心愛", "", "公益服務"],
     ]);
+  });
+
+  it("大會程序一起帶過去，子項目的大會特色、教堂與場次都對到新年度的", async () => {
+    await lastYear();
+
+    await switchedTo(await copied());
+
+    const agenda = (await getAgendaEditor(headAdmin))!;
+    const venue = agenda.venues[0];
+    const highlightName = new Map(agenda.highlights.map((highlight) => [highlight.id, highlight.nameZh]));
+    expect(agenda.year).toBe(2100);
+    expect(
+      agenda.items.map((item) => ({
+        name: item.nameZh,
+        time: `${item.startTime}–${item.endTime}`,
+        parts: item.parts.map((part) => [part.nameZh, part.highlightId && highlightName.get(part.highlightId)]),
+        place: item.venues[venue.id].placeZh,
+        session: venue.sessions.find((session) => session.id === item.venues[venue.id].sessionId)?.nameZh ?? null,
+      })),
+    ).toEqual([
+      { name: "第一場次", time: "11:00–11:50", parts: [["公益服務", "公益服務"], ["見證", null]], place: "一樓大會堂", session: "第一場" },
+      { name: "公益服務說明", time: "12:30–13:15", parts: [], place: "", session: null },
+    ]);
+    expect(agenda.unplacedSessions.map((session) => session.sessionNameZh)).toEqual(["第二場", "午后動態"]);
   });
 
   it("大會特色的新編號由去年的編號固定算出（課程的分類才對得到新年度的那一項）", async () => {
