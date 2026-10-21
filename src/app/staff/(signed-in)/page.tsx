@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { REGION_LABELS, STAFF_ROLE_LABELS } from "@/lib/staff";
+import { CopyUrl } from "../copy-url";
 import { getCurrentStaff } from "../current-staff";
 
 export const metadata: Metadata = { title: "後台首頁" };
@@ -19,6 +20,11 @@ export default async function StaffHomePage() {
         {staff.name && `${staff.name}，`}你的角色是{STAFF_ROLE_LABELS[staff.role]}
         {scope && `，負責${scope}`}。
       </p>
+      <section className="mt-4 flex flex-col gap-2">
+        <h2 className="text-xl font-bold">分享首頁到 LINE 群組</h2>
+        <p>貼到支會 LINE 群組請用這個網址，姐妹點開時會改用手機的瀏覽器，報名比較順。</p>
+        <CopyUrl path="/" />
+      </section>
     </main>
   );
 }

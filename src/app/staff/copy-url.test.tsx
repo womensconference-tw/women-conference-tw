@@ -16,11 +16,18 @@ it("網址用瀏覽器網址列上的網域，按下複製網址就複製（不�
   stubClipboard(writeText);
   render(<CopyUrl path="/committee?year=2001" />);
 
-  const expected = `${window.location.origin}/committee?year=2001`;
+  const expected = `${window.location.origin}/committee?year=2001&openExternalBrowser=1`;
   expect(screen.getByLabelText<HTMLInputElement>("公開網址").value).toBe(expected);
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "複製網址" })));
   expect(writeText).toHaveBeenCalledWith(expected);
   expect(screen.getByRole("button", { name: "已複製" })).toBeTruthy();
+});
+
+it("網址加上 openExternalBrowser=1，從 LINE 打開時改用手機的瀏覽器", () => {
+  render(<CopyUrl path="/" />);
+  expect(screen.getByLabelText<HTMLInputElement>("公開網址").value).toBe(
+    `${window.location.origin}/?openExternalBrowser=1`,
+  );
 });
 
 it("瀏覽器不讓複製時，說明要自己選取複製", async () => {
