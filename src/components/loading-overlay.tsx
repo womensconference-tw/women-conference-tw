@@ -18,13 +18,35 @@ export function LoadingOverlay({ show, label }: { show: boolean; label: string }
 // 只蓋住畫面還不夠，按 Tab、Enter 仍會操作到底下的按鈕（Codex 審查）。遮蔽期間在最外層攔下鍵盤：
 // 不用 inert，因為等待中程式還要能把焦點移到錯誤訊息上，inert 會讓聚焦失敗（Codex 審查）。
 // 可能同時有好幾個遮蔽層，用計數，最後一個結束才放開（Codex 審查）。
-// 帶 Ctrl／Cmd／Alt 的瀏覽器快捷鍵不攔。
+// 只放行不會動到網頁內容的瀏覽器快捷鍵（重新整理、分頁、搜尋、縮放）；Option＋Tab、Cmd＋V 這類
+// 會移動焦點或改到欄位的都要攔（Codex 審查）。另外擋下所有編輯（打字、貼上、剪下、拖放），
+// 不管是從哪個按鍵或選單來的。
 let activeOverlays = 0;
 
+const BROWSER_SHORTCUT_KEYS = new Set(["r", "l", "t", "w", "n", "q", "f", "=", "+", "-", "0"]);
+
 function blockKeys(event: KeyboardEvent) {
-  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  const browserShortcut =
+    (event.ctrlKey || event.metaKey) && !event.altKey && BROWSER_SHORTCUT_KEYS.has(event.key.toLowerCase());
+  if (browserShortcut) return;
+  block(event);
+}
+
+function block(event: Event) {
   event.preventDefault();
   event.stopPropagation();
+}
+
+const BLOCKED_EVENTS = ["beforeinput", "paste", "cut", "drop"] as const;
+
+function lock() {
+  document.addEventListener("keydown", blockKeys, true);
+  for (const type of BLOCKED_EVENTS) document.addEventListener(type, block, true);
+}
+
+function unlock() {
+  document.removeEventListener("keydown", blockKeys, true);
+  for (const type of BLOCKED_EVENTS) document.removeEventListener(type, block, true);
 }
 
 function Overlay({ label }: { label: string }) {
@@ -34,10 +56,10 @@ function Overlay({ label }: { label: string }) {
   useEffect(() => {
     const overlay = ref.current;
     const previous = document.activeElement;
-    if (activeOverlays++ === 0) document.addEventListener("keydown", blockKeys, true);
+    if (activeOverlays++ === 0) lock();
     overlay?.focus();
     return () => {
-      if (--activeOverlays === 0) document.removeEventListener("keydown", blockKeys, true);
+      if (--activeOverlays === 0) unlock();
       const active = document.activeElement;
       if ((active === overlay || active === document.body || active === null) && previous instanceof HTMLElement) {
         previous.focus();

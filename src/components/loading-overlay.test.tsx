@@ -52,8 +52,10 @@ it("遮蔽期間攔下鍵盤，焦點在遮蔽層上；結束後放開，焦點�
   rerender(<Page first />);
   expect(document.activeElement).toBe(screen.getByRole("status"));
   expect(keyBlocked()).toBe(true);
-  // 帶 Cmd 的瀏覽器快捷鍵照常
+  // 重新整理這類瀏覽器快捷鍵照常；會移動焦點、改到欄位的組合鍵要攔（Codex 審查）
   expect(fireEvent.keyDown(document.body, { key: "r", metaKey: true })).toBe(true);
+  expect(fireEvent.keyDown(document.body, { key: "Tab", altKey: true, shiftKey: true })).toBe(false);
+  expect(fireEvent.keyDown(document.body, { key: "v", metaKey: true })).toBe(false);
 
   rerender(<Page first={false} />);
   expect(keyBlocked()).toBe(false);
@@ -77,4 +79,24 @@ it("兩個遮蔽層先後出現，先出現的先結束時，鍵盤仍然攔著�
 
   rerender(<Page first={false} second={false} />);
   expect(keyBlocked()).toBe(false);
+});
+
+it("等待中底下的欄位不能貼上或輸入，結束後恢復（Codex 審查）", () => {
+  const { rerender } = render(
+    <>
+      <input aria-label="電話" />
+      <LoadingOverlay show label="查詢中，請稍候…" />
+    </>,
+  );
+  const phone = screen.getByLabelText("電話");
+  expect(fireEvent.paste(phone)).toBe(false);
+  expect(fireEvent(phone, new InputEvent("beforeinput", { bubbles: true, cancelable: true }))).toBe(false);
+
+  rerender(
+    <>
+      <input aria-label="電話" />
+      <LoadingOverlay show={false} label="查詢中，請稍候…" />
+    </>,
+  );
+  expect(fireEvent.paste(phone)).toBe(true);
 });
