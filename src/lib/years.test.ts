@@ -156,6 +156,15 @@ async function lastYear() {
       session_id: first,
     }),
   );
+  must(
+    await admin.from("highlight_venues").insert({
+      conference_id: sourceId,
+      highlight_id: service,
+      venue_id: venue,
+      body_zh: "在一樓大廳",
+      body_en: "In the 1F lobby",
+    }),
+  );
   must(await admin.from("course_classrooms").insert({ course_id: genealogy, classroom: "201 教室" }));
   must(await admin.from("course_pairs").insert({ conference_id: sourceId, first_course_id: genealogy, second_course_id: genealogyTwo }));
   const lunch = await insert("lunch_options", { venue_id: venue, name_zh: "素食便當", capacity: 30 });
@@ -375,6 +384,27 @@ describe("複製去年建立新年度", () => {
       { name: "公益服務說明", time: "12:30–13:15", parts: [], place: "", session: null },
     ]);
     expect(agenda.unplacedSessions.map((session) => session.sessionNameZh)).toEqual(["第二場", "午后動態"]);
+  });
+
+  it("大會特色的教堂分頁一起帶過去，對到新年度的大會特色與教堂", async () => {
+    await lastYear();
+
+    const id = await copied();
+
+    const rows = must(
+      await admin
+        .from("highlight_venues")
+        .select("body_zh, body_en, highlights(conference_id, name_zh), venues(conference_id, name_zh)")
+        .eq("conference_id", id),
+    );
+    expect(rows).toEqual([
+      {
+        body_zh: "在一樓大廳",
+        body_en: "In the 1F lobby",
+        highlights: { conference_id: id, name_zh: "公益服務" },
+        venues: { conference_id: id, name_zh: "台北金華教堂" },
+      },
+    ]);
   });
 
   it("大會特色的新編號由去年的編號固定算出（課程的分類才對得到新年度的那一項）", async () => {

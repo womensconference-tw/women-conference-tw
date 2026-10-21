@@ -89,6 +89,8 @@ const zh = {
     backHome: "回首頁",
     notFound: "找不到這一頁，內容可能已經拿掉了。",
     opensInNewTab: "（在新分頁開啟）",
+    venuePickerLabel: "選擇教堂",
+    courses: "課程",
   },
   register: {
     title: "報名台灣姐妹大會",
@@ -373,6 +375,8 @@ const en = {
     backHome: "Back to the homepage",
     notFound: "This page could not be found. It may have been removed.",
     opensInNewTab: " (opens in a new tab)",
+    venuePickerLabel: "Choose a chapel",
+    courses: "Classes",
   },
   register: {
     title: "Register for the Taiwan Women's Conference",

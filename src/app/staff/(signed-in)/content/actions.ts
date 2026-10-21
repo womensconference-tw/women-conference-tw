@@ -6,6 +6,7 @@ import {
   HOME_ITEM_KINDS,
   moveHomeItem,
   saveConferenceDetails,
+  saveHighlightVenue,
   saveHomeItem,
   saveSchedule,
   type ContentResult,
@@ -84,6 +85,17 @@ export async function moveContentItem(formData: FormData) {
     field("direction") === "up" ? "up" : "down",
   );
   done(result, "moved");
+}
+
+export async function saveHighlightVenueAction(formData: FormData) {
+  const field = fieldsOf(formData);
+  const result = await saveHighlightVenue(await createClient(), {
+    highlightId: field("highlightId"),
+    venueId: field("venueId"),
+    bodyZh: field("bodyZh"),
+    bodyEn: field("bodyEn"),
+  });
+  done(result, "venueSaved");
 }
 
 /**

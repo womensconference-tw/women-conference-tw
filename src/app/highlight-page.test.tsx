@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Locale } from "@/lib/i18n/locale";
 import { messages } from "@/lib/i18n/messages";
 import { adminClient, anonClient, must } from "../../test/supabase";
 import { HighlightPage } from "./highlight-page";
+import { HighlightVenues } from "./highlight-venues";
 import { HomePage } from "./home-page";
 
 // 頁面在伺服器上讀 cookie 的部分換掉：用訪客的連線讀資料、語言由測試決定、語言切換按鈕不畫。
@@ -131,6 +133,116 @@ describe("介紹頁", () => {
     expect(screen.getByRole("status").textContent).toBe(messages.zh.preview.highlight);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("即席唱詩班");
     expect(screen.getByRole("link", { name: messages.zh.highlight.backHome }).getAttribute("href")).toBe("/preview");
+  });
+});
+
+describe("介紹頁的教堂分頁", () => {
+  // 靜態展示沒有簡介：金華有說明（夾帶 HTML 與危險連結）、大雅只有課程、鳥松什麼都沒有。
+  async function arrangeVenues() {
+    await arrange(true);
+    const venue = async (position: number, name_zh: string) =>
+      must(
+        await admin.from("venues").insert({ conference_id: fixtureId, position, region: "north", name_zh }).select("id").single(),
+      ).id as string;
+    const jinhua = await venue(1, "台北金華教堂");
+    const daya = await venue(2, "台中大雅教堂");
+    await venue(3, "高雄鳥松教堂");
+    must(
+      await admin.from("highlight_venues").insert({
+        conference_id: fixtureId,
+        highlight_id: exhibitionId,
+        venue_id: jinhua,
+        body_zh: "展示在**一樓大廳**\n\n<script>alert(1)</script>\n\n[危險連結](javascript:alert(1))",
+      }),
+    );
+    const session = must(
+      await admin.from("sessions").insert({ conference_id: fixtureId, venue_id: daya, name_zh: "第一場次" }).select("id").single(),
+    ).id;
+    const course = must(
+      await admin
+        .from("courses")
+        .insert({ conference_id: fixtureId, session_id: session, title_zh: "手作展示", speaker_zh: "王淑娟", highlight_id: exhibitionId })
+        .select("id")
+        .single(),
+    ).id;
+    must(await admin.from("course_classrooms").insert({ course_id: course, classroom: "201 教室" }));
+  }
+
+  it("只有有內容的教堂出現按鈕，按了切換；說明的 HTML 和危險連結不會變成元素，課程不帶教室", async () => {
+    await arrangeVenues();
+
+    await renderPage(HighlightPage({ id: exhibitionId, preview: false }));
+
+    const picker = screen.getByRole("group", { name: messages.zh.highlight.venuePickerLabel });
+    const buttons = within(picker).getAllByRole("button");
+    expect(buttons.map((button) => [button.textContent, button.getAttribute("aria-pressed")])).toEqual([
+      ["台北金華教堂", "true"],
+      ["台中大雅教堂", "false"],
+    ]);
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("台北金華教堂");
+    expect(screen.getByText("一樓大廳").tagName).toBe("STRONG");
+    expect(document.querySelector("script")).toBeNull();
+    expect(screen.queryByRole("link", { name: "危險連結" })).toBeNull();
+
+    fireEvent.click(buttons[1]);
+    expect(buttons[1].getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("台中大雅教堂");
+    expect(screen.getByText("手作展示")).toBeTruthy();
+    expect(screen.getByText("王淑娟")).toBeTruthy();
+    expect(screen.queryByText(/201/)).toBeNull();
+  });
+
+  it("關掉 JavaScript 時（伺服器畫的）每間教堂都依序顯示，沒有按了不會動的按鈕", async () => {
+    await arrangeVenues();
+    let element = await HighlightPage({ id: exhibitionId, preview: false });
+    while (typeof element.type === "function") {
+      element = await (element.type as (props: unknown) => ReactElement | Promise<ReactElement>)(element.props);
+    }
+
+    const html = renderToString(element);
+
+    expect(html).toContain("台北金華教堂");
+    expect(html).toContain("手作展示");
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("hidden");
+  });
+
+  it("選的教堂在重新讀資料後不見了（例如管理員清空說明後切換語言），回到第一間，不會整區空白", async () => {
+    const venue = (id: string, name: string) => ({ id, name, body: `${name}的說明`, courses: [] });
+    const venues = [venue("a", "金華"), venue("b", "大雅"), venue("c", "鳥松")];
+    const { rerender } = render(<HighlightVenues venues={venues} locale="zh" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "鳥松" }));
+    rerender(<HighlightVenues venues={venues.slice(0, 2)} locale="zh" />);
+
+    expect(screen.getByRole("button", { name: "金華" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("金華");
+
+    // 選的那間還在時，換了順序照樣選著它。
+    fireEvent.click(screen.getByRole("button", { name: "大雅" }));
+    rerender(<HighlightVenues venues={[venues[1], venues[0]]} locale="zh" />);
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("大雅");
+  });
+
+  it("網址的編號是大寫也找得到，課程照樣列出", async () => {
+    await arrangeVenues();
+
+    await renderPage(HighlightPage({ id: exhibitionId.toUpperCase(), preview: false }));
+
+    fireEvent.click(screen.getByRole("button", { name: "台中大雅教堂" }));
+    expect(screen.getByText("手作展示")).toBeTruthy();
+  });
+
+  it("首頁卡片：只有教堂分頁的大會特色也能點", async () => {
+    await arrangeVenues();
+
+    await renderPage(HomePage({ preview: false }));
+
+    const section = screen.getByRole("heading", { name: messages.zh.home.highlightsHeading }).closest("section")!;
+    expect(within(section).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
+      `/highlights/${choirId}`,
+      `/highlights/${exhibitionId}`,
+    ]);
   });
 });
 

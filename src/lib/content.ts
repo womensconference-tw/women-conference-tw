@@ -1,5 +1,6 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { HERO_SLOTS, heroImageUrl, heroPathsOf, type HeroSlot } from "./hero";
+import { hasHighlightPage } from "./home-content";
 import { trimBlank, UUID_PATTERN } from "./registration";
 
 /*
@@ -325,6 +326,30 @@ export async function moveHomeItem(
   return error ? failure(error) : { ok: true };
 }
 
+export type HighlightVenueInput = {
+  highlightId: string;
+  venueId: string;
+  bodyZh: string;
+  bodyEn: string;
+};
+
+/** 存一項大會特色在一間教堂的說明（#100）。中英都空白就拿掉這間教堂的說明。只能改目前年度的。 */
+export async function saveHighlightVenue(supabase: SupabaseClient, input: HighlightVenueInput): Promise<ContentResult> {
+  if (!validIds(input.highlightId, input.venueId) || !input.highlightId || !input.venueId) {
+    return { ok: false, error: "not_found" };
+  }
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+
+  const { error } = await supabase.rpc("save_highlight_venue", {
+    p_highlight_id: input.highlightId,
+    p_venue_id: input.venueId,
+    p_body_zh: trimBlank(input.bodyZh),
+    p_body_en: trimBlank(input.bodyEn),
+  });
+  return error ? failure(error) : { ok: true };
+}
+
 // 表單送來的編號格式不對（網頁被改過、或是很舊的頁面），當成找不到，不必交給資料庫。空的不算。
 function validIds(...ids: (string | null | undefined)[]): boolean {
   return ids.every((id) => !id || UUID_PATTERN.test(id));
@@ -420,7 +445,15 @@ export type ContentEditor = {
   registrationOpened: boolean;
   faqs: HomeItem[];
   customBlocks: HomeItem[];
-  highlights: HomeItem[];
+  highlights: HighlightItem[];
+};
+
+/** 後台的一項大會特色：除了首頁項目的欄位，還有各教堂分頁（#100）與介紹頁有沒有內容。 */
+export type HighlightItem = HomeItem & {
+  /** 介紹頁有內容（首頁卡片能點），見 hasHighlightPage。 */
+  linkable: boolean;
+  /** 目前年度的每個場地，照場地的順序：這間教堂的說明，與這間教堂分在這一類的課程數（介紹頁自動列出）。 */
+  venues: { venueId: string; venueName: string; bodyZh: string; bodyEn: string; courseCount: number }[];
 };
 
 const noButton = { buttonLabelZh: "", buttonLabelEn: "", buttonUrl: "" };
@@ -438,13 +471,17 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       hero_mobile_zh_path, hero_mobile_en_path, hero_desktop_zh_path, hero_desktop_en_path,
       faqs(id, question_zh, question_en, answer_zh, answer_en),
       custom_blocks(id, title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
-      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en, courses(count))`,
+      venues(id, name_zh, sessions(courses(highlight_id))),
+      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en,
+        courses(count), highlight_venues(venue_id, body_zh, body_en))`,
     )
     .eq("is_current", true)
     .order("position", { referencedTable: "faqs" })
     .order("id", { referencedTable: "faqs" })
     .order("position", { referencedTable: "custom_blocks" })
     .order("id", { referencedTable: "custom_blocks" })
+    .order("position", { referencedTable: "venues" })
+    .order("id", { referencedTable: "venues" })
     .order("position", { referencedTable: "highlights" })
     .order("id", { referencedTable: "highlights" })
     .maybeSingle();
@@ -510,6 +547,18 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       summaryZh: highlight.summary_zh,
       summaryEn: highlight.summary_en,
       courseCount: highlight.courses[0]?.count ?? 0,
+      linkable: hasHighlightPage(highlight.description_zh, highlight.highlight_venues, (highlight.courses[0]?.count ?? 0) > 0),
+      venues: data.venues.map((venue) => {
+        const text = highlight.highlight_venues.find((row) => row.venue_id === venue.id);
+        return {
+          venueId: venue.id,
+          venueName: venue.name_zh,
+          bodyZh: text?.body_zh ?? "",
+          bodyEn: text?.body_en ?? "",
+          courseCount: venue.sessions.flatMap((session) => session.courses).filter((c) => c.highlight_id === highlight.id)
+            .length,
+        };
+      }),
     })),
   };
 }

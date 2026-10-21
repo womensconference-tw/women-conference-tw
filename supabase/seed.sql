@@ -91,6 +91,16 @@ from public.conferences, (values
 ) as h(position, name_zh, name_en, summary_zh, summary_en, description_zh, description_en)
 where year = 2027;
 
+-- 大會特色的教堂分頁：迷妳音樂會只有金華（沒有簡介，只有分頁）；角落課程在大雅多一段說明，其他教堂只有課程。
+insert into public.highlight_venues (conference_id, highlight_id, venue_id, body_zh, body_en)
+select h.conference_id, h.id, v.id, x.body_zh, x.body_en
+from public.highlights h
+join public.venues v on v.conference_id = h.conference_id
+join (values
+  ('迷妳音樂會', '台北金華教堂', E'午后在一樓大會堂，由金華支聯會的姐妹演出。\n\n- 鋼琴\n- 小提琴', E'In the afternoon in the 1F assembly hall.'),
+  ('角落課程', '台中大雅教堂', E'角落課程在**二樓**各教室，名額有限。', '')
+) as x(highlight, venue, body_zh, body_en) on x.highlight = h.name_zh and x.venue = v.name_zh;
+
 -- 支聯會、支會名單（假資料，正式名單由後台維護）。最後一個支聯會已停用，報名表上不會出現。
 insert into public.stakes (position, region, name_zh, name_en, is_active) values
   (1, 'north', '台北支聯會', 'Taipei Stake', true),
