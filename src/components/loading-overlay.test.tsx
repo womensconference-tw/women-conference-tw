@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { LoadingOverlay } from "./loading-overlay";
+import { afterLoading, LoadingOverlay } from "./loading-overlay";
 
 afterEach(cleanup);
 
@@ -9,7 +9,7 @@ it("等待中蓋住整個畫面，放在 body 底下，顯示處理中的文字"
   const { container } = render(<LoadingOverlay show label="送出中，請稍候…" />);
   const overlay = screen.getByRole("status");
   expect(overlay.textContent).toBe("送出中，請稍候…");
-  expect(overlay.parentElement).toBe(document.body);
+  expect(overlay.parentElement?.parentElement).toBe(document.body);
   expect(container.contains(overlay)).toBe(false);
 });
 
@@ -43,60 +43,47 @@ function Page({ first, second = false }: { first: boolean; second?: boolean }) {
   );
 }
 
-const keyBlocked = () => !fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
-
-it("遮蔽期間攔下鍵盤，焦點在遮蔽層上；結束後放開，焦點回到原本按的按鈕（Codex 審查）", () => {
-  const { rerender } = render(<Page first={false} />);
+it("遮蔽期間底下整個畫面設成 inert（輔具、輸入法也操作不到），焦點在遮蔽層上；結束後還原，焦點回到原本的按鈕（Codex 審查）", () => {
+  const { container, rerender } = render(<Page first={false} />);
   screen.getByRole("button", { name: "送出" }).focus();
 
   rerender(<Page first />);
+  expect(container.inert).toBe(true);
+  expect(screen.getByRole("status").closest("[inert]")).toBeNull();
   expect(document.activeElement).toBe(screen.getByRole("status"));
-  expect(keyBlocked()).toBe(true);
-  // 重新整理這類瀏覽器快捷鍵照常；會移動焦點、改到欄位的組合鍵要攔（Codex 審查）
-  expect(fireEvent.keyDown(document.body, { key: "r", metaKey: true })).toBe(true);
-  expect(fireEvent.keyDown(document.body, { key: "Tab", altKey: true, shiftKey: true })).toBe(false);
-  expect(fireEvent.keyDown(document.body, { key: "v", metaKey: true })).toBe(false);
 
   rerender(<Page first={false} />);
-  expect(keyBlocked()).toBe(false);
+  expect(container.inert).toBe(false);
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "送出" }));
 });
 
-it("等待中程式把焦點移到錯誤訊息，結束後焦點留在錯誤訊息上（Codex 審查）", () => {
-  const { rerender } = render(<Page first />);
-  document.getElementById("error")!.focus();
-  expect(document.activeElement?.id).toBe("error");
+it("等待中要聚焦錯誤訊息，等遮蔽層結束、解除 inert 後才聚焦（Codex 審查）", () => {
+  const { container, rerender } = render(<Page first />);
+  const focusError = vi.fn(() => {
+    expect(container.inert).toBe(false);
+    document.getElementById("error")!.focus();
+  });
+  afterLoading(focusError);
+  expect(focusError).not.toHaveBeenCalled();
 
   rerender(<Page first={false} />);
+  expect(focusError).toHaveBeenCalledOnce();
   expect(document.activeElement?.id).toBe("error");
 });
 
-it("兩個遮蔽層先後出現，先出現的先結束時，鍵盤仍然攔著，到最後一個結束才放開（Codex 審查）", () => {
-  const { rerender } = render(<Page first />);
-  rerender(<Page first second />);
-  rerender(<Page first={false} second />);
-  expect(keyBlocked()).toBe(true);
-
-  rerender(<Page first={false} second={false} />);
-  expect(keyBlocked()).toBe(false);
+it("沒有遮蔽層時 afterLoading 馬上執行", () => {
+  const callback = vi.fn();
+  afterLoading(callback);
+  expect(callback).toHaveBeenCalledOnce();
 });
 
-it("等待中底下的欄位不能貼上或輸入，結束後恢復（Codex 審查）", () => {
-  const { rerender } = render(
-    <>
-      <input aria-label="電話" />
-      <LoadingOverlay show label="查詢中，請稍候…" />
-    </>,
-  );
-  const phone = screen.getByLabelText("電話");
-  expect(fireEvent.paste(phone)).toBe(false);
-  expect(fireEvent(phone, new InputEvent("beforeinput", { bubbles: true, cancelable: true }))).toBe(false);
+it("兩個遮蔽層先後出現，先出現的先結束時，底下仍然是 inert，到最後一個結束才解除（Codex 審查）", () => {
+  const { container, rerender } = render(<Page first />);
+  rerender(<Page first second />);
+  rerender(<Page first={false} second />);
+  expect(container.inert).toBe(true);
+  expect(screen.getByRole("status").textContent).toBe("切換中，請稍候…");
 
-  rerender(
-    <>
-      <input aria-label="電話" />
-      <LoadingOverlay show={false} label="查詢中，請稍候…" />
-    </>,
-  );
-  expect(fireEvent.paste(phone)).toBe(true);
+  rerender(<Page first={false} second={false} />);
+  expect(container.inert).toBe(false);
 });

@@ -12,41 +12,47 @@ import { createPortal } from "react-dom";
  */
 export function LoadingOverlay({ show, label }: { show: boolean; label: string }) {
   if (!show || typeof document === "undefined") return null;
-  return createPortal(<Overlay label={label} />, document.body);
+  return createPortal(<Overlay label={label} />, overlayRoot());
 }
 
-// 只蓋住畫面還不夠，按 Tab、Enter 仍會操作到底下的按鈕（Codex 審查）。遮蔽期間在最外層攔下鍵盤：
-// 不用 inert，因為等待中程式還要能把焦點移到錯誤訊息上，inert 會讓聚焦失敗（Codex 審查）。
-// 可能同時有好幾個遮蔽層，用計數，最後一個結束才放開（Codex 審查）。
-// 只放行不會動到網頁內容的瀏覽器快捷鍵（重新整理、分頁、搜尋、縮放）；Option＋Tab、Cmd＋V 這類
-// 會移動焦點或改到欄位的都要攔（Codex 審查）。另外擋下所有編輯（打字、貼上、剪下、拖放），
-// 不管是從哪個按鍵或選單來的。
+/*
+ * 遮蔽期間 body 底下其他東西都設成 inert：不能點、不能聚焦、輔具（螢幕閱讀器）也操作不到，
+ * 輸入法組字也進不去（只攔鍵盤事件擋不住這些，Codex 審查）。
+ * 遮蔽層都放在同一個不會被設成 inert 的容器裡；可能同時有好幾個遮蔽層，用計數，最後一個結束才解除（Codex 審查）。
+ * inert 期間程式要聚焦或打開對話框都會失敗，所以這類動作要用 afterLoading，等解除後才做（Codex 審查）。
+ */
+let root: HTMLElement | null = null;
 let activeOverlays = 0;
+let locked: HTMLElement[] = [];
+let queued: (() => void)[] = [];
 
-const BROWSER_SHORTCUT_KEYS = new Set(["r", "l", "t", "w", "n", "q", "f", "=", "+", "-", "0"]);
-
-function blockKeys(event: KeyboardEvent) {
-  const browserShortcut =
-    (event.ctrlKey || event.metaKey) && !event.altKey && BROWSER_SHORTCUT_KEYS.has(event.key.toLowerCase());
-  if (browserShortcut) return;
-  block(event);
+function overlayRoot() {
+  if (!root || !root.isConnected) {
+    root = document.createElement("div");
+    document.body.append(root);
+  }
+  return root;
 }
-
-function block(event: Event) {
-  event.preventDefault();
-  event.stopPropagation();
-}
-
-const BLOCKED_EVENTS = ["beforeinput", "paste", "cut", "drop"] as const;
 
 function lock() {
-  document.addEventListener("keydown", blockKeys, true);
-  for (const type of BLOCKED_EVENTS) document.addEventListener(type, block, true);
+  locked = Array.from(document.body.children).filter(
+    (element): element is HTMLElement => element !== root && element instanceof HTMLElement && !element.inert,
+  );
+  for (const element of locked) element.inert = true;
 }
 
 function unlock() {
-  document.removeEventListener("keydown", blockKeys, true);
-  for (const type of BLOCKED_EVENTS) document.removeEventListener(type, block, true);
+  for (const element of locked) element.inert = false;
+  locked = [];
+  const callbacks = queued;
+  queued = [];
+  for (const callback of callbacks) callback();
+}
+
+/** 要聚焦、打開對話框時用：沒有遮蔽層就馬上做，有的話等遮蔽層都結束、畫面解除鎖定後再做。 */
+export function afterLoading(callback: () => void) {
+  if (activeOverlays === 0) callback();
+  else queued.push(callback);
 }
 
 function Overlay({ label }: { label: string }) {

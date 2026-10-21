@@ -3,7 +3,7 @@
 import { LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
-import { LoadingOverlay } from "@/components/loading-overlay";
+import { afterLoading, LoadingOverlay } from "@/components/loading-overlay";
 import { RegistrationDetails } from "@/components/registration-details";
 import { buttonVariants } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n/locale";
@@ -221,14 +221,16 @@ export function RegistrationForm({
     const first = stepFields.flat().find((field) => next[field]);
     if (!first) return;
     setStep(stepFields.findIndex((fields) => fields.includes(first)));
-    // 等畫面換到有錯的那一步，再把游標移到第一個有錯的欄位。
-    requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>(
-          `[data-field="${first}"][tabindex], [data-field="${first}"] :is(input:enabled, button, [tabindex])`,
-        )
-        ?.focus();
-    });
+    // 等畫面換到有錯的那一步、遮蔽層也結束了，再把游標移到第一個有錯的欄位。
+    requestAnimationFrame(() =>
+      afterLoading(() =>
+        document
+          .querySelector<HTMLElement>(
+            `[data-field="${first}"][tabindex], [data-field="${first}"] :is(input:enabled, button, [tabindex])`,
+          )
+          ?.focus(),
+      ),
+    );
   }
 
   function setChoices(next: CourseChoices) {

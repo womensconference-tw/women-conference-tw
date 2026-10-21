@@ -3,7 +3,7 @@
 import { LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { LoadingOverlay } from "@/components/loading-overlay";
+import { afterLoading, LoadingOverlay } from "@/components/loading-overlay";
 import { RegistrationDetails } from "@/components/registration-details";
 import { buttonVariants } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n/locale";
@@ -152,7 +152,9 @@ export function LookupForm({
         setCancelling(null);
         setCancelledId(registration.id);
         // 確認區塊消失了，把焦點移到「已經取消」那句，用鍵盤或螢幕閱讀器的人才知道結果。
-        requestAnimationFrame(() => document.getElementById(`cancelled-${registration.id}`)?.focus());
+        requestAnimationFrame(() =>
+          afterLoading(() => document.getElementById(`cancelled-${registration.id}`)?.focus()),
+        );
       } else {
         setCancelError(result.error);
       }

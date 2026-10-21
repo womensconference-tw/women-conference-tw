@@ -3,7 +3,7 @@
 import { LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { LoadingOverlay } from "@/components/loading-overlay";
+import { afterLoading, LoadingOverlay } from "@/components/loading-overlay";
 import { buttonVariants } from "@/components/ui/button";
 import { messages } from "@/lib/i18n/messages";
 import type { RegistrationForEdit } from "@/lib/registration-list";
@@ -172,7 +172,8 @@ export function RegistrationEditor({
       if (result.needsConfirmation) {
         setErrors({});
         setConfirming({ sent, fullOptions: result.fullOptions ?? [] });
-        dialog.current?.showModal();
+        // 遮蔽層還在時底下是 inert，打開的對話框不能操作，等遮蔽層結束再開。
+        afterLoading(() => dialog.current?.showModal());
         return;
       }
       setErrors(result.errors);
