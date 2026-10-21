@@ -41,7 +41,7 @@ export async function publishTextsAction(formData: FormData) {
   done(formData, result, "published", result.ok || result.error !== "draft_changed" ? "/staff/committee" : "/preview/committee");
 }
 
-// 捨棄成功時帶一個新的重設代號，編輯框就算正在編輯也換回已發布的內容（MarkdownEditor 的 resetToken）。
+// 捨棄成功時帶一個新的重設代號，編輯框就算正在編輯也換回已發布的內容（RichTextEditor 的 resetToken）。
 export async function discardTextDraftAction(formData: FormData) {
   const result = await discardCommitteeTextDraft(await createClient(), fieldsOf(formData)("conferenceId"));
   done(formData, result, "discarded", "/staff/committee", result.ok ? { reset: crypto.randomUUID() } : {});
