@@ -14,7 +14,7 @@ import { buttonClass, inputClass } from "./ui";
 export function CopyUrl({ path }: { path: string }) {
   // 伺服器上沒有瀏覽器的網址，先只顯示路徑，畫到瀏覽器上再補上網域。
   const origin = useSyncExternalStore(noSubscription, () => window.location.origin, () => "");
-  const url = origin + path + (path.includes("?") ? "&" : "?") + "openExternalBrowser=1";
+  const url = origin + withOpenExternalBrowser(path);
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
 
   async function copy() {
@@ -47,6 +47,14 @@ export function CopyUrl({ path }: { path: string }) {
       )}
     </div>
   );
+}
+
+/** 用網址解析設定參數：放在錨點（#）前面，原本就有的值改成 1，不重複加（Codex 審查）。 */
+function withOpenExternalBrowser(path: string): string {
+  // 只用來解析路徑的假網站，網域由瀏覽器網址列補上。
+  const parsed = new URL(path, "https://self.invalid");
+  parsed.searchParams.set("openExternalBrowser", "1");
+  return parsed.pathname + parsed.search + parsed.hash;
 }
 
 // 網址列的網域在這一頁不會變，不必訂閱變化。

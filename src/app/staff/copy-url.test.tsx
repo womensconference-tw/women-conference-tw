@@ -30,6 +30,20 @@ it("網址加上 openExternalBrowser=1，從 LINE 打開時改用手機的瀏覽
   );
 });
 
+it("網址有錨點時，參數加在錨點前面，錨點照樣有用（Codex 審查）", () => {
+  render(<CopyUrl path="/#register" />);
+  expect(screen.getByLabelText<HTMLInputElement>("公開網址").value).toBe(
+    `${window.location.origin}/?openExternalBrowser=1#register`,
+  );
+});
+
+it("網址已經有 openExternalBrowser 時改成 1，不重複加（Codex 審查）", () => {
+  render(<CopyUrl path="/committee?openExternalBrowser=0&year=2001" />);
+  expect(screen.getByLabelText<HTMLInputElement>("公開網址").value).toBe(
+    `${window.location.origin}/committee?openExternalBrowser=1&year=2001`,
+  );
+});
+
 it("瀏覽器不讓複製時，說明要自己選取複製", async () => {
   stubClipboard(async () => {
     throw new Error("denied");
