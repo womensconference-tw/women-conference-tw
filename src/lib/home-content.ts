@@ -239,7 +239,7 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
   const { data, error } = await supabase
     .from("highlights")
     .select(
-      "conference_id, name_zh, name_en, description_zh, description_en, highlight_venues(venue_id, body_zh, body_en), conferences!inner(is_current)",
+      "id, conference_id, name_zh, name_en, description_zh, description_en, highlight_venues(venue_id, body_zh, body_en), conferences!inner(is_current)",
     )
     .eq("id", id)
     .eq("conferences.is_current", true)
@@ -268,7 +268,8 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
         body: text && text.body_zh.trim() !== "" ? localized(text, "body", locale) : "",
         courses: venue.sessions.flatMap((session) =>
           session.courses
-            .filter((course) => course.highlight_id === id)
+            // 用資料庫讀出的編號比對：網址的編號可能是大寫。
+            .filter((course) => course.highlight_id === data.id)
             .map((course) => ({
               title: localized(course, "title", locale),
               speaker: localized(course, "speaker", locale),
@@ -278,9 +279,9 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
       };
     })
     .filter((venue) => venue.body !== "" || venue.courses.length > 0);
-  if (!hasHighlightPage(data.description_zh, data.highlight_venues, venues.some((venue) => venue.courses.length > 0))) {
-    return null;
-  }
+  // 和 hasHighlightPage 同一個規則，但看實際要顯示的分頁：兩次讀取之間換了目前年度時，場地讀不到，
+  // 只有教堂說明的就沒東西可看，要顯示找不到，不能是一頁空白。
+  if (data.description_zh.trim() === "" && venues.length === 0) return null;
   return {
     name: localized(data, "name", locale),
     description: data.description_zh.trim() === "" ? "" : localized(data, "description", locale),

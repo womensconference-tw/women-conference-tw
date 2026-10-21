@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Locale } from "@/lib/i18n/locale";
 import { messages } from "@/lib/i18n/messages";
@@ -188,6 +189,30 @@ describe("介紹頁的教堂分頁", () => {
     expect(screen.getByText("手作展示")).toBeTruthy();
     expect(screen.getByText("王淑娟")).toBeTruthy();
     expect(screen.queryByText(/201/)).toBeNull();
+  });
+
+  it("關掉 JavaScript 時（伺服器畫的）每間教堂都依序顯示，沒有按了不會動的按鈕", async () => {
+    await arrangeVenues();
+    let element = await HighlightPage({ id: exhibitionId, preview: false });
+    while (typeof element.type === "function") {
+      element = await (element.type as (props: unknown) => ReactElement | Promise<ReactElement>)(element.props);
+    }
+
+    const html = renderToString(element);
+
+    expect(html).toContain("台北金華教堂");
+    expect(html).toContain("手作展示");
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("hidden");
+  });
+
+  it("網址的編號是大寫也找得到，課程照樣列出", async () => {
+    await arrangeVenues();
+
+    await renderPage(HighlightPage({ id: exhibitionId.toUpperCase(), preview: false }));
+
+    fireEvent.click(screen.getByRole("button", { name: "台中大雅教堂" }));
+    expect(screen.getByText("手作展示")).toBeTruthy();
   });
 
   it("首頁卡片：只有教堂分頁的大會特色也能點", async () => {

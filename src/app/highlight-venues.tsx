@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Markdown } from "@/components/markdown";
 import { buttonVariants } from "@/components/ui/button";
 import type { HighlightVenue } from "@/lib/home-content";
@@ -11,15 +11,17 @@ import { cn } from "@/lib/utils";
 /**
  * 介紹頁的教堂分頁（#100）：和首頁大會程序一樣用大按鈕選教堂，下面是那間教堂的說明與課程。
  * 只在畫面上切換，不重新載入頁面；只有一間教堂時不用按鈕，直接顯示。
+ * 伺服器畫出每一間教堂，關掉 JavaScript 時全部依序顯示、沒有按鈕（按了也不會動）；瀏覽器接手後才只顯示選到的那一間。
  */
 export function HighlightVenues({ venues, locale }: { venues: HighlightVenue[]; locale: Locale }) {
   const t = messages[locale].highlight;
   const [selected, setSelected] = useState(0);
-  const venue = venues[selected] ?? venues[0];
+  const interactive = useSyncExternalStore(subscribeNothing, () => true, () => false);
+  const picker = interactive && venues.length > 1;
 
   return (
     <section className="-mx-5 flex flex-col gap-5 bg-muted px-5 py-8 md:mx-0 md:rounded-lg md:px-8">
-      {venues.length > 1 && (
+      {picker && (
         <div role="group" aria-label={t.venuePickerLabel} className="grid grid-cols-[repeat(auto-fit,minmax(5rem,1fr))] gap-2">
           {venues.map((candidate, index) => (
             <button
@@ -37,24 +39,35 @@ export function HighlightVenues({ venues, locale }: { venues: HighlightVenue[]; 
           ))}
         </div>
       )}
-      <div className="flex flex-col gap-4 rounded-lg bg-background p-5">
-        <h2 className="text-lead font-bold">{venue.name}</h2>
-        {venue.body && <Markdown newTabLabel={t.opensInNewTab}>{venue.body}</Markdown>}
-        {venue.courses.length > 0 && (
-          <div className="flex flex-col gap-2">
-            <h3 className="font-bold">{t.courses}</h3>
-            <ul className="flex flex-col gap-2">
-              {venue.courses.map((course, index) => (
-                <li key={index} className="flex flex-col rounded-md border border-card-outline px-4 py-3">
-                  <span className="text-muted-foreground">{course.sessionName}</span>
-                  <span className="font-semibold">{course.title}</span>
-                  {course.speaker && <span className="text-muted-foreground">{course.speaker}</span>}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
+      {venues.map((venue, index) => (
+        <div
+          key={venue.id}
+          hidden={picker && index !== selected}
+          className="flex flex-col gap-4 rounded-lg bg-background p-5"
+        >
+          <h2 className="text-lead font-bold">{venue.name}</h2>
+          {venue.body && <Markdown newTabLabel={t.opensInNewTab}>{venue.body}</Markdown>}
+          {venue.courses.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <h3 className="font-bold">{t.courses}</h3>
+              <ul className="flex flex-col gap-2">
+                {venue.courses.map((course, courseIndex) => (
+                  <li key={courseIndex} className="flex flex-col rounded-md border border-card-outline px-4 py-3">
+                    <span className="text-muted-foreground">{course.sessionName}</span>
+                    <span className="font-semibold">{course.title}</span>
+                    {course.speaker && <span className="text-muted-foreground">{course.speaker}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      ))}
     </section>
   );
+}
+
+// 「瀏覽器接手了沒」不會再變，不必訂閱。
+function subscribeNothing() {
+  return () => {};
 }
