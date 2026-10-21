@@ -1,6 +1,7 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -11,21 +12,49 @@ import { createPortal } from "react-dom";
  */
 export function LoadingOverlay({ show, label }: { show: boolean; label: string }) {
   if (!show || typeof document === "undefined") return null;
-  return createPortal(
+  return createPortal(<Overlay label={label} />, document.body);
+}
+
+function Overlay({ label }: { label: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // 只蓋住畫面還不夠，按 Tab 仍會跑到底下的按鈕、按 Enter 又送出另一件事（Codex 審查）。
+  // 遮蔽期間把 body 底下其他東西設成 inert（不能點、不能聚焦），焦點移到遮蔽層上。
+  // 結束後還原；焦點沒被別的程式移走的話，回到原本按的按鈕。
+  useEffect(() => {
+    const overlay = ref.current;
+    if (!overlay) return;
+    const previous = document.activeElement;
+    const blocked = Array.from(document.body.children).filter(
+      (element): element is HTMLElement => element !== overlay && element instanceof HTMLElement && !element.inert,
+    );
+    for (const element of blocked) element.inert = true;
+    overlay.focus();
+    return () => {
+      for (const element of blocked) element.inert = false;
+      const active = document.activeElement;
+      if ((active === overlay || active === document.body || active === null) && previous instanceof HTMLElement) {
+        previous.focus();
+      }
+    };
+  }, []);
+
+  return (
     <div
+      ref={ref}
       role="status"
       aria-live="polite"
+      tabIndex={-1}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
       }}
-      className="fixed inset-0 z-50 flex cursor-wait items-center justify-center bg-black/50"
+      className="fixed inset-0 z-50 flex cursor-wait items-center justify-center bg-black/50 outline-none"
     >
       <div className="flex flex-col items-center gap-3 rounded-lg bg-background px-8 py-6 text-foreground shadow-lg">
         <LoaderCircle aria-hidden className="size-10 animate-spin text-primary" />
         <p className="text-lg font-semibold">{label}</p>
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }

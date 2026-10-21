@@ -6,6 +6,9 @@ import { useFormStatus } from "react-dom";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { cn } from "@/lib/utils";
 
+// GET 表單換頁最多等這麼久，之後就算沒收到任何事件也解除遮蔽。
+const NAVIGATION_TIMEOUT_MS = 15_000;
+
 /**
  * 後台表單的送出按鈕。按下後到伺服器回應前停用，並顯示轉圈圈與「處理中…」，整個畫面也蓋上遮蔽層，
  * 使用者才不會以為按鈕沒反應而一按再按。
@@ -34,13 +37,27 @@ export function SubmitButton({
   useEffect(() => {
     const form = ref.current?.form;
     if (!navigates || !form) return;
-    const start = () => setNavigating(true);
-    const reset = () => setNavigating(false);
+    // 按瀏覽器的「停止」中止換頁時不會觸發 pageshow，畫面會一直被遮住：支援 Navigation API 的瀏覽器
+    // 會觸發 navigateerror；不支援的，過一段時間也自動解除，至少不會卡死到要重新整理。
+    const navigation = (window as Window & { navigation?: EventTarget }).navigation;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const reset = () => {
+      clearTimeout(timer);
+      setNavigating(false);
+    };
+    const start = () => {
+      setNavigating(true);
+      clearTimeout(timer);
+      timer = setTimeout(reset, NAVIGATION_TIMEOUT_MS);
+    };
     form.addEventListener("submit", start);
     window.addEventListener("pageshow", reset);
+    navigation?.addEventListener("navigateerror", reset);
     return () => {
+      clearTimeout(timer);
       form.removeEventListener("submit", start);
       window.removeEventListener("pageshow", reset);
+      navigation?.removeEventListener("navigateerror", reset);
     };
   }, [navigates]);
 
