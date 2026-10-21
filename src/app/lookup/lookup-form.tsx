@@ -1,5 +1,6 @@
 "use client";
 
+import { LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { RegistrationDetails } from "@/components/registration-details";
@@ -211,8 +212,10 @@ export function LookupForm({
         <button
           type="submit"
           disabled={pending}
-          className={cn(buttonVariants(), actionClass, "font-bold")}
+          aria-busy={pending}
+          className={cn(buttonVariants(), actionClass, "gap-2 font-bold")}
         >
+          {pending && <LoaderCircle aria-hidden className="size-5 animate-spin" />}
           {pending ? t.lookup.submittingButton : t.lookup.submitButton}
         </button>
       </form>
@@ -325,8 +328,10 @@ function CancelConfirm({
         type="button"
         onClick={onConfirm}
         disabled={pending}
-        className={cn(buttonVariants(), actionClass, "bg-destructive font-bold text-white hover:bg-destructive/80")}
+        aria-busy={pending}
+        className={cn(buttonVariants(), actionClass, "gap-2 bg-destructive font-bold text-white hover:bg-destructive/80")}
       >
+        {pending && <LoaderCircle aria-hidden className="size-5 animate-spin" />}
         {pending ? t.cancel.confirmingButton : t.cancel.confirmButton}
       </button>
       <button

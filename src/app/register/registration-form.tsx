@@ -1,5 +1,6 @@
 "use client";
 
+import { LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { RegistrationDetails } from "@/components/registration-details";
@@ -520,14 +521,16 @@ export function RegistrationForm({
         <button
           type="submit"
           disabled={pending || previewLocked}
+          aria-busy={pending}
           className={cn(
             // 預覽的送出按鈕和首頁「報名前」的按鈕一樣用虛線框表示不能按；不用半透明，文字才保有高對比。
             buttonVariants(previewLocked ? { variant: "secondary" } : undefined),
             actionClass,
-            "min-h-(--button-primary-min-height) text-(length:--text-lead-size) font-bold disabled:opacity-100",
+            "min-h-(--button-primary-min-height) gap-2 text-(length:--text-lead-size) font-bold disabled:opacity-100",
             previewLocked && "border-2 border-dashed border-foreground/40",
           )}
         >
+          {pending && <LoaderCircle aria-hidden className="size-5 animate-spin" />}
           {step < lastStep
             ? t.register.nextButton
             : previewLocked
