@@ -266,6 +266,19 @@ describe("貼上（續）", () => {
     expect(markdown().split("\n")[0]).toBe("| 甲 乙 |");
   });
 
+  it("清單項目開頭有好幾個空段落：表格與下一層清單仍在項目裡", async () => {
+    const { view, markdown } = await open("");
+    view.pasteHTML(
+      "<ol><li><p></p><p></p><table><tr><th>時間</th></tr><tr><td>9:00</td></tr></table></li>" +
+        "<li><p></p><p></p><ul><li><p>子項</p></li></ul></li></ol>",
+    );
+    const reopened = await open(markdown());
+    expect(reopened.root.querySelector("ol > li > table")).not.toBeNull();
+    expect(reopened.root.querySelector("ol > li > ul > li")?.textContent).toBe("子項");
+    expect(reopened.root.querySelectorAll("ol > li")).toHaveLength(2);
+    expect(reopened.markdown()).toBe(markdown());
+  });
+
   it("從 VS Code 複製的文字當成純文字貼上", async () => {
     const { view, markdown } = await open("");
     view.pasteText("const a = 1;", pasteEvent({ "text/plain": "const a = 1;", "vscode-editor-data": '{"mode":"javascript"}' }));
@@ -368,6 +381,16 @@ describe("工具列", () => {
     placeCursor(view, "甲");
     const from = view.state.selection.from;
     placeCursor(view, "乙");
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, view.state.selection.from + 1)));
+    run(view, toggleList(view.state.schema.nodes.ordered_list));
+    expect(markdown()).toBe("1. 甲\n   1. 乙\n   2. 丙\n2. 丁\n");
+  });
+
+  it("選取從下一層選到上一層的下一個項目：每一層都換成編號清單", async () => {
+    const { view, markdown } = await open("- 甲\n  - 乙\n  - 丙\n- 丁");
+    placeCursor(view, "乙");
+    const from = view.state.selection.from;
+    placeCursor(view, "丁");
     view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, view.state.selection.from + 1)));
     run(view, toggleList(view.state.schema.nodes.ordered_list));
     expect(markdown()).toBe("1. 甲\n   1. 乙\n   2. 丙\n2. 丁\n");

@@ -61,7 +61,7 @@ import {
   exitTable,
   insertTableCommand,
 } from "@milkdown/kit/preset/gfm";
-import type { Node as ProseNode } from "@milkdown/kit/prose/model";
+import { Fragment, type Node as ProseNode } from "@milkdown/kit/prose/model";
 import { EditorState, Plugin } from "@milkdown/kit/prose/state";
 import { TableMap } from "@milkdown/kit/prose/tables";
 import type { EditorView } from "@milkdown/kit/prose/view";
@@ -257,14 +257,30 @@ export function createRichTextEditor(
     .create();
 }
 
+/**
+ * 存檔前拿掉清單項目裡第一段以外的空段落（例如貼上的 <li><p></p><p></p><table>）。空段落存出來是空行，
+ * 「1.」後面空一行，後面的表格或下一層清單就不在這個項目裡了。只在存出的內容拿掉，編輯器裡的文件不動，
+ * 打字打到段落暫時空了也不會被刪。
+ */
+function withoutEmptyListParagraphs(node: ProseNode): ProseNode {
+  if (node.isTextblock || node.isLeaf) return node;
+  const children: ProseNode[] = [];
+  node.forEach((child, _offset, index) => {
+    const empty = child.type.name === "paragraph" && child.content.size === 0;
+    if (node.type.name === "list_item" && index > 0 && empty) return;
+    children.push(withoutEmptyListParagraphs(child));
+  });
+  return node.copy(Fragment.from(children));
+}
+
 /** 編輯器目前的內容存成 Markdown。 */
 export function editorMarkdown(editor: Editor): string {
-  return editor.action((ctx) => ctx.get(serializerCtx)(ctx.get(editorViewCtx).state.doc));
+  return editor.action((ctx) => ctx.get(serializerCtx)(withoutEmptyListParagraphs(ctx.get(editorViewCtx).state.doc)));
 }
 
 /** Markdown 載入編輯器再存回來的樣子，用來比對內容有沒有改。 */
 export function normalizeMarkdown(editor: Editor, markdown: string): string {
-  return editor.action((ctx) => ctx.get(serializerCtx)(ctx.get(parserCtx)(markdown)));
+  return editor.action((ctx) => ctx.get(serializerCtx)(withoutEmptyListParagraphs(ctx.get(parserCtx)(markdown))));
 }
 
 /**
