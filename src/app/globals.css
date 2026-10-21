@@ -199,6 +199,70 @@
   suffix: ") ";
 }
 
+/* 後台所見即所得編輯器（#88）的內容，排版和公開頁面的 Markdown 元件一致。 */
+@layer components {
+  .rich-text > * + * {
+    @apply mt-3;
+  }
+  .rich-text h1,
+  .rich-text h2,
+  .rich-text h3,
+  .rich-text h4,
+  .rich-text h5,
+  .rich-text h6 {
+    @apply mt-2 font-bold break-words;
+  }
+  .rich-text h1 {
+    @apply text-lead;
+  }
+  .rich-text h2 {
+    @apply text-lg;
+  }
+  .rich-text p,
+  .rich-text li {
+    @apply break-words;
+  }
+  .rich-text ul {
+    @apply list-disc pl-7;
+  }
+  .rich-text ol {
+    @apply list-decimal pl-8;
+  }
+  /* 編號清單依層次是 1. → A. → a. → 1)。 */
+  .rich-text ol ol {
+    @apply list-[upper-alpha];
+  }
+  .rich-text ol ol ol {
+    @apply list-[lower-alpha];
+  }
+  .rich-text ol ol ol ol {
+    @apply list-[paren-decimal];
+  }
+  .rich-text li + li,
+  .rich-text li > ol,
+  .rich-text li > ul {
+    @apply mt-1;
+  }
+  .rich-text a {
+    @apply underline;
+  }
+  /* 表格在手機上左右捲動，不撐破版面。 */
+  .rich-text table {
+    @apply block max-w-full overflow-x-auto border-collapse text-left;
+  }
+  .rich-text th,
+  .rich-text td {
+    @apply relative min-w-24 border px-2 py-1 align-top;
+  }
+  .rich-text th {
+    @apply font-bold;
+  }
+  /* 選取的儲存格（拖曳選取多格時）。 */
+  .rich-text .selectedCell::after {
+    @apply pointer-events-none absolute inset-0 bg-primary/15 content-[''];
+  }
+}
+
 /*
  * 首頁主視覺的高度上限：一屏扣掉 --hero-reserve（Header 與狀態列第一行，沒設定時 11rem），「前往報名」才在第一屏（ADR 0010）。
  * svh 是工具列展開時看得到的高度。不認得 svh 的瀏覽器改用 vh，但手機上的 vh 可能是工具列收起時的高度

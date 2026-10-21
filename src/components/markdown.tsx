@@ -2,6 +2,7 @@ import type { Element, Root } from "hast";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { SAFE_URL } from "@/lib/safe-url";
 import { ExternalLink } from "./external-link";
 
 /*
@@ -12,9 +13,6 @@ import { ExternalLink } from "./external-link";
  * - 圖片不顯示，只留替代文字。
  * - 編號清單依層次是 1. → A. → a. → 1)，和籌備委員會備忘錄一致。
  */
-
-// 只寫「https://」沒填網址的，也當成不是連結。
-const SAFE_URL = /^https?:\/\/[^\s/?#]/i;
 
 /** 只留 http(s) 網址，其他一律拿掉；元件再把沒有網址的連結畫成一般文字。 */
 const urlTransform = (url: string) => (SAFE_URL.test(url) ? url : "");

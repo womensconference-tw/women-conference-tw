@@ -14,7 +14,7 @@ import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { getCurrentStaff } from "../../current-staff";
 import { DateTimeField, Field } from "../../fields";
-import { MarkdownEditor } from "../../markdown-editor";
+import { RichTextEditor } from "../../rich-text-editor";
 import { PreviewLinks } from "../../preview-links";
 import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
@@ -435,14 +435,14 @@ function ItemForm({
       {kind === "highlight" ? (
         <>
           <TextPair name="summary" label="卡片上的一句話" zh={item?.summaryZh} en={item?.summaryEn} />
-          <MarkdownEditor
+          <RichTextEditor
             name="bodyZh"
             label="介紹內容（中文）"
             hint="介紹頁的內容，例如練唱影片的連結、要帶什麼。不寫的話首頁的卡片不能點。"
             defaultValue={item?.bodyZh ?? ""}
             saveLabel={submitLabel}
           />
-          <MarkdownEditor
+          <RichTextEditor
             name="bodyEn"
             label="介紹內容（英文）"
             hint="不寫的話英文版顯示中文。"
