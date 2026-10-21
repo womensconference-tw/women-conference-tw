@@ -66,7 +66,7 @@ import { EditorState, Plugin } from "@milkdown/kit/prose/state";
 import { TableMap } from "@milkdown/kit/prose/tables";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { $prose, $remark } from "@milkdown/kit/utils";
-import { remarkRichText } from "@/lib/rich-text";
+import { joinListItemChildren, remarkRichText } from "@/lib/rich-text";
 import { SAFE_URL } from "@/lib/safe-url";
 
 /*
@@ -77,11 +77,6 @@ import { SAFE_URL } from "@/lib/safe-url";
  */
 
 const remarkRichTextPlugin = $remark("remarkRichText", () => remarkRichText);
-
-/** 清單項目在第一段之後除了下一層清單還有別的（例如表格），項目裡要空行分隔，否則表格後面的文字會被讀成表格的一列。 */
-function listItemNeedsSpread(children: readonly { type: { name: string } }[]) {
-  return children.slice(1).some((child) => child.type.name !== "ordered_list" && child.type.name !== "bullet_list");
-}
 
 /**
  * 表格有合併的儲存格（從 Word、Google 文件貼上）時拆開：Markdown 表格不能合併，合併的文字放在左上那一格，
@@ -98,7 +93,9 @@ function unmergeTable(table: ProseNode): ProseNode | null {
   const rows: ProseNode[] = [];
   for (let r = 0; r < map.height; r++) {
     const row = table.child(r);
-    const cellType = row.firstChild!.type;
+    // 整列被上面的合併格蓋住時，這一列沒有自己的儲存格，依列的種類決定。
+    const { table_header, table_cell } = table.type.schema.nodes;
+    const cellType = row.type.name === "table_header_row" ? table_header : table_cell;
     const cells: ProseNode[] = [];
     for (let c = 0; c < map.width; c++) {
       const pos = map.map[r * map.width + c];
@@ -114,9 +111,11 @@ function unmergeTable(table: ProseNode): ProseNode | null {
 
 /**
  * 內容變了之後的整理，讓編輯器裡看到的和存出來的 Markdown 一樣：
+ * - 表格合併的儲存格拆開；一格裡的換行（Markdown 存不了）改成空白。
+ * - 清單存成緊密清單（項目之間不空行），新增的項目才不會在公開頁面多出段落間距。項目裡的表格前後要不要空行由
+ *   joinListItemChildren 決定。
  * - 貼上或拖進來的連結和公開頁面一樣只接受 http(s)，其他的拿掉連結、只留文字。
- * - 清單存成緊密清單（項目之間不空行），新增的項目才不會在公開頁面多出段落間距；項目裡有表格時例外。
- * - 表格的一格不能換行（Markdown 存不了），換行改成空白；合併的儲存格拆開。
+ * 外掛自己補的修改，ProseMirror 不會再交給它看一次，所以一次做完：先拆合併格，再整理拆好的文件。
  */
 const normalize = $prose(
   () =>
@@ -126,26 +125,22 @@ const normalize = $prose(
         const { link } = state.schema.marks;
         const tr = state.tr;
         state.doc.descendants((node, pos) => {
-          const at = tr.mapping.map(pos);
-          if (node.type.name === "table") {
-            const unmerged = unmergeTable(node);
-            if (unmerged) {
-              tr.replaceWith(at, tr.mapping.map(pos + node.nodeSize), unmerged);
-              return false;
-            }
-          }
-          if (node.type.name === "hardbreak" && state.doc.resolve(pos).node(-1).type.spec.tableRole) {
-            tr.replaceWith(at, tr.mapping.map(pos + node.nodeSize), state.schema.text(" "));
+          if (node.type.name !== "table") return true;
+          const unmerged = unmergeTable(node);
+          if (unmerged) tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), unmerged);
+          return false;
+        });
+        const doc = tr.doc;
+        const base = tr.steps.length;
+        const map = (pos: number) => tr.mapping.slice(base).map(pos);
+        doc.descendants((node, pos) => {
+          if (node.type.name === "hardbreak" && doc.resolve(pos).node(-1).type.spec.tableRole) {
+            tr.replaceWith(map(pos), map(pos + node.nodeSize), state.schema.text(" "));
             return false;
           }
-          if (node.type.name === "ordered_list" || node.type.name === "bullet_list") {
-            if (node.attrs.spread) tr.setNodeAttribute(at, "spread", false);
-          } else if (node.type.name === "list_item") {
-            const spread = listItemNeedsSpread(node.children);
-            if (node.attrs.spread !== spread) tr.setNodeAttribute(at, "spread", spread);
-          }
+          if (node.attrs.spread === true) tr.setNodeAttribute(map(pos), "spread", false);
           const mark = link.isInSet(node.marks);
-          if (mark && !SAFE_URL.test(mark.attrs.href)) tr.removeMark(at, tr.mapping.map(pos + node.nodeSize), mark);
+          if (mark && !SAFE_URL.test(mark.attrs.href)) tr.removeMark(map(pos), map(pos + node.nodeSize), mark);
         });
         return tr.docChanged ? tr : null;
       },
@@ -251,7 +246,11 @@ export function createRichTextEditor(
       ctx.set(defaultValueCtx, markdown);
       ctx.update(editorViewOptionsCtx, (prev) => ({ ...prev, attributes }));
       // 項目清單和舊的樣式按鈕一樣用「-」。
-      ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: "-" as const }));
+      ctx.update(remarkStringifyOptionsCtx, (prev) => ({
+        ...prev,
+        bullet: "-" as const,
+        join: [joinListItemChildren, ...(prev.join ?? [])],
+      }));
     })
     .use(richTextPlugins)
     .use(updates)

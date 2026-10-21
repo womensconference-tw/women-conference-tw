@@ -33,9 +33,21 @@ function mergeIntoList(type: NodeType): Command {
     const range = $from.blockRange($to);
     if (!range) return false;
     const { list_item, paragraph } = state.schema.nodes;
-    // 選取範圍在同一份清單的不同項目之間（例如從下一層清單選到下一個項目）：換掉這份清單的種類。
-    if (isList(range.parent)) {
-      dispatch?.(state.tr.setNodeMarkup(range.start - 1, type));
+    // 選取範圍在同一份清單裡（例如從一個項目選到它的下一層、或從下一層選到下一個項目）：層次不變，
+    // 換掉這份清單和範圍裡下一層清單的種類。
+    if (isList(range.parent) || range.parent.type === list_item) {
+      if (dispatch) {
+        const tr = state.tr;
+        const listDepth = isList(range.parent) ? range.depth : range.depth - 1;
+        tr.setNodeMarkup(range.$from.before(listDepth), type);
+        let pos = range.start;
+        for (let index = range.startIndex; index < range.endIndex; index++) {
+          const child = range.parent.child(index);
+          if (isList(child)) tr.setNodeMarkup(pos, type);
+          pos += child.nodeSize;
+        }
+        dispatch(tr);
+      }
       return true;
     }
     const items: ProseNode[] = [];

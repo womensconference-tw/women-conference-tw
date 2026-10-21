@@ -1,4 +1,4 @@
-import type { Break, Nodes, Parent, PhrasingContent, Root, RootContent, Text } from "mdast";
+import type { Break, Nodes, Parent, Parents, PhrasingContent, Root, RootContent, Text } from "mdast";
 import { toMarkdown } from "mdast-util-to-markdown";
 import { SAFE_URL } from "./safe-url";
 
@@ -47,9 +47,10 @@ function clean(node: RootContent, definitions: Definitions, block: boolean): Roo
         else node.children.unshift({ type: "paragraph", children: [box] });
         node.checked = null;
       }
+      node.spread = false;
       node.children = cleanChildren(node.children, definitions, true) as typeof node.children;
-      // 存成緊密清單；第一段之後除了下一層清單還有別的（例如表格）時，要空行分隔才讀得回來。
-      node.spread = node.children.slice(1).some((child) => child.type !== "list");
+      // 編輯器的清單項目一定以段落開頭；「1.」後面直接接表格時補一個空段落。
+      if (node.children[0]?.type !== "paragraph") node.children.unshift({ type: "paragraph", children: [] });
       return [node];
     }
     case "table":
@@ -126,3 +127,15 @@ export function plainTextToMarkdown(text: string): string {
   return toMarkdown(tree);
 }
 
+/**
+ * 存檔時清單項目裡各段之間要不要空行（mdast-util-to-markdown 的 join）。清單存成緊密清單，但表格前後一定要空行，
+ * 否則表格後面的文字會被讀成表格的一列。項目開頭是空段落（例如刪光了表格前的文字）時不空行：
+ * 「1.」後面空一行，表格就不在清單裡了。
+ */
+export function joinListItemChildren(left: Nodes, right: Nodes, parent: Parents): number | undefined {
+  if (parent.type !== "listItem") return undefined;
+  // Milkdown 存出的空段落沒有 children。
+  if (left.type === "paragraph" && !left.children?.length) return 0;
+  if (left.type === "paragraph" && right.type === "list") return 0;
+  return 1;
+}

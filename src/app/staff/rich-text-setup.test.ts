@@ -234,6 +234,29 @@ describe("貼上（續）", () => {
     ]);
   });
 
+  it("表格同時有合併格、換行與危險連結：一次整理好", async () => {
+    const { view, root, markdown } = await open("");
+    view.pasteHTML(
+      "<table><tr><th>甲</th><th>乙</th></tr>" +
+        '<tr><td rowspan="2">一<br>二</td><td><a href="javascript:alert(1)">壞</a></td></tr><tr><td>三</td></tr></table>',
+    );
+    expect(markdown()).not.toMatch(/javascript/);
+    expect(markdown()).toContain("| 一 二 | 壞");
+    expect(root.querySelector("td br:not(.ProseMirror-trailingBreak)")).toBeNull();
+  });
+
+  it("合併格蓋住整列（這一列沒有自己的儲存格）也能貼上", async () => {
+    const { view, markdown } = await open("");
+    view.pasteHTML(
+      "<table><tr><th>甲</th><th>乙</th></tr>" +
+        '<tr><td rowspan="2" colspan="2">合併</td></tr><tr></tr><tr><td>1</td><td>2</td></tr></table>',
+    );
+    const rows = markdown().trim().split("\n").map((line) => line.split("|").map((cell) => cell.trim()).slice(1, -1));
+    expect(rows[0]).toEqual(["甲", "乙"]);
+    expect(rows[2]).toEqual(["合併", ""]);
+    expect(rows.at(-1)).toEqual(["1", "2"]);
+  });
+
   it("儲存格裡的換行變成空白，編輯器看到的和存出來的一樣", async () => {
     const { view, root, markdown } = await open("| 甲 |\n| - |\n| 1 |");
     placeCursor(view, "甲");
@@ -328,6 +351,26 @@ describe("工具列", () => {
       "第二項",
     ]);
     expect(reopened.markdown()).toBe(markdown());
+  });
+
+  it("清單項目刪光表格前的文字：表格仍在清單裡", async () => {
+    const { view, markdown } = await open("1. 甲\n\n   | 時間 |\n   | - |\n   | 9:00 |\n2. 乙");
+    placeCursor(view, "甲");
+    view.dispatch(view.state.tr.delete(view.state.selection.from, view.state.selection.from + 1));
+    const reopened = await open(markdown());
+    expect(reopened.root.querySelector("ol > li > table")).not.toBeNull();
+    expect(reopened.root.querySelectorAll("ol > li")).toHaveLength(2);
+    expect(reopened.markdown()).toBe(markdown());
+  });
+
+  it("選取從項目選到它的下一層：層次不變，換成編號清單", async () => {
+    const { view, markdown } = await open("- 甲\n  - 乙\n  - 丙\n- 丁");
+    placeCursor(view, "甲");
+    const from = view.state.selection.from;
+    placeCursor(view, "乙");
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, view.state.selection.from + 1)));
+    run(view, toggleList(view.state.schema.nodes.ordered_list));
+    expect(markdown()).toBe("1. 甲\n   1. 乙\n   2. 丙\n2. 丁\n");
   });
 
   it("游標在標題列、表格還有資料列：刪掉標題列，下一列變成標題列", async () => {
