@@ -7,6 +7,7 @@ import type { Locale } from "@/lib/i18n/locale";
 import { messages } from "@/lib/i18n/messages";
 import { adminClient, anonClient, must } from "../../test/supabase";
 import { HighlightPage } from "./highlight-page";
+import { HighlightVenues } from "./highlight-venues";
 import { HomePage } from "./home-page";
 
 // 頁面在伺服器上讀 cookie 的部分換掉：用訪客的連線讀資料、語言由測試決定、語言切換按鈕不畫。
@@ -204,6 +205,23 @@ describe("介紹頁的教堂分頁", () => {
     expect(html).toContain("手作展示");
     expect(html).not.toContain("<button");
     expect(html).not.toContain("hidden");
+  });
+
+  it("選的教堂在重新讀資料後不見了（例如管理員清空說明後切換語言），回到第一間，不會整區空白", async () => {
+    const venue = (id: string, name: string) => ({ id, name, body: `${name}的說明`, courses: [] });
+    const venues = [venue("a", "金華"), venue("b", "大雅"), venue("c", "鳥松")];
+    const { rerender } = render(<HighlightVenues venues={venues} locale="zh" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "鳥松" }));
+    rerender(<HighlightVenues venues={venues.slice(0, 2)} locale="zh" />);
+
+    expect(screen.getByRole("button", { name: "金華" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("金華");
+
+    // 選的那間還在時，換了順序照樣選著它。
+    fireEvent.click(screen.getByRole("button", { name: "大雅" }));
+    rerender(<HighlightVenues venues={[venues[1], venues[0]]} locale="zh" />);
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("大雅");
   });
 
   it("網址的編號是大寫也找得到，課程照樣列出", async () => {

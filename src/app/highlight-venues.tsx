@@ -15,7 +15,9 @@ import { cn } from "@/lib/utils";
  */
 export function HighlightVenues({ venues, locale }: { venues: HighlightVenue[]; locale: Locale }) {
   const t = messages[locale].highlight;
-  const [selected, setSelected] = useState(0);
+  // 記住選的是哪一間（不是第幾間）：語言切換等重新讀資料時，教堂少了一間也不會選到不存在的位置；選的那間不見了就回到第一間。
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = Math.max(0, venues.findIndex((venue) => venue.id === selectedId));
   const interactive = useSyncExternalStore(subscribeNothing, () => true, () => false);
   const picker = interactive && venues.length > 1;
 
@@ -28,7 +30,7 @@ export function HighlightVenues({ venues, locale }: { venues: HighlightVenue[]; 
               key={candidate.id}
               type="button"
               aria-pressed={index === selected}
-              onClick={() => setSelected(index)}
+              onClick={() => setSelectedId(candidate.id)}
               className={cn(
                 buttonVariants({ variant: index === selected ? "default" : "outline" }),
                 "h-auto min-h-(--button-min-height) border-2 border-primary px-2 py-2 text-(length:--text-body-size) leading-snug font-bold whitespace-normal",
