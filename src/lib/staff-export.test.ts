@@ -11,6 +11,10 @@ let conferenceId: string;
 let stakeIds: string[] = [];
 let quiltingId: string;
 
+// 這個測試在報名開放前多建 1000 門課（開放後不能新增課程），其他測試不用。
+const MANY_COURSES = "課程超過一次能讀的 1000 門時，最後建的課程照樣讀得到";
+let dayaMorningId: string;
+
 /*
  * 2099 年度大會（報名中）：
  * - 北區金華：上午（拼布在 201 教室、唱歌沒填教室）、下午（插花在 301 教室）；午餐便當。
@@ -20,7 +24,7 @@ let quiltingId: string;
  * 王三（大雅、北區新店支會，烘焙、跨區）、王四（大雅、大雅支會，沒選課）、王五（金華、新店，已取消）。
  * 工作人員：總管理員、北區課務組、北區報報組、全區報報組。
  */
-beforeEach(async () => {
+beforeEach(async ({ task }) => {
   const current = must(await admin.from("conferences").select("id").eq("is_current", true));
   previousCurrentIds = current.map((row) => row.id);
   must(await admin.from("conferences").update({ is_current: false }).eq("is_current", true));
@@ -63,7 +67,7 @@ beforeEach(async () => {
     ).id;
   const morningId = await addSession(jinhuaId, 1, "上午 10:00");
   const afternoonId = await addSession(jinhuaId, 2, "下午 13:30");
-  const dayaMorningId = await addSession(dayaId, 1, "大雅上午 10:00");
+  dayaMorningId = await addSession(dayaId, 1, "大雅上午 10:00");
 
   const addCourse = async (sessionId: string, position: number, title: string, classroom?: string) => {
     const { id } = must(
@@ -80,6 +84,19 @@ beforeEach(async () => {
   const singingId = await addCourse(morningId, 2, "唱歌");
   const flowersId = await addCourse(afternoonId, 1, "插花", "301");
   const bakingId = await addCourse(dayaMorningId, 1, "烘焙", "A1");
+  if (task.name === MANY_COURSES) {
+    must(
+      await admin.from("courses").insert(
+        Array.from({ length: 1000 }, (_, index) => ({
+          conference_id: conferenceId,
+          session_id: dayaMorningId,
+          position: 10 + index,
+          title_zh: `填充課程 ${index}`,
+        })),
+      ),
+    );
+    await addCourse(dayaMorningId, 2000, "最後的課", "B2");
+  }
 
   const bentoId = must(
     await admin
@@ -310,14 +327,47 @@ describe("完整名單與支聯會簡表", () => {
 });
 
 describe("分批讀取", () => {
-  it("報名、課程比一批多時分好幾批讀完，一筆都不少", async () => {
-    const supabase = await signedInClient("head@example.com");
-    const whole = await exportStaffCsv(supabase, "full_roster", 2099);
-    const paged = await exportStaffCsv(supabase, "full_roster", 2099, { pageSize: 2 });
-    expect(paged).toEqual(whole);
-    expect(await exportStaffCsv(supabase, "badges", 2099, { pageSize: 1 })).toEqual(
-      await exportStaffCsv(supabase, "badges", 2099),
+  it(MANY_COURSES, async () => {
+    const { id: lastId } = must(await admin.from("courses").select("id").eq("title_zh", "最後的課").single());
+    const wang = must(await admin.from("registrations").select("id, venue_id").eq("name", "王四").single());
+    must(
+      await admin
+        .from("registration_courses")
+        .insert({ registration_id: wang.id, venue_id: wang.venue_id, session_id: dayaMorningId, course_id: lastId }),
     );
+
+    expect(byHeader(await rowsFor("head@example.com", "badges"), "王四")).toMatchObject({
+      第一場次課程: "最後的課",
+      第一場次教室: "B2",
+    });
+  });
+
+  it("讀到一半有人被刪掉（或改到範圍外），後面沒變動的報名一筆都不少", async () => {
+    const supabase = await signedInClient("head@example.com");
+    let removed: string | undefined;
+    const result = await exportStaffCsv(supabase, "full_roster", 2099, {
+      pageSize: 2,
+      afterPage: async (ids) => {
+        if (removed) return;
+        const row = must(await admin.from("registrations").select("name").eq("id", ids[0]).single());
+        removed = row.name;
+        must(await admin.from("registrations").delete().eq("id", ids[0]));
+      },
+    });
+    if (!result.ok) throw new Error(result.error);
+    // 被刪掉的那位在第一批已經讀到，所以還在；其他四位都要在。
+    expect(names(result.rows).toSorted()).toEqual(["王一", "王二", "王三", "王四", "王五"].toSorted());
+    expect(removed).toBeDefined();
+  });
+
+  it("同一毫秒內報名的兩筆，依微秒排先後，不受編號影響", async () => {
+    // 王一、王五都在金華、新店支會：編號小的那筆時間比較晚，只比到毫秒時會排錯。
+    const pair = must(await admin.from("registrations").select("id, name").in("name", ["王一", "王五"]).order("id"));
+    must(await admin.from("registrations").update({ created_at: "2099-01-01T00:00:00.000900Z" }).eq("id", pair[0].id));
+    must(await admin.from("registrations").update({ created_at: "2099-01-01T00:00:00.000100Z" }).eq("id", pair[1].id));
+
+    const rows = await rowsFor("head@example.com", "full_roster");
+    expect(names(rows).filter((name) => name === "王一" || name === "王五")).toEqual([pair[1].name, pair[0].name]);
   });
 
   it("場地的顯示順序相同時依名稱排，每次匯出的欄位順序一樣", async () => {

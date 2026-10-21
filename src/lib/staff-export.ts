@@ -50,13 +50,14 @@ export function isStaffExportKind(value: unknown): value is StaffExportKind {
 
 /**
  * 某個年度的匯出內容（表頭加資料列）。不是工作人員或角色不能用這種匯出時是 not_allowed。
- * pageSize 是分批讀取時一批幾筆（測試改小，才不用建上千筆資料）。
+ * 測試用：pageSize 是分批讀取時一批幾筆；afterPage 在報名讀完一批（還有下一批）時呼叫，
+ * 用來模擬讀到一半資料有變動。
  */
 export async function exportStaffCsv(
   supabase: SupabaseClient,
   kind: StaffExportKind,
   year: number,
-  { pageSize = PAGE_SIZE }: { pageSize?: number } = {},
+  { pageSize = PAGE_SIZE, afterPage }: ExportOptions = {},
 ): Promise<{ ok: true; rows: string[][] } | { ok: false; error: StaffExportError }> {
   const me = await getStaffMember(supabase);
   if (!me || !ALLOWED[kind].includes(me.role)) return { ok: false, error: "not_allowed" };
@@ -65,7 +66,7 @@ export async function exportStaffCsv(
   if (error) throw error;
   if (!conference) return { ok: false, error: "not_found" };
 
-  const data = await loadExportData(supabase, conference.id, pageSize);
+  const data = await loadExportData(supabase, conference.id, { pageSize, afterPage });
   switch (kind) {
     case "badges":
       return { ok: true, rows: badgeRows(data) };
@@ -114,6 +115,8 @@ type ExportData = {
   registrations: Registration[];
 };
 
+type ExportOptions = { pageSize?: number; afterPage?: (ids: string[]) => Promise<void> };
+
 // PostgREST 一次最多回傳的筆數（supabase/config.toml 的 max_rows）；報名、課程可能比這個多，分批讀。
 const PAGE_SIZE = 1000;
 
@@ -124,6 +127,7 @@ const PAGE_SIZE = 1000;
 async function readAll<T extends { id: string }>(
   page: (afterId: string | null, size: number) => PromiseLike<{ data: T[] | null; error: PostgrestError | null }>,
   size: number,
+  afterPage?: (ids: string[]) => Promise<void>,
 ): Promise<T[]> {
   const rows: T[] = [];
   for (let afterId: string | null = null; ; ) {
@@ -131,11 +135,22 @@ async function readAll<T extends { id: string }>(
     if (error) throw error;
     rows.push(...data!);
     if (data!.length < size) return rows;
+    await afterPage?.(data!.map((row) => row.id));
     afterId = data![data!.length - 1].id;
   }
 }
 
-async function loadExportData(supabase: SupabaseClient, conferenceId: string, pageSize: number): Promise<ExportData> {
+/** 資料庫的時間到微秒（例如 2026-10-16T01:30:00.123456+00:00）；Date.parse 只到毫秒，同一毫秒內的先後會不見。 */
+function microseconds(iso: string): number {
+  const fraction = /\.(\d+)/.exec(iso)?.[1] ?? "";
+  return Date.parse(iso.replace(/\.\d+/, "")) * 1000 + Number(fraction.padEnd(6, "0").slice(0, 6));
+}
+
+async function loadExportData(
+  supabase: SupabaseClient,
+  conferenceId: string,
+  { pageSize = PAGE_SIZE, afterPage }: ExportOptions,
+): Promise<ExportData> {
   const [venues, sessions, lunches] = await Promise.all([
     // 顯示順序可能相同（新增的預設是 0），再依名稱、編號，每次匯出的欄位順序才一樣。
     supabase
@@ -176,11 +191,11 @@ async function loadExportData(supabase: SupabaseClient, conferenceId: string, pa
         .eq("conference_id", conferenceId);
       if (afterId) query = query.gt("id", afterId);
       return query.order("id").limit(size).overrideTypes<RegistrationRow[], { merge: false }>();
-    }, pageSize),
+    }, pageSize, afterPage),
   ]);
   // 依報名先後；下面依場地、支聯會、支會排序時，sort 不改變相等的順序。
   const rows = registrations.toSorted(
-    (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id),
+    (a, b) => microseconds(a.created_at) - microseconds(b.created_at) || a.id.localeCompare(b.id),
   );
 
   const venueOrder = new Map(venues.data!.map((venue, index) => [venue.id, index]));
