@@ -15,23 +15,29 @@ export function LoadingOverlay({ show, label }: { show: boolean; label: string }
   return createPortal(<Overlay label={label} />, document.body);
 }
 
+// 只蓋住畫面還不夠，按 Tab、Enter 仍會操作到底下的按鈕（Codex 審查）。遮蔽期間在最外層攔下鍵盤：
+// 不用 inert，因為等待中程式還要能把焦點移到錯誤訊息上，inert 會讓聚焦失敗（Codex 審查）。
+// 可能同時有好幾個遮蔽層，用計數，最後一個結束才放開（Codex 審查）。
+// 帶 Ctrl／Cmd／Alt 的瀏覽器快捷鍵不攔。
+let activeOverlays = 0;
+
+function blockKeys(event: KeyboardEvent) {
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 function Overlay({ label }: { label: string }) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // 只蓋住畫面還不夠，按 Tab 仍會跑到底下的按鈕、按 Enter 又送出另一件事（Codex 審查）。
-  // 遮蔽期間把 body 底下其他東西設成 inert（不能點、不能聚焦），焦點移到遮蔽層上。
-  // 結束後還原；焦點沒被別的程式移走的話，回到原本按的按鈕。
+  // 焦點移到遮蔽層上；結束時焦點沒被別的程式移走的話，回到原本按的按鈕。
   useEffect(() => {
     const overlay = ref.current;
-    if (!overlay) return;
     const previous = document.activeElement;
-    const blocked = Array.from(document.body.children).filter(
-      (element): element is HTMLElement => element !== overlay && element instanceof HTMLElement && !element.inert,
-    );
-    for (const element of blocked) element.inert = true;
-    overlay.focus();
+    if (activeOverlays++ === 0) document.addEventListener("keydown", blockKeys, true);
+    overlay?.focus();
     return () => {
-      for (const element of blocked) element.inert = false;
+      if (--activeOverlays === 0) document.removeEventListener("keydown", blockKeys, true);
       const active = document.activeElement;
       if ((active === overlay || active === document.body || active === null) && previous instanceof HTMLElement) {
         previous.focus();

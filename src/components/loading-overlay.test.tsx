@@ -30,24 +30,51 @@ it("點到遮蔽層不會再觸發一次底下的按鈕", () => {
   expect(onClick).not.toHaveBeenCalled();
 });
 
-it("遮蔽期間底下的按鈕不能聚焦，焦點在遮蔽層上；結束後還原，焦點回到原本按的按鈕（Codex 審查）", () => {
-  function Page({ pending }: { pending: boolean }) {
-    return (
-      <>
-        <button type="button">送出</button>
-        <button type="button">English</button>
-        <LoadingOverlay show={pending} label="送出中，請稍候…" />
-      </>
-    );
-  }
-  const { container, rerender } = render(<Page pending={false} />);
+function Page({ first, second = false }: { first: boolean; second?: boolean }) {
+  return (
+    <>
+      <button type="button">送出</button>
+      <p id="error" tabIndex={-1}>
+        系統錯誤
+      </p>
+      <LoadingOverlay show={first} label="送出中，請稍候…" />
+      <LoadingOverlay show={second} label="切換中，請稍候…" />
+    </>
+  );
+}
+
+const keyBlocked = () => !fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
+
+it("遮蔽期間攔下鍵盤，焦點在遮蔽層上；結束後放開，焦點回到原本按的按鈕（Codex 審查）", () => {
+  const { rerender } = render(<Page first={false} />);
   screen.getByRole("button", { name: "送出" }).focus();
 
-  rerender(<Page pending />);
-  expect(container.inert).toBe(true);
+  rerender(<Page first />);
   expect(document.activeElement).toBe(screen.getByRole("status"));
+  expect(keyBlocked()).toBe(true);
+  // 帶 Cmd 的瀏覽器快捷鍵照常
+  expect(fireEvent.keyDown(document.body, { key: "r", metaKey: true })).toBe(true);
 
-  rerender(<Page pending={false} />);
-  expect(container.inert).toBe(false);
+  rerender(<Page first={false} />);
+  expect(keyBlocked()).toBe(false);
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "送出" }));
+});
+
+it("等待中程式把焦點移到錯誤訊息，結束後焦點留在錯誤訊息上（Codex 審查）", () => {
+  const { rerender } = render(<Page first />);
+  document.getElementById("error")!.focus();
+  expect(document.activeElement?.id).toBe("error");
+
+  rerender(<Page first={false} />);
+  expect(document.activeElement?.id).toBe("error");
+});
+
+it("兩個遮蔽層先後出現，先出現的先結束時，鍵盤仍然攔著，到最後一個結束才放開（Codex 審查）", () => {
+  const { rerender } = render(<Page first />);
+  rerender(<Page first second />);
+  rerender(<Page first={false} second />);
+  expect(keyBlocked()).toBe(true);
+
+  rerender(<Page first={false} second={false} />);
+  expect(keyBlocked()).toBe(false);
 });
