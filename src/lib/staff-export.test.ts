@@ -11,8 +11,10 @@ let conferenceId: string;
 let stakeIds: string[] = [];
 let quiltingId: string;
 
-// 這個測試在報名開放前多建 1000 門課（開放後不能新增課程），其他測試不用。
-const MANY_COURSES = "課程超過一次能讀的 1000 門時，最後建的課程照樣讀得到";
+// 這個測試在報名開放前多建 1001 門課（開放後不能新增課程），其他測試不用。
+const MANY_COURSES = "課程、報名都超過一次能讀的 1000 筆時，每一位選的課程與教室都讀得到";
+const FILLER_COUNT = 1001;
+let fillerCourseIds: string[] = [];
 let dayaMorningId: string;
 
 /*
@@ -84,10 +86,14 @@ beforeEach(async ({ task }) => {
   const singingId = await addCourse(morningId, 2, "唱歌");
   const flowersId = await addCourse(afternoonId, 1, "插花", "301");
   const bakingId = await addCourse(dayaMorningId, 1, "烘焙", "A1");
+  fillerCourseIds = [];
   if (task.name === MANY_COURSES) {
+    // 編號自己產生：一次新增上千筆時不必讀回傳（回傳也受 1000 筆上限）。
+    fillerCourseIds = Array.from({ length: FILLER_COUNT }, () => crypto.randomUUID());
     must(
       await admin.from("courses").insert(
-        Array.from({ length: 1000 }, (_, index) => ({
+        fillerCourseIds.map((id, index) => ({
+          id,
           conference_id: conferenceId,
           session_id: dayaMorningId,
           position: 10 + index,
@@ -95,7 +101,11 @@ beforeEach(async ({ task }) => {
         })),
       ),
     );
-    await addCourse(dayaMorningId, 2000, "最後的課", "B2");
+    must(
+      await admin
+        .from("course_classrooms")
+        .insert(fillerCourseIds.map((id, index) => ({ course_id: id, classroom: `R${index}` }))),
+    );
   }
 
   const bentoId = must(
@@ -328,18 +338,42 @@ describe("完整名單與支聯會簡表", () => {
 
 describe("分批讀取", () => {
   it(MANY_COURSES, async () => {
-    const { id: lastId } = must(await admin.from("courses").select("id").eq("title_zh", "最後的課").single());
-    const wang = must(await admin.from("registrations").select("id, venue_id").eq("name", "王四").single());
+    // 每一門填充課程各有一位報名者選：只要有任何一門課或任何一筆報名沒讀到，那一位的課程就不對。
+    const daya = must(await admin.from("registrations").select("venue_id, stake_id, ward_id").eq("name", "王四").single());
+    const registrationIds = fillerCourseIds.map(() => crypto.randomUUID());
     must(
-      await admin
-        .from("registration_courses")
-        .insert({ registration_id: wang.id, venue_id: wang.venue_id, session_id: dayaMorningId, course_id: lastId }),
+      await admin.from("registrations").insert(
+        registrationIds.map((id, index) => ({
+          id,
+          conference_id: conferenceId,
+          ...daya,
+          name: `填充${index}`,
+          phone: "0912345678",
+          portrait_consented_at: new Date().toISOString(),
+          locale: "zh",
+        })),
+      ),
+    );
+    must(
+      await admin.from("registration_courses").insert(
+        registrationIds.map((id, index) => ({
+          registration_id: id,
+          venue_id: daya.venue_id,
+          session_id: dayaMorningId,
+          course_id: fillerCourseIds[index],
+        })),
+      ),
     );
 
-    expect(byHeader(await rowsFor("head@example.com", "badges"), "王四")).toMatchObject({
-      第一場次課程: "最後的課",
-      第一場次教室: "B2",
+    const rows = await rowsFor("head@example.com", "badges");
+    const [name, course, classroom] = ["姓名", "第一場次課程", "第一場次教室"].map((header) => rows[0].indexOf(header));
+    const fillers = rows.filter((row) => row[name].startsWith("填充"));
+    expect(fillers).toHaveLength(FILLER_COUNT);
+    const wrong = fillers.filter((row) => {
+      const index = row[name].slice("填充".length);
+      return row[course] !== `填充課程 ${index}` || row[classroom] !== `R${index}`;
     });
+    expect(wrong).toEqual([]);
   });
 
   it("讀到一半有人被刪掉（或改到範圍外），後面沒變動的報名一筆都不少", async () => {
