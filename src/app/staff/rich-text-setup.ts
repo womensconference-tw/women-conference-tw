@@ -258,18 +258,21 @@ export function createRichTextEditor(
 }
 
 /**
- * 存檔前拿掉清單項目裡第一段以外的空段落（例如貼上的 <li><p></p><p></p><table>）。空段落存出來是空行，
+ * 存檔前拿掉清單項目裡第一段以外的空段落（例如貼上的 <li><p></p><p></p><table>），第一段空了而後面接著文字時
+ * 也拿掉。空段落存出來是空行，
  * 「1.」後面空一行，後面的表格或下一層清單就不在這個項目裡了。只在存出的內容拿掉，編輯器裡的文件不動，
  * 打字打到段落暫時空了也不會被刪。
  */
 function withoutEmptyListParagraphs(node: ProseNode): ProseNode {
   if (node.isTextblock || node.isLeaf) return node;
-  const children: ProseNode[] = [];
+  const isEmpty = (child: ProseNode | null) => child?.type.name === "paragraph" && child.content.size === 0;
+  let children: ProseNode[] = [];
   node.forEach((child, _offset, index) => {
-    const empty = child.type.name === "paragraph" && child.content.size === 0;
-    if (node.type.name === "list_item" && index > 0 && empty) return;
+    if (node.type.name === "list_item" && index > 0 && isEmpty(child)) return;
     children.push(withoutEmptyListParagraphs(child));
   });
+  // 刪光第一段、後面還有一段文字：存成「- 乙」，讀回來也是「- 乙」。
+  if (node.type.name === "list_item" && isEmpty(children[0]) && children[1]?.type.name === "paragraph") children = children.slice(1);
   return node.copy(Fragment.from(children));
 }
 

@@ -34,13 +34,14 @@ function mergeIntoList(type: NodeType): Command {
     if (!range) return false;
     const { list_item, paragraph } = state.schema.nodes;
     // 選取範圍在同一份清單裡（例如從一個項目選到它的下一層、或從下一層選到上一層的下一個項目）：層次不變，
-    // 換掉這份清單和範圍裡每一層清單的種類。
+    // 換掉這份清單和選到的每一層清單的種類。
     if (isList(range.parent) || range.parent.type === list_item) {
       if (dispatch) {
         const tr = state.tr;
         const listDepth = isList(range.parent) ? range.depth : range.depth - 1;
         tr.setNodeMarkup(range.$from.before(listDepth), type);
-        state.doc.nodesBetween(range.start, range.end, (node, pos) => {
+        // 只換選取範圍碰到的清單；範圍邊上的項目裡、沒選到的下一層清單不換。
+        state.doc.nodesBetween($from.pos, $to.pos, (node, pos) => {
           if (isList(node)) tr.setNodeMarkup(pos, type);
         });
         dispatch(tr);

@@ -65,6 +65,16 @@ describe("RichTextEditor", () => {
       expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("捨棄草稿時就算內容剛好和已發布的一樣，按復原也回不到草稿", async () => {
+    const { editor, rerender } = await renderEditor({ defaultValue: "# 甲" });
+    fireEvent.click(screen.getByRole("button", { name: "標題" }));
+    rerender({ defaultValue: "甲", resetToken: "1" });
+    await waitFor(() => expect(editor.querySelector("h1")).toBeNull());
+    fireEvent.keyDown(editor, { key: "z", ctrlKey: true });
+    expect(editor.querySelector("h1")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("存檔後 React 重設表單，送出的仍是編輯器的內容", async () => {
     const { editor, submitted } = await renderEditor({ defaultValue: "大會簡介" });
     fireEvent.click(screen.getByRole("button", { name: "標題" }));

@@ -7,7 +7,7 @@ import { addColumnAfter, addRowAfter } from "@milkdown/kit/prose/tables";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { afterEach, describe, expect, it } from "vitest";
 import { deleteTableColumn, deleteTableRow, insertTable, setLink, toggleHeading, toggleList } from "./rich-text-commands";
-import { createRichTextEditor, editorMarkdown, replaceMarkdown } from "./rich-text-setup";
+import { createRichTextEditor, editorMarkdown, normalizeMarkdown, replaceMarkdown } from "./rich-text-setup";
 
 /*
  * 所見即所得編輯器（#88）：存檔再打開格式不變、只留支援的格式、工具列的指令。
@@ -394,6 +394,24 @@ describe("工具列", () => {
     view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, view.state.selection.from + 1)));
     run(view, toggleList(view.state.schema.nodes.ordered_list));
     expect(markdown()).toBe("1. 甲\n   1. 乙\n   2. 丙\n2. 丁\n");
+  });
+
+  it("選取範圍外、邊上項目裡的下一層清單不換", async () => {
+    const { view, markdown } = await open("- 甲\n  - 乙\n- 丙\n  - 丁");
+    placeCursor(view, "乙");
+    const from = view.state.selection.from;
+    placeCursor(view, "丙");
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, view.state.selection.from + 1)));
+    run(view, toggleList(view.state.schema.nodes.ordered_list));
+    expect(markdown()).toBe("1. 甲\n   1. 乙\n2. 丙\n   - 丁\n");
+  });
+
+  it("清單項目刪光第一段、後面還有一段：存出的內容讀回來一樣", async () => {
+    const { editor, view, markdown } = await open("- 甲\n\n  乙");
+    selectText(view, "甲");
+    view.dispatch(view.state.tr.deleteSelection());
+    expect(markdown()).toBe("- 乙\n");
+    expect(normalizeMarkdown(editor, markdown())).toBe(markdown());
   });
 
   it("游標在標題列、表格還有資料列：刪掉標題列，下一列變成標題列", async () => {

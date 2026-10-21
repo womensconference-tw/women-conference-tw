@@ -112,6 +112,11 @@ export function RichTextEditor({
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [linkError, setLinkError] = useState("");
 
+  /** 比對有沒有改用的內容：存出來再讀回來的樣子，兩邊寫法不同（例如空段落）也不會誤判。 */
+  function contentOf(editor: Editor) {
+    return normalizeMarkdown(editor, editorMarkdown(editor));
+  }
+
   /** 表單送出的是藏起來的欄位，放進編輯器目前的內容。編輯器還沒建好時是原本的內容，不會送出空白。 */
   function syncInput() {
     const editor = editorRef.current;
@@ -138,10 +143,9 @@ export function RichTextEditor({
         setState(view.state);
         const editor = editorRef.current;
         if (!editor) return;
-        const current = editorMarkdown(editor);
-        if (inputRef.current) inputRef.current.value = current;
+        if (inputRef.current) inputRef.current.value = editorMarkdown(editor);
         // 提醒出現後，她把內容改成和更新的一樣，就沒有會被蓋掉的修改。
-        if (current === shown.current) setUpdatedElsewhere(false);
+        if (contentOf(editor) === shown.current) setUpdatedElsewhere(false);
       },
     );
     created.then((editor) => {
@@ -152,7 +156,7 @@ export function RichTextEditor({
       editorRef.current = editor;
       // 建立期間內容換了：換成新的內容。
       if (loaded.current !== initial) replaceMarkdown(editor, loaded.current);
-      shown.current = editorMarkdown(editor);
+      shown.current = contentOf(editor);
       syncInput();
     });
     return () => {
@@ -172,11 +176,12 @@ export function RichTextEditor({
     loaded.current = markdown;
     // 編輯器還沒建好：建好時會載入新的內容。
     if (!editor || shown.current === null) return;
-    const current = editorMarkdown(editor);
+    const current = contentOf(editor);
     const next = normalizeMarkdown(editor, markdown);
     const untouched = reset || current === shown.current || current === next;
     shown.current = next;
-    if (untouched && current !== next) replaceMarkdown(editor, markdown);
+    // 捨棄草稿時就算內容剛好一樣也整份換掉，復原紀錄才會清掉，按 Ctrl+Z 不會回到捨棄的草稿。
+    if (reset || (untouched && current !== next)) replaceMarkdown(editor, markdown);
     setUpdatedElsewhere(!untouched);
   }, [markdown, resetToken]);
 
