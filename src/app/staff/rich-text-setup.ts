@@ -1,5 +1,6 @@
 import {
   defaultValueCtx,
+  editorStateCtx,
   editorViewCtx,
   Editor,
   editorViewOptionsCtx,
@@ -60,7 +61,9 @@ import {
   exitTable,
   insertTableCommand,
 } from "@milkdown/kit/preset/gfm";
-import { Plugin } from "@milkdown/kit/prose/state";
+import type { Node as ProseNode } from "@milkdown/kit/prose/model";
+import { EditorState, Plugin } from "@milkdown/kit/prose/state";
+import { TableMap } from "@milkdown/kit/prose/tables";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { $prose, $remark } from "@milkdown/kit/utils";
 import { remarkRichText } from "@/lib/rich-text";
@@ -75,10 +78,45 @@ import { SAFE_URL } from "@/lib/safe-url";
 
 const remarkRichTextPlugin = $remark("remarkRichText", () => remarkRichText);
 
+/** 清單項目在第一段之後除了下一層清單還有別的（例如表格），項目裡要空行分隔，否則表格後面的文字會被讀成表格的一列。 */
+function listItemNeedsSpread(children: readonly { type: { name: string } }[]) {
+  return children.slice(1).some((child) => child.type.name !== "ordered_list" && child.type.name !== "bullet_list");
+}
+
 /**
- * 內容變了之後的整理：
+ * 表格有合併的儲存格（從 Word、Google 文件貼上）時拆開：Markdown 表格不能合併，合併的文字放在左上那一格，
+ * 其他格留空，後面的文字才不會跑到別的欄。沒有合併時傳回 null。
+ */
+function unmergeTable(table: ProseNode): ProseNode | null {
+  let merged = false;
+  table.descendants((node) => {
+    if (node.attrs.colspan > 1 || node.attrs.rowspan > 1) merged = true;
+    return !merged;
+  });
+  if (!merged) return null;
+  const map = TableMap.get(table);
+  const rows: ProseNode[] = [];
+  for (let r = 0; r < map.height; r++) {
+    const row = table.child(r);
+    const cellType = row.firstChild!.type;
+    const cells: ProseNode[] = [];
+    for (let c = 0; c < map.width; c++) {
+      const pos = map.map[r * map.width + c];
+      const rect = map.findCell(pos);
+      const cell = table.nodeAt(pos)!;
+      const attrs = { ...cell.attrs, colspan: 1, rowspan: 1, colwidth: null };
+      cells.push(rect.left === c && rect.top === r ? cellType.create(attrs, cell.content) : cellType.createAndFill(attrs)!);
+    }
+    rows.push(row.type.create(row.attrs, cells));
+  }
+  return table.type.create(table.attrs, rows);
+}
+
+/**
+ * 內容變了之後的整理，讓編輯器裡看到的和存出來的 Markdown 一樣：
  * - 貼上或拖進來的連結和公開頁面一樣只接受 http(s)，其他的拿掉連結、只留文字。
- * - 清單一律存成緊密清單（項目之間不空行），新增的項目才不會在公開頁面多出段落間距。
+ * - 清單存成緊密清單（項目之間不空行），新增的項目才不會在公開頁面多出段落間距；項目裡有表格時例外。
+ * - 表格的一格不能換行（Markdown 存不了），換行改成空白；合併的儲存格拆開。
  */
 const normalize = $prose(
   () =>
@@ -88,11 +126,45 @@ const normalize = $prose(
         const { link } = state.schema.marks;
         const tr = state.tr;
         state.doc.descendants((node, pos) => {
-          if (node.attrs.spread === true) tr.setNodeAttribute(pos, "spread", false);
+          const at = tr.mapping.map(pos);
+          if (node.type.name === "table") {
+            const unmerged = unmergeTable(node);
+            if (unmerged) {
+              tr.replaceWith(at, tr.mapping.map(pos + node.nodeSize), unmerged);
+              return false;
+            }
+          }
+          if (node.type.name === "hardbreak" && state.doc.resolve(pos).node(-1).type.spec.tableRole) {
+            tr.replaceWith(at, tr.mapping.map(pos + node.nodeSize), state.schema.text(" "));
+            return false;
+          }
+          if (node.type.name === "ordered_list" || node.type.name === "bullet_list") {
+            if (node.attrs.spread) tr.setNodeAttribute(at, "spread", false);
+          } else if (node.type.name === "list_item") {
+            const spread = listItemNeedsSpread(node.children);
+            if (node.attrs.spread !== spread) tr.setNodeAttribute(at, "spread", spread);
+          }
           const mark = link.isInSet(node.marks);
-          if (mark && !SAFE_URL.test(mark.attrs.href)) tr.removeMark(pos, pos + node.nodeSize, mark);
+          if (mark && !SAFE_URL.test(mark.attrs.href)) tr.removeMark(at, tr.mapping.map(pos + node.nodeSize), mark);
         });
         return tr.docChanged ? tr : null;
+      },
+    }),
+);
+
+/**
+ * 從 VS Code 複製的文字，Milkdown 會想建立程式碼區塊，但編輯器沒有載入程式碼區塊，貼上會失敗。
+ * 改成一般的純文字貼上。
+ */
+const plainVsCodePaste = $prose(
+  () =>
+    new Plugin({
+      props: {
+        handlePaste: (view, event) => {
+          const data = event.clipboardData;
+          if (!data?.getData("vscode-editor-data")) return false;
+          return view.pasteText(data.getData("text/plain"));
+        },
       },
     }),
 );
@@ -149,6 +221,7 @@ export const richTextPlugins: MilkdownPlugin[] = [
   strongKeymap,
   tableKeymap,
 
+  plainVsCodePaste,
   clipboard,
   history,
 ].flat();
@@ -195,11 +268,15 @@ export function normalizeMarkdown(editor: Editor, markdown: string): string {
   return editor.action((ctx) => ctx.get(serializerCtx)(ctx.get(parserCtx)(markdown)));
 }
 
-/** 整個換成另一份 Markdown（別人更新了、捨棄草稿）。 */
+/**
+ * 整個換成另一份 Markdown（別人更新了、捨棄草稿）。復原紀錄一併清掉，按 Ctrl+Z 不會回到被換掉的內容。
+ */
 export function replaceMarkdown(editor: Editor, markdown: string) {
   editor.action((ctx) => {
     const view = ctx.get(editorViewCtx);
-    const doc = ctx.get(parserCtx)(markdown);
-    view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, doc.content));
+    const state = EditorState.create({ doc: ctx.get(parserCtx)(markdown), plugins: view.state.plugins });
+    view.updateState(state);
+    // Milkdown 平常在每個 transaction 記下目前的狀態，直接換狀態時要自己記。
+    ctx.set(editorStateCtx, state);
   });
 }

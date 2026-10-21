@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { editorViewCtx, type Editor } from "@milkdown/kit/core";
+import { undo } from "@milkdown/kit/prose/history";
 import { sinkListItem } from "@milkdown/kit/prose/schema-list";
 import { type Command, TextSelection } from "@milkdown/kit/prose/state";
 import { addColumnAfter, addRowAfter } from "@milkdown/kit/prose/tables";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { afterEach, describe, expect, it } from "vitest";
 import { deleteTableColumn, deleteTableRow, insertTable, setLink, toggleHeading, toggleList } from "./rich-text-commands";
-import { createRichTextEditor, editorMarkdown } from "./rich-text-setup";
+import { createRichTextEditor, editorMarkdown, replaceMarkdown } from "./rich-text-setup";
 
 /*
  * 所見即所得編輯器（#88）：存檔再打開格式不變、只留支援的格式、工具列的指令。
@@ -17,6 +18,13 @@ class FakeClipboardEvent extends Event {
   clipboardData: Pick<DataTransfer, "getData"> | null = null;
 }
 globalThis.ClipboardEvent ??= FakeClipboardEvent as unknown as typeof ClipboardEvent;
+
+/** 模擬瀏覽器的貼上事件，data 是剪貼簿裡各種格式的內容。 */
+function pasteEvent(data: Record<string, string>) {
+  const event = new FakeClipboardEvent("paste");
+  event.clipboardData = { getData: (type: string) => data[type] ?? "" };
+  return event as unknown as ClipboardEvent;
+}
 
 const editors: Editor[] = [];
 afterEach(() => {
@@ -204,10 +212,52 @@ describe("貼上", () => {
     const { view, markdown } = await open("");
     // 瀏覽器貼上純文字時，Milkdown 把它當成 Markdown 讀進來。
     const text = "**粗** <img src=x onerror=alert(1)> [壞](javascript:alert(1)) > 引言";
-    const event = new FakeClipboardEvent("paste");
-    event.clipboardData = { getData: (type: string) => (type === "text/plain" ? text : "") };
-    view.pasteText(text, event as unknown as ClipboardEvent);
+    view.pasteText(text, pasteEvent({ "text/plain": text }));
     expect(markdown()).toBe("**粗** \\<img src=x onerror=alert(1)> 壞 > 引言\n");
+  });
+});
+
+describe("貼上（續）", () => {
+  it("合併的儲存格拆開，後面的文字留在原本的欄", async () => {
+    const { view, markdown } = await open("");
+    view.pasteHTML(
+      "<table><tr><th>時間</th><th>內容</th></tr>" +
+        '<tr><td rowspan="2">上午</td><td>開幕</td></tr><tr><td>課程</td></tr>' +
+        '<tr><td colspan="2">午餐</td></tr></table>',
+    );
+    expect(markdown().trim().split("\n").map((line) => line.split("|").map((cell) => cell.trim()).slice(1, -1))).toEqual([
+      ["時間", "內容"],
+      [":-", ":-"],
+      ["上午", "開幕"],
+      ["", "課程"],
+      ["午餐", ""],
+    ]);
+  });
+
+  it("儲存格裡的換行變成空白，編輯器看到的和存出來的一樣", async () => {
+    const { view, root, markdown } = await open("| 甲 |\n| - |\n| 1 |");
+    placeCursor(view, "甲");
+    view.dispatch(view.state.tr.insertText("乙", view.state.selection.from + 1));
+    view.dispatch(view.state.tr.insert(view.state.selection.from + 1, view.state.schema.nodes.hardbreak.create()));
+    expect(root.querySelector("th br:not(.ProseMirror-trailingBreak)")).toBeNull();
+    expect(markdown().split("\n")[0]).toBe("| 甲 乙 |");
+  });
+
+  it("從 VS Code 複製的文字當成純文字貼上", async () => {
+    const { view, markdown } = await open("");
+    view.pasteText("const a = 1;", pasteEvent({ "text/plain": "const a = 1;", "vscode-editor-data": '{"mode":"javascript"}' }));
+    expect(markdown()).toBe("const a = 1;\n");
+  });
+});
+
+describe("整份換掉", () => {
+  it("換成別人更新的內容後，按 Ctrl+Z 不會回到被換掉的內容", async () => {
+    const { editor, view, markdown } = await open("舊的");
+    view.dispatch(view.state.tr.insertText("我改的", 1));
+    replaceMarkdown(editor, "別人改的");
+    expect(markdown()).toBe("別人改的\n");
+    expect(undo(view.state, view.dispatch)).toBe(false);
+    expect(markdown()).toBe("別人改的\n");
   });
 });
 
@@ -238,7 +288,7 @@ describe("工具列", () => {
     expect(markdown()).toMatch(/^一\n/);
   });
 
-  it("表格：插入、新增與刪除列和欄；只剩標題列時刪掉整個表格", async () => {
+  it("表格：插入、新增與刪除列和欄；只剩兩列時刪掉整個表格", async () => {
     const { view, markdown } = await open("");
     run(view, insertTable);
     expect(markdown()).toBe("|    |    |\n| :- | :- |\n|    |    |\n|    |    |\n");
@@ -250,7 +300,11 @@ describe("工具列", () => {
     // 游標還在「甲」那一格：刪掉的是「甲」那一欄。
     run(view, deleteTableColumn);
     expect(markdown().split("\n")[0]).toMatch(/^\| +\| +\|$/);
-    // 游標在標題列：刪掉整個表格。
+    // 游標在標題列：一次刪一列，下一列補上標題列；只剩兩列時刪掉整個表格。
+    for (const rows of [4, 3]) {
+      run(view, deleteTableRow);
+      expect(markdown().trim().split("\n")).toHaveLength(rows);
+    }
     run(view, deleteTableRow);
     expect(markdown()).toBe("");
   });
@@ -260,7 +314,37 @@ describe("工具列", () => {
     placeCursor(view, "是表格");
     run(view, insertTable);
     view.dispatch(view.state.tr.insertText("時間"));
-    expect(markdown()).toMatch(/^1\. 下面\n {3}\| 時間 \| +\|\n(.*\n){3} {3}是表格\n$/);
+    expect(markdown()).toMatch(/^1\. 下面\n\n {3}\| 時間 \| +\|\n(.*\n){3}\n {3}是表格\n$/);
+  });
+
+  it("清單項目裡的表格後面還有文字：存檔再打開，文字不會變成表格的一列", async () => {
+    const { view, markdown } = await open("1. 下面是表格\n2. 第二項");
+    placeCursor(view, "是表格");
+    run(view, insertTable);
+    const reopened = await open(markdown());
+    expect(reopened.root.querySelectorAll("tr")).toHaveLength(3);
+    expect([...reopened.root.querySelectorAll("ol > li")].map((li) => li.querySelector(":scope > p:last-child")?.textContent)).toEqual([
+      "是表格",
+      "第二項",
+    ]);
+    expect(reopened.markdown()).toBe(markdown());
+  });
+
+  it("游標在標題列、表格還有資料列：刪掉標題列，下一列變成標題列", async () => {
+    const { view, markdown } = await open("| 甲 | 乙 |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |");
+    placeCursor(view, "甲");
+    run(view, deleteTableRow);
+    expect(markdown()).toBe("| 1 | 2 |\n| - | - |\n| 3 | 4 |\n");
+  });
+
+  it("選取範圍從清單跨到一般段落：選到的全部變成編號清單", async () => {
+    const { view, markdown } = await open("- 甲\n- 乙\n\n丙");
+    placeCursor(view, "乙");
+    const from = view.state.selection.from;
+    placeCursor(view, "丙");
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, view.state.selection.from + 1)));
+    run(view, toggleList(view.state.schema.nodes.ordered_list));
+    expect(markdown()).toBe("1. 甲\n2. 乙\n3. 丙\n");
   });
 
   it("刪掉資料列", async () => {

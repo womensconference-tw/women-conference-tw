@@ -115,5 +115,6 @@ describe("RichTextEditor", () => {
     rerender({ defaultValue: "已發布", resetToken: "1" });
     await waitFor(() => expect(editor.textContent).toBe("已發布"));
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(submitted()).toBe("已發布\n");
   });
 });

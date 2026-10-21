@@ -39,7 +39,6 @@ function clean(node: RootContent, definitions: Definitions, block: boolean): Roo
       node.children = cleanChildren(node.children, definitions, true) as typeof node.children;
       return [node];
     case "listItem": {
-      node.spread = false;
       // 「- [ ]」待辦清單沒有對應的按鈕，打勾的框留成文字。
       if (node.checked != null) {
         const first = node.children[0];
@@ -49,6 +48,8 @@ function clean(node: RootContent, definitions: Definitions, block: boolean): Roo
         node.checked = null;
       }
       node.children = cleanChildren(node.children, definitions, true) as typeof node.children;
+      // 存成緊密清單；第一段之後除了下一層清單還有別的（例如表格）時，要空行分隔才讀得回來。
+      node.spread = node.children.slice(1).some((child) => child.type !== "list");
       return [node];
     }
     case "table":

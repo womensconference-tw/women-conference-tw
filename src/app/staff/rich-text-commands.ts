@@ -1,5 +1,5 @@
 import { setBlockType } from "@milkdown/kit/prose/commands";
-import type { NodeType } from "@milkdown/kit/prose/model";
+import type { Node as ProseNode, NodeType, ResolvedPos } from "@milkdown/kit/prose/model";
 import { liftListItem, wrapInList } from "@milkdown/kit/prose/schema-list";
 import { type Command, type EditorState, TextSelection } from "@milkdown/kit/prose/state";
 import { deleteColumn, deleteRow, deleteTable, isInTable } from "@milkdown/kit/prose/tables";
@@ -7,21 +7,65 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 
 /* 所見即所得編輯器（#88）工具列的指令。 */
 
-/** 游標所在的清單（最近的一層），沒有在清單裡是 null。 */
-export function currentList(state: EditorState) {
-  const { $from } = state.selection;
-  for (let depth = $from.depth; depth > 0; depth--) {
-    const node = $from.node(depth);
-    if (node.type.name === "ordered_list" || node.type.name === "bullet_list") return { node, pos: $from.before(depth) };
+const isList = (node: ProseNode) => node.type.name === "ordered_list" || node.type.name === "bullet_list";
+
+/** 這個位置所在的清單（最近的一層），沒有在清單裡是 null。 */
+function listAt($pos: ResolvedPos) {
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const node = $pos.node(depth);
+    if (isList(node)) return { node, pos: $pos.before(depth) };
   }
   return null;
 }
 
-/** 按了變成這種清單；已經是這種清單就拿掉清單，是另一種清單就換成這種。 */
+/** 游標所在的清單（最近的一層），沒有在清單裡是 null。 */
+export function currentList(state: EditorState) {
+  return listAt(state.selection.$from);
+}
+
+/**
+ * 選取範圍有清單也有清單外的段落（或跨了兩份清單）：選到的段落與清單項目全部變成一份這種清單。
+ * 範圍裡有表格時不做。
+ */
+function mergeIntoList(type: NodeType): Command {
+  return (state, dispatch) => {
+    const { $from, $to } = state.selection;
+    const range = $from.blockRange($to);
+    if (!range) return false;
+    const { list_item, paragraph } = state.schema.nodes;
+    // 選取範圍在同一份清單的不同項目之間（例如從下一層清單選到下一個項目）：換掉這份清單的種類。
+    if (isList(range.parent)) {
+      dispatch?.(state.tr.setNodeMarkup(range.start - 1, type));
+      return true;
+    }
+    const items: ProseNode[] = [];
+    for (let index = range.startIndex; index < range.endIndex; index++) {
+      const child = range.parent.child(index);
+      if (isList(child)) child.forEach((item) => items.push(item));
+      else if (child.type === list_item) items.push(child);
+      else if (child.isTextblock) items.push(list_item.create(null, paragraph.create(null, child.content)));
+      else return false;
+    }
+    if (dispatch) {
+      const list = type.create(null, items);
+      const tr = state.tr.replaceWith(range.start, range.end, list);
+      tr.setSelection(TextSelection.between(tr.doc.resolve(range.start + 1), tr.doc.resolve(range.start + list.nodeSize - 1)));
+      dispatch(tr.scrollIntoView());
+    }
+    return true;
+  };
+}
+
+/**
+ * 按了變成這種清單；已經是這種清單就拿掉清單，是另一種清單就換成這種（整份清單一起換，清單的編號方式是整份一樣的）。
+ * 選取範圍跨出清單時，選到的全部變成這種清單。
+ */
 export function toggleList(type: NodeType): Command {
   return (state, dispatch) => {
     const list = currentList(state);
-    if (!list) return wrapInList(type)(state, dispatch);
+    const end = listAt(state.selection.$to);
+    if (!list && !end) return wrapInList(type)(state, dispatch);
+    if (!list || !end || list.pos !== end.pos) return mergeIntoList(type)(state, dispatch);
     if (list.node.type === type) return liftListItem(state.schema.nodes.list_item)(state, dispatch);
     dispatch?.(state.tr.setNodeMarkup(list.pos, type));
     return true;
@@ -60,16 +104,32 @@ export const insertTable: Command = (state, dispatch) => {
   return true;
 };
 
-/** 刪除游標所在的列；只剩標題列時刪掉整個表格，表格不會沒有標題列。 */
+/**
+ * 刪除游標所在的列。表格一定要有標題列和至少一列資料：刪的是標題列時，下一列變成標題列；
+ * 只剩兩列時刪掉整個表格。
+ */
 export const deleteTableRow: Command = (state, dispatch) => {
   if (!isInTable(state)) return false;
   const { $from } = state.selection;
   for (let depth = $from.depth; depth > 0; depth--) {
     const node = $from.node(depth);
-    if (node.type.name === "table_header_row") return deleteTable(state, dispatch);
-    if (node.type.name === "table") break;
+    if (node.type.name === "table") return node.childCount <= 2 ? deleteTable(state, dispatch) : deleteRow(state, dispatch);
+    if (node.type.name !== "table_header_row") continue;
+    const table = $from.node(depth - 1);
+    if (table.childCount <= 2) return deleteTable(state, dispatch);
+    if (dispatch) {
+      const { table_header } = state.schema.nodes;
+      const next = table.child(1);
+      const cells: ProseNode[] = [];
+      next.forEach((cell) => cells.push(table_header.create(cell.attrs, cell.content)));
+      const start = $from.before(depth);
+      const tr = state.tr.replaceWith(start, start + node.nodeSize + next.nodeSize, node.type.create(node.attrs, cells));
+      tr.setSelection(TextSelection.near(tr.doc.resolve(start + 1)));
+      dispatch(tr.scrollIntoView());
+    }
+    return true;
   }
-  return deleteRow(state, dispatch);
+  return false;
 };
 
 /** 只剩一欄時刪掉整個表格。 */
