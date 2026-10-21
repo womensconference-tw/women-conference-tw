@@ -3,6 +3,7 @@
 import { LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { LoadingOverlay } from "@/components/loading-overlay";
 import { buttonVariants } from "@/components/ui/button";
 import { messages } from "@/lib/i18n/messages";
 import type { RegistrationForEdit } from "@/lib/registration-list";
@@ -462,6 +463,7 @@ export function RegistrationEditor({
       >
         {pending && <LoaderCircle aria-hidden className="size-4 animate-spin" />}
         {pending ? "處理中…" : registration ? "儲存修改" : "新增報名"}
+        <LoadingOverlay show={pending} label="處理中…" />
       </button>
       </fieldset>
 

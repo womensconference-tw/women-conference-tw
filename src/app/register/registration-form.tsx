@@ -3,6 +3,7 @@
 import { LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
+import { LoadingOverlay } from "@/components/loading-overlay";
 import { RegistrationDetails } from "@/components/registration-details";
 import { buttonVariants } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n/locale";
@@ -538,6 +539,7 @@ export function RegistrationForm({
               : pending
               ? t.register.submittingButton
               : t.register.submitButton}
+          <LoadingOverlay show={pending} label={t.register.submittingButton} />
         </button>
         {reviewed && step < lastStep && (
           <button

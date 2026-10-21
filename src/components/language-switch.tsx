@@ -16,7 +16,9 @@ export async function LanguageSwitch() {
     <form action={switchLanguage}>
       <input type="hidden" name="locale" value={target} />
       <EnhancedInput />
-      <LanguageSwitchButton lang={languageTags[target]}>{messages[locale].languageSwitch}</LanguageSwitchButton>
+      <LanguageSwitchButton lang={languageTags[target]} pendingLabel={messages[locale].languageSwitching}>
+        {messages[locale].languageSwitch}
+      </LanguageSwitchButton>
     </form>
   );
 }

@@ -3,10 +3,11 @@
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
+import { LoadingOverlay } from "@/components/loading-overlay";
 import { cn } from "@/lib/utils";
 
 /**
- * 後台表單的送出按鈕。按下後到伺服器回應前停用，並顯示轉圈圈與「處理中…」，
+ * 後台表單的送出按鈕。按下後到伺服器回應前停用，並顯示轉圈圈與「處理中…」，整個畫面也蓋上遮蔽層，
  * 使用者才不會以為按鈕沒反應而一按再按。
  * 伺服器動作的表單由 useFormStatus 得知送出中；一般的 GET 表單（例如搜尋）會整頁重新載入，
  * 要給 navigates，改在送出時自己記下，從上一頁回來（瀏覽器快取的頁面）時恢復。
@@ -52,6 +53,7 @@ export function SubmitButton({
     >
       {pending && <LoaderCircle aria-hidden className="size-4 animate-spin" />}
       {pending ? pendingLabel : children}
+      <LoadingOverlay show={pending} label={pendingLabel} />
     </button>
   );
 }

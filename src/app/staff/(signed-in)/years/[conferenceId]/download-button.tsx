@@ -3,6 +3,7 @@
 import { LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { LoadingOverlay } from "@/components/loading-overlay";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { YearExportError } from "@/lib/year-export";
@@ -68,6 +69,7 @@ export function DownloadButton({ conferenceId, fileName }: { conferenceId: strin
       >
         {pending && <LoaderCircle aria-hidden className="size-4 animate-spin" />}
         {pending ? "產生中…" : "下載年度 Excel"}
+        <LoadingOverlay show={pending} label="Excel 產生中…" />
       </button>
       {error && (
         <p role="alert" className={alertClass}>

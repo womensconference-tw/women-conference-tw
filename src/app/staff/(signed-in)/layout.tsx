@@ -18,7 +18,7 @@ export default async function SignedInLayout({ children }: LayoutProps<"/staff">
   return (
     <>
       <header className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
-        <nav className="flex flex-wrap items-center gap-x-2 gap-y-3 font-semibold">
+        <nav className="flex flex-wrap items-center gap-4 font-semibold">
           <NavLink href="/staff">後台首頁</NavLink>
           <NavLink href="/staff/registrations">報名名單</NavLink>
           <NavLink href="/staff/statistics">統計</NavLink>

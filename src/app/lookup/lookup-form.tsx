@@ -3,6 +3,7 @@
 import { LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { LoadingOverlay } from "@/components/loading-overlay";
 import { RegistrationDetails } from "@/components/registration-details";
 import { buttonVariants } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n/locale";
@@ -217,6 +218,7 @@ export function LookupForm({
         >
           {pending && <LoaderCircle aria-hidden className="size-5 animate-spin" />}
           {pending ? t.lookup.submittingButton : t.lookup.submitButton}
+          <LoadingOverlay show={pending} label={t.lookup.submittingButton} />
         </button>
       </form>
 
@@ -333,6 +335,7 @@ function CancelConfirm({
       >
         {pending && <LoaderCircle aria-hidden className="size-5 animate-spin" />}
         {pending ? t.cancel.confirmingButton : t.cancel.confirmButton}
+        <LoadingOverlay show={pending} label={t.cancel.confirmingButton} />
       </button>
       <button
         type="button"

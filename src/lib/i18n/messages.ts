@@ -12,6 +12,7 @@ const zh = {
   },
   // 切換按鈕顯示「要切換過去的那個語言」，用該語言自己的寫法。
   languageSwitch: "English",
+  languageSwitching: "切換中，請稍候…",
   // 後台的預覽首頁、預覽報名表：只有登入的工作人員看得到，最上方說明這是預覽。
   preview: {
     homeNotAnnounced: "預覽模式：訪客還看不到這些內容。",
@@ -294,6 +295,7 @@ const en = {
     description: "Official website and registration for the Taiwan Women's Conference",
   },
   languageSwitch: "中文",
+  languageSwitching: "Switching, please wait…",
   preview: {
     homeNotAnnounced: "Preview mode: visitors can't see this yet.",
     homeAnnounced: "Preview mode: this is the homepage visitors see now.",
