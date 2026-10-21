@@ -50,10 +50,10 @@ export type YearExportData = {
   }[];
 };
 
-const CHOIR_LABELS: Record<ChoirPart, string> = { soprano: "女高音", alto: "女低音" };
+export const CHOIR_LABELS: Record<ChoirPart, string> = { soprano: "女高音", alto: "女低音" };
 
 // 欄位名稱與順序沿用舊系統的試算表（ADR 0008）。
-const SERVICE_COLUMNS: [Service, string][] = [
+export const SERVICE_COLUMNS: [Service, string][] = [
   ["setup", "事前準備志工"],
   ["translation", "翻譯人員"],
   ["reception", "當天接待志工"],

@@ -9,6 +9,7 @@ import {
   REGISTRATION_STATUS_LABELS,
   type RegistrationFilter,
 } from "@/lib/registration-list";
+import { allowedExports, staffExportFileName } from "@/lib/staff-export";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { listConferences } from "@/lib/years";
@@ -16,6 +17,7 @@ import { getCurrentStaff } from "../../current-staff";
 import { ResultMessage } from "../../result-message";
 import { buttonClass, formatTime, inputClass } from "../../ui";
 import { SubmitButton } from "../../submit-button";
+import { ExportButtons } from "./export-buttons";
 
 export const metadata: Metadata = { title: "報名名單" };
 
@@ -37,6 +39,7 @@ const DONE = { added: "已新增報名。", updated: "已儲存修改。", cance
  * 預設是目前年度，可以選年度看舊年度的名單（範圍一樣）。
  * 標出疑似重複（同支會同名）與跨區（場地和支聯會不在同一區），也可以只看其中一種（#24）。
  * 總管理員可以新增、修改、取消目前年度的報名（#17）；課務組、報報組只能看。
+ * 可以下載所選年度的 CSV（#20），只顯示自己角色能用的幾種，內容是自己範圍內的。
  */
 export default async function RegistrationsPage({ searchParams }: PageProps<"/staff/registrations">) {
   const supabase = await createClient();
@@ -66,6 +69,12 @@ export default async function RegistrationsPage({ searchParams }: PageProps<"/st
           </Link>
         )}
       </div>
+      {selected && (
+        <ExportButtons
+          year={selected.year}
+          exports={allowedExports(me.role).map((kind) => ({ kind, fileName: staffExportFileName(kind, selected.year) }))}
+        />
+      )}
       <form className="flex flex-col gap-2 sm:flex-row sm:items-end">
         {years.length > 1 && (
           <label className="flex flex-col gap-1 sm:w-48">
