@@ -309,6 +309,27 @@ describe("完整名單與支聯會簡表", () => {
   });
 });
 
+describe("分批讀取", () => {
+  it("報名、課程比一批多時分好幾批讀完，一筆都不少", async () => {
+    const supabase = await signedInClient("head@example.com");
+    const whole = await exportStaffCsv(supabase, "full_roster", 2099);
+    const paged = await exportStaffCsv(supabase, "full_roster", 2099, { pageSize: 2 });
+    expect(paged).toEqual(whole);
+    expect(await exportStaffCsv(supabase, "badges", 2099, { pageSize: 1 })).toEqual(
+      await exportStaffCsv(supabase, "badges", 2099),
+    );
+  });
+
+  it("場地的顯示順序相同時依名稱排，每次匯出的欄位順序一樣", async () => {
+    // 名稱和原本的順序相反：金華（原本第一）改成 Z，大雅改成 A。
+    must(await admin.from("venues").update({ position: 0 }).eq("conference_id", conferenceId));
+    must(await admin.from("venues").update({ name_zh: "A教堂" }).eq("name_zh", "測試大雅教堂"));
+    must(await admin.from("venues").update({ name_zh: "Z教堂" }).eq("name_zh", "測試金華教堂"));
+    const rows = await rowsFor("head@example.com", "stake_summary");
+    expect(rows[0]).toEqual(["區", "支聯會", "支會", "A教堂", "Z教堂", "合計"]);
+  });
+});
+
 describe("檢查", () => {
   it("畫面上依角色顯示的下載按鈕", () => {
     expect(allowedExports("admin")).toEqual(["badges", "full_roster", "stake_summary"]);

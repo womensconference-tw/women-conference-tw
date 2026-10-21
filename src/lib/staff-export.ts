@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { REGISTRANT_ROLE_LABELS, type ChoirPart, type RegistrantRole, type Service } from "./registration";
 import { CLEARED_NAME, REGISTRATION_STATUS_LABELS, type RegistrationStatus } from "./registration-list";
 import { REGION_LABELS, getStaffMember, type Region, type StaffRole } from "./staff";
@@ -48,11 +48,15 @@ export function isStaffExportKind(value: unknown): value is StaffExportKind {
   return typeof value === "string" && Object.hasOwn(ALLOWED, value);
 }
 
-/** 某個年度的匯出內容（表頭加資料列）。不是工作人員或角色不能用這種匯出時是 not_allowed。 */
+/**
+ * 某個年度的匯出內容（表頭加資料列）。不是工作人員或角色不能用這種匯出時是 not_allowed。
+ * pageSize 是分批讀取時一批幾筆（測試改小，才不用建上千筆資料）。
+ */
 export async function exportStaffCsv(
   supabase: SupabaseClient,
   kind: StaffExportKind,
   year: number,
+  { pageSize = PAGE_SIZE }: { pageSize?: number } = {},
 ): Promise<{ ok: true; rows: string[][] } | { ok: false; error: StaffExportError }> {
   const me = await getStaffMember(supabase);
   if (!me || !ALLOWED[kind].includes(me.role)) return { ok: false, error: "not_allowed" };
@@ -61,7 +65,7 @@ export async function exportStaffCsv(
   if (error) throw error;
   if (!conference) return { ok: false, error: "not_found" };
 
-  const data = await loadExportData(supabase, conference.id);
+  const data = await loadExportData(supabase, conference.id, pageSize);
   switch (kind) {
     case "badges":
       return { ok: true, rows: badgeRows(data) };
@@ -110,40 +114,78 @@ type ExportData = {
   registrations: Registration[];
 };
 
-// PostgREST 一次最多回傳的筆數（supabase/config.toml 的 max_rows）；報名可能比這個多，分批讀。
+// PostgREST 一次最多回傳的筆數（supabase/config.toml 的 max_rows）；報名、課程可能比這個多，分批讀。
 const PAGE_SIZE = 1000;
 
-async function loadExportData(supabase: SupabaseClient, conferenceId: string): Promise<ExportData> {
-  const [venues, sessions, courses, lunches] = await Promise.all([
-    supabase.from("venues").select("id, name_zh").eq("conference_id", conferenceId).order("position"),
-    supabase.from("sessions").select("id, venue_id, name_zh").eq("conference_id", conferenceId).order("position"),
-    // 教室在另一張表，讀不到（報報組、別區的課務組）時是 null。
-    supabase.from("courses").select("id, title_zh, course_classrooms(classroom)").eq("conference_id", conferenceId),
+/**
+ * 依編號分批讀完：每一批從上一批最後一筆的編號之後接著讀。不用「跳過前 N 筆」，
+ * 讀到一半有人被改到範圍外時，後面沒變動的報名才不會被跳過。
+ */
+async function readAll<T extends { id: string }>(
+  page: (afterId: string | null, size: number) => PromiseLike<{ data: T[] | null; error: PostgrestError | null }>,
+  size: number,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let afterId: string | null = null; ; ) {
+    const { data, error } = await page(afterId, size);
+    if (error) throw error;
+    rows.push(...data!);
+    if (data!.length < size) return rows;
+    afterId = data![data!.length - 1].id;
+  }
+}
+
+async function loadExportData(supabase: SupabaseClient, conferenceId: string, pageSize: number): Promise<ExportData> {
+  const [venues, sessions, lunches] = await Promise.all([
+    // 顯示順序可能相同（新增的預設是 0），再依名稱、編號，每次匯出的欄位順序才一樣。
+    supabase
+      .from("venues")
+      .select("id, name_zh")
+      .eq("conference_id", conferenceId)
+      .order("position")
+      .order("name_zh")
+      .order("id"),
+    supabase
+      .from("sessions")
+      .select("id, venue_id, name_zh")
+      .eq("conference_id", conferenceId)
+      .order("position")
+      .order("id"),
     supabase.from("lunch_options").select("id, name_zh").eq("conference_id", conferenceId),
   ]);
-  for (const result of [venues, sessions, courses, lunches]) {
+  for (const result of [venues, sessions, lunches]) {
     if (result.error) throw result.error;
   }
 
-  const rows: RegistrationRow[] = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from("registrations")
-      .select(
-        "name, phone, registration_number, email, line_id, locale, role, status, choir_part, services, printed_handbook, created_at, is_cross_region, is_suspected_duplicate, venue_id, lunch_option_id, stakes(id, name_zh, position, region), wards(id, name_zh, position), registration_courses(session_id, course_id)",
-      )
-      .eq("conference_id", conferenceId)
-      .order("created_at")
-      .order("id")
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    rows.push(...(data as unknown as RegistrationRow[]));
-    if (data.length < PAGE_SIZE) break;
-  }
+  const [courses, registrations] = await Promise.all([
+    // 教室在另一張表，讀不到（報報組、別區的課務組）時是 null。
+    readAll<CourseRow>((afterId, size) => {
+      let query = supabase
+        .from("courses")
+        .select("id, title_zh, course_classrooms(classroom)")
+        .eq("conference_id", conferenceId);
+      if (afterId) query = query.gt("id", afterId);
+      return query.order("id").limit(size).overrideTypes<CourseRow[], { merge: false }>();
+    }, pageSize),
+    readAll<RegistrationRow>((afterId, size) => {
+      let query = supabase
+        .from("registrations")
+        .select(
+          "id, name, phone, registration_number, email, line_id, locale, role, status, choir_part, services, printed_handbook, created_at, is_cross_region, is_suspected_duplicate, venue_id, lunch_option_id, stakes(id, name_zh, position, region), wards(id, name_zh, position), registration_courses(session_id, course_id)",
+        )
+        .eq("conference_id", conferenceId);
+      if (afterId) query = query.gt("id", afterId);
+      return query.order("id").limit(size).overrideTypes<RegistrationRow[], { merge: false }>();
+    }, pageSize),
+  ]);
+  // 依報名先後；下面依場地、支聯會、支會排序時，sort 不改變相等的順序。
+  const rows = registrations.toSorted(
+    (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id),
+  );
 
   const venueOrder = new Map(venues.data!.map((venue, index) => [venue.id, index]));
   const lunchNames = new Map(lunches.data!.map((lunch) => [lunch.id, lunch.name_zh as string]));
-  // 依場地、支聯會、支會的顯示順序，同一支會的依報名先後（rows 已經依報名時間排好，sort 不改變相等的順序）。
+  // 依場地、支聯會、支會的顯示順序，同一支會的依報名先後。
   // 順序可能相同（新增的預設是 0），再依名稱、編號，同一支聯會、支會的才會排在一起。
   const sorted = rows.toSorted(
     (a, b) =>
@@ -161,7 +203,7 @@ async function loadExportData(supabase: SupabaseClient, conferenceId: string): P
         .map((session) => ({ id: session.id, name: session.name_zh })),
     })),
     courses: new Map(
-      (courses.data as unknown as CourseRow[]).map((course) => [
+      courses.map((course) => [
         course.id,
         { title: course.title_zh, classroom: course.course_classrooms?.classroom ?? "" },
       ]),
@@ -196,6 +238,7 @@ async function loadExportData(supabase: SupabaseClient, conferenceId: string): P
 }
 
 type RegistrationRow = {
+  id: string;
   name: string | null;
   phone: string | null;
   registration_number: string | null;
