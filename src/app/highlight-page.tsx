@@ -8,12 +8,13 @@ import { getHighlight } from "@/lib/home-content";
 import { getLocale, getMessages } from "@/lib/i18n/server";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
+import { HighlightVenues } from "./highlight-venues";
 import { PreviewBanner } from "./preview/preview-banner";
 
 /**
- * 大會特色的介紹頁（#82）：名稱、介紹內容（Markdown）、回首頁。首頁「大會有什麼」的卡片連過來。
+ * 大會特色的介紹頁（#82）：名稱、簡介（Markdown）、教堂分頁（#100）、回首頁。首頁「大會有什麼」的卡片連過來。
  * 前台（/highlights/<編號>）與後台的預覽（/preview/highlights/<編號>）共用：和首頁一樣，
- * 前台公告上線前看不到，預覽一直看得到。只有目前年度的；過去年度、找不到、沒寫介紹內容的都顯示「找不到」。
+ * 前台公告上線前看不到，預覽一直看得到。只有目前年度的；過去年度、找不到、沒有內容的都顯示「找不到」。
  */
 export async function HighlightPage({ id, preview }: { id: string; preview: boolean }) {
   const locale = await getLocale();
@@ -32,13 +33,14 @@ export async function HighlightPage({ id, preview }: { id: string; preview: bool
         <LanguageSwitch />
       </div>
       <h1 className="text-title leading-tight font-bold">{highlight.name}</h1>
-      <Markdown newTabLabel={t.highlight.opensInNewTab}>{highlight.description}</Markdown>
+      {highlight.description && <Markdown newTabLabel={t.highlight.opensInNewTab}>{highlight.description}</Markdown>}
+      {highlight.venues.length > 0 && <HighlightVenues venues={highlight.venues} locale={locale} />}
       <BackHomeLink preview={preview} label={t.highlight.backHome} />
     </main>
   );
 }
 
-/** 找不到介紹頁時（過去年度、已刪除、沒寫內容，或公告上線前的前台）。 */
+/** 找不到介紹頁時（過去年度、已刪除、沒有內容，或公告上線前的前台）。 */
 export async function HighlightNotFound({ preview }: { preview: boolean }) {
   const t = await getMessages();
   return (

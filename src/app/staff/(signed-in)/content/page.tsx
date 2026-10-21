@@ -7,6 +7,7 @@ import {
   getContentEditor,
   missingEnglish,
   type ContentError,
+  type HighlightItem,
   type HomeItem,
   type HomeItemKind,
 } from "@/lib/content";
@@ -29,6 +30,7 @@ import {
   saveContentItem,
   saveContentSchedule,
   saveHeroAltAction,
+  saveHighlightVenueAction,
 } from "./actions";
 import { HeroUpload } from "./hero-upload";
 
@@ -39,6 +41,7 @@ const submitClass = cn(buttonVariants(), buttonClass, "self-start font-bold");
 
 const DONE: Record<string, string> = {
   saved: "已儲存，首頁已經更新。",
+  venueSaved: "已儲存教堂分頁，介紹頁已經更新。",
   scheduled: "已儲存時程，首頁依新的時間切換狀態。",
   moved: "已調整順序。",
   deleted: "已刪除。",
@@ -133,6 +136,7 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
       [item.buttonLabelZh, item.buttonLabelEn],
       [item.summaryZh, item.summaryEn],
     ]),
+    ...content.highlights.flatMap((item) => item.venues.map((venue) => [venue.bodyZh, venue.bodyEn])),
   ].filter(([zh, en]) => missingEnglish(zh, en)).length;
   const conferenceId = content.conferenceId;
 
@@ -232,7 +236,7 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
         noun="大會特色"
         items={content.highlights}
         conferenceId={conferenceId}
-        description="首頁「大會有什麼」的卡片，依這裡的順序。寫了介紹內容的卡片可以點進介紹頁；沒寫的只顯示名稱和一句話，不能點。"
+        description="首頁「大會有什麼」的卡片，依這裡的順序。介紹頁有內容（介紹內容、教堂分頁或有課程分在這一類）的卡片可以點進介紹頁；都沒有的只顯示名稱和一句話，不能點。"
       />
       <ItemList
         kind="faq"
@@ -336,7 +340,7 @@ function ItemList({
   kind: HomeItemKind;
   heading: string;
   noun: string;
-  items: HomeItem[];
+  items: (HomeItem | HighlightItem)[];
   conferenceId: string;
   description: string;
 }) {
@@ -353,13 +357,13 @@ function ItemList({
             <h3 className="text-lg font-bold">
               {index + 1}. {item.titleZh}
             </h3>
-            {kind === "highlight" &&
-              (item.bodyZh ? (
+            {"linkable" in item &&
+              (item.linkable ? (
                 <Link href={`/preview/highlights/${item.id}`} target="_blank" className="self-start font-semibold underline">
                   預覽介紹頁
                 </Link>
               ) : (
-                <p className="text-muted-foreground">還沒寫介紹內容，首頁的卡片不能點。</p>
+                <p className="text-muted-foreground">介紹頁還沒有內容，首頁的卡片不能點。</p>
               ))}
             <div className="flex flex-wrap gap-3">
               {index > 0 && <MoveButton kind={kind} id={item.id} direction="up" />}
@@ -371,6 +375,7 @@ function ItemList({
                 <ItemForm kind={kind} conferenceId={conferenceId} item={item} submitLabel={`儲存${noun}`} />
               </div>
             </details>
+            {"venues" in item && <HighlightVenueForms item={item} />}
             <details>
               <summary className="cursor-pointer font-semibold text-destructive">刪除{noun}</summary>
               <form action={deleteContentItem} className="mt-3 flex flex-col gap-2">
@@ -399,6 +404,59 @@ function ItemList({
         </div>
       </details>
     </section>
+  );
+}
+
+/**
+ * 大會特色的教堂分頁（#100）：每間教堂一個表單。介紹頁只顯示有說明或有課程的教堂；
+ * 分在這一類的課程由介紹頁自動列出，這裡只顯示有幾門。
+ */
+function HighlightVenueForms({ item }: { item: HighlightItem }) {
+  if (item.venues.length === 0) return null;
+  return (
+    <details>
+      <summary className="cursor-pointer font-semibold">各教堂分頁</summary>
+      <div className="mt-3 flex flex-col gap-3">
+        <p>
+          介紹頁在介紹內容下面分教堂說明，例如各教堂的地點、時間、要帶什麼。只有寫了說明、或有課程分在這一類的教堂才會出現分頁。
+        </p>
+        {item.venues.map((venue) => (
+          <details key={venue.venueId} className="rounded-lg border p-3">
+            <summary className="cursor-pointer font-semibold">
+              {venue.venueName}
+              {venue.bodyZh.trim() === "" && venue.courseCount === 0 && "（沒有分頁）"}
+            </summary>
+            <form action={saveHighlightVenueAction} className="mt-3 flex flex-col gap-3">
+              <input type="hidden" name="highlightId" value={item.id} />
+              <input type="hidden" name="venueId" value={venue.venueId} />
+              <p className="text-muted-foreground">
+                {venue.courseCount > 0
+                  ? `這間教堂有 ${venue.courseCount} 門課分在「${item.titleZh}」，會自動列在說明下面，不用另外寫。`
+                  : `這間教堂沒有課程分在「${item.titleZh}」。`}
+              </p>
+              <RichTextEditor
+                name="bodyZh"
+                label={`${venue.venueName}的說明（中文）`}
+                hint="中英都清空後儲存，就拿掉這間教堂的說明。"
+                defaultValue={venue.bodyZh}
+                saveLabel="儲存這間教堂"
+              />
+              <RichTextEditor
+                name="bodyEn"
+                label={`${venue.venueName}的說明（英文）`}
+                hint="不寫的話英文版顯示中文。"
+                defaultValue={venue.bodyEn}
+                saveLabel="儲存這間教堂"
+              />
+              {missingEnglish(venue.bodyZh, venue.bodyEn) && (
+                <span className="text-sm font-semibold text-destructive">⚠ 這間教堂的說明英文還沒填，英文版會顯示中文。</span>
+              )}
+              <SubmitButton className={submitClass}>儲存這間教堂</SubmitButton>
+            </form>
+          </details>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -438,7 +496,7 @@ function ItemForm({
           <RichTextEditor
             name="bodyZh"
             label="介紹內容（中文）"
-            hint="介紹頁的內容，例如練唱影片的連結、要帶什麼。不寫的話首頁的卡片不能點。"
+            hint="介紹頁最上面的簡介，例如練唱影片的連結、要帶什麼。各教堂不同的細節寫在下面的「各教堂分頁」。"
             defaultValue={item?.bodyZh ?? ""}
             saveLabel={submitLabel}
           />

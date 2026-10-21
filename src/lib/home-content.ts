@@ -52,13 +52,13 @@ export type CustomBlock = {
   button: { label: string; url: string } | null;
 };
 
-/** 首頁「大會有什麼」的一張卡片。有介紹內容才連到介紹頁。 */
+/** 首頁「大會有什麼」的一張卡片。介紹頁有內容才連過去（見 hasHighlightPage）。 */
 export type HighlightCard = {
   id: string;
   name: string;
   /** 卡片上的一句話；沒填是空字串。 */
   summary: string;
-  hasDescription: boolean;
+  linkable: boolean;
 };
 
 /** 首頁每年會變的內容，已依語言挑好（英文缺漏時是中文）。 */
@@ -102,7 +102,7 @@ export async function getHomeContent(
         agenda_item_parts(name_zh, name_en, highlight_id),
         agenda_item_venues(venue_id, place_zh, place_en, note_zh, note_en, session_id)),
       custom_blocks(title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
-      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh)`,
+      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, highlight_venues(body_zh))`,
     )
     .eq("is_current", true)
     // 排序相同時再依 id，讓順序每次都一樣。
@@ -129,8 +129,13 @@ export async function getHomeContent(
   const hero = pickHeroPaths(heroPathsOf(data), locale);
   const pairs = await supabase.from("course_pairs").select("first_course_id, second_course_id");
   if (pairs.error) throw pairs.error;
-  // 有介紹內容的大會特色才連到介紹頁；英文沒填時顯示中文，所以只看中文有沒有寫。
-  const linkable = new Set(data.highlights.filter((h) => h.description_zh.trim() !== "").map((h) => h.id));
+  // 介紹頁有內容的大會特色才連過去。
+  const categorized = new Set(
+    data.venues.flatMap((venue) => venue.sessions.flatMap((session) => session.courses.map((course) => course.highlight_id))),
+  );
+  const linkable = new Set(
+    data.highlights.filter((h) => hasHighlightPage(h.description_zh, h.highlight_venues, categorized.has(h.id))).map((h) => h.id),
+  );
   const highlightLink = (id: string | null) => (id && linkable.has(id) ? id : null);
 
   return {
@@ -192,17 +197,40 @@ export async function getHomeContent(
       id: highlight.id,
       name: localized(highlight, "name", locale),
       summary: localized(highlight, "summary", locale),
-      // 英文沒填時顯示中文，所以只看中文有沒有寫。
-      hasDescription: highlight.description_zh.trim() !== "",
+      linkable: linkable.has(highlight.id),
     })),
   };
 }
 
+/**
+ * 介紹頁有沒有東西可看：簡介、任何一間教堂的說明、或有課程分在這一類（#100），有一個就算。
+ * 英文沒填時顯示中文，所以只看中文有沒有寫。首頁卡片、大會程序與課程分類的連結都依這個規則。
+ */
+export function hasHighlightPage(descriptionZh: string, venues: { body_zh: string }[], hasCourses: boolean): boolean {
+  return descriptionZh.trim() !== "" || venues.some((venue) => venue.body_zh.trim() !== "") || hasCourses;
+}
+
 /** 介紹頁要顯示的一項大會特色，已依語言挑好（英文缺漏時是中文）。 */
-export type Highlight = { name: string; description: string };
+export type Highlight = {
+  name: string;
+  /** 簡介；沒寫是空字串。 */
+  description: string;
+  /** 教堂分頁，照場地的順序；只有有說明或有課程的教堂。 */
+  venues: HighlightVenue[];
+};
+
+/** 介紹頁的一個教堂分頁：這間教堂的說明，與分在這項大會特色底下的課程（照場次、課程的順序）。 */
+export type HighlightVenue = {
+  id: string;
+  name: string;
+  /** 沒寫是空字串。 */
+  body: string;
+  /** 教室不公開（GLOSSARY「教室」），所以沒有教室。 */
+  courses: { title: string; speaker: string; sessionName: string }[];
+};
 
 /**
- * 讀取目前年度的一項大會特色。不是目前年度的、找不到的、沒寫介紹內容的都回傳 null（介紹頁顯示「找不到」）。
+ * 讀取目前年度的一項大會特色。不是目前年度的、找不到的、介紹頁沒有內容的都回傳 null（介紹頁顯示「找不到」）。
  * 公告上線前要不要顯示，由頁面判斷。
  */
 export async function getHighlight(supabase: SupabaseClient, id: string, locale: Locale): Promise<Highlight | null> {
@@ -210,13 +238,54 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
   if (!UUID_PATTERN.test(id)) return null;
   const { data, error } = await supabase
     .from("highlights")
-    .select("name_zh, name_en, description_zh, description_en, conferences!inner(is_current)")
+    .select(
+      "conference_id, name_zh, name_en, description_zh, description_en, highlight_venues(venue_id, body_zh, body_en), conferences!inner(is_current)",
+    )
     .eq("id", id)
     .eq("conferences.is_current", true)
     .maybeSingle();
   if (error) throw error;
-  if (!data || data.description_zh.trim() === "") return null;
-  return { name: localized(data, "name", locale), description: localized(data, "description", locale) };
+  if (!data) return null;
+  const venueRows = await supabase
+    .from("venues")
+    .select("id, name_zh, name_en, sessions(name_zh, name_en, courses(title_zh, title_en, speaker_zh, speaker_en, highlight_id))")
+    .eq("conference_id", data.conference_id)
+    .order("position")
+    .order("id")
+    .order("position", { referencedTable: "sessions" })
+    .order("id", { referencedTable: "sessions" })
+    .order("position", { referencedTable: "sessions.courses" })
+    .order("id", { referencedTable: "sessions.courses" });
+  if (venueRows.error) throw venueRows.error;
+
+  const venues = venueRows.data
+    .map((venue): HighlightVenue => {
+      const text = data.highlight_venues.find((row) => row.venue_id === venue.id);
+      return {
+        id: venue.id,
+        name: localized(venue, "name", locale),
+        // 中文沒寫就當成沒有說明（和簡介一樣，英文版沒有英文時顯示中文）。
+        body: text && text.body_zh.trim() !== "" ? localized(text, "body", locale) : "",
+        courses: venue.sessions.flatMap((session) =>
+          session.courses
+            .filter((course) => course.highlight_id === id)
+            .map((course) => ({
+              title: localized(course, "title", locale),
+              speaker: localized(course, "speaker", locale),
+              sessionName: localized(session, "name", locale),
+            })),
+        ),
+      };
+    })
+    .filter((venue) => venue.body !== "" || venue.courses.length > 0);
+  if (!hasHighlightPage(data.description_zh, data.highlight_venues, venues.some((venue) => venue.courses.length > 0))) {
+    return null;
+  }
+  return {
+    name: localized(data, "name", locale),
+    description: data.description_zh.trim() === "" ? "" : localized(data, "description", locale),
+    venues,
+  };
 }
 
 type LocalizedRow<F extends string> = Record<`${F}_zh` | `${F}_en`, string>;

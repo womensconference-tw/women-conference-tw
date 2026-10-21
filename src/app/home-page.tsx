@@ -274,7 +274,7 @@ function HighlightsSection({ content, path, t }: SectionProps & { content: HomeC
           );
           return (
             <li key={highlight.id}>
-              {highlight.hasDescription ? (
+              {highlight.linkable ? (
                 <Link href={path + highlight.id} className={cn(cardClass, "hover:bg-muted")}>
                   {text}
                   <span aria-hidden className="mt-auto pt-1 font-semibold text-primary underline">

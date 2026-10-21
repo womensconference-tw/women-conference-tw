@@ -86,6 +86,7 @@ describe("首頁內容", () => {
     const choir = await insert("highlights", { position: 1, name_zh: "即席唱詩班", description_zh: "# 唱詩班" });
     const corner = await insert("highlights", { position: 3, name_zh: "角落課程", name_en: "Corner classes" });
     const spiritual = await insert("highlights", { position: 2, name_zh: "靈性課程", description_zh: "介紹" });
+    const exhibition = await insert("highlights", { position: 4, name_zh: "靜態展示" });
     const jinhua = await insert("venues", { position: 1, region: "north", name_zh: "台北金華教堂" });
     const daya = await insert("venues", { position: 2, region: "central", name_zh: "台中大雅教堂" });
     const second = await insert("sessions", { venue_id: jinhua, position: 2, name_zh: "第二場次", name_en: "Session 2" });
@@ -109,6 +110,7 @@ describe("首頁內容", () => {
         { conference_id: currentId, agenda_item_id: opening, position: 2, name_zh: "見證" },
         { conference_id: currentId, agenda_item_id: opening, position: 1, name_zh: "即席唱詩班", highlight_id: choir },
         { conference_id: currentId, agenda_item_id: opening, position: 3, name_zh: "角落", highlight_id: corner },
+        { conference_id: currentId, agenda_item_id: opening, position: 4, name_zh: "展示", highlight_id: exhibition },
       ], { defaultToNull: false }),
     );
     must(
@@ -122,11 +124,12 @@ describe("首頁內容", () => {
     const content = await getHomeContent(anonClient(), "zh");
 
     const [jinhuaAgenda, dayaAgenda] = content!.venues.map((venue) => venue.agenda);
-    // 子項目只有寫了介紹內容的大會特色才連過去。
+    // 子項目只有介紹頁有內容的大會特色才連過去：角落課程沒寫介紹，但有課程分在這一類（#100）。
     const parts = [
       { name: "即席唱詩班", highlightId: choir },
       { name: "見證", highlightId: null },
-      { name: "角落", highlightId: null },
+      { name: "角落", highlightId: corner },
+      { name: "展示", highlightId: null },
     ];
     expect(jinhuaAgenda).toEqual([
       { start: "09:30", end: "10:30", name: "開幕式", place: "一樓大會堂", note: "請提早入座", parts, courseGroups: null },
@@ -146,7 +149,7 @@ describe("首頁內容", () => {
             ],
           },
           {
-            category: { name: "角落課程", highlightId: null },
+            category: { name: "角落課程", highlightId: corner },
             courses: [
               { title: "免揉歐式麵包", speaker: "王淑娟", pairedWith: { sessionName: "第三場次", isSecond: false } },
             ],
