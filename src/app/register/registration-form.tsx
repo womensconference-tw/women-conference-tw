@@ -1,7 +1,9 @@
 "use client";
 
+import { LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
+import { afterLoading, LoadingOverlay } from "@/components/loading-overlay";
 import { RegistrationDetails } from "@/components/registration-details";
 import { buttonVariants } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n/locale";
@@ -219,14 +221,16 @@ export function RegistrationForm({
     const first = stepFields.flat().find((field) => next[field]);
     if (!first) return;
     setStep(stepFields.findIndex((fields) => fields.includes(first)));
-    // 等畫面換到有錯的那一步，再把游標移到第一個有錯的欄位。
-    requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>(
-          `[data-field="${first}"][tabindex], [data-field="${first}"] :is(input:enabled, button, [tabindex])`,
-        )
-        ?.focus();
-    });
+    // 等畫面換到有錯的那一步、遮蔽層也結束了，再把游標移到第一個有錯的欄位。
+    requestAnimationFrame(() =>
+      afterLoading(() =>
+        document
+          .querySelector<HTMLElement>(
+            `[data-field="${first}"][tabindex], [data-field="${first}"] :is(input:enabled, button, [tabindex])`,
+          )
+          ?.focus(),
+      ),
+    );
   }
 
   function setChoices(next: CourseChoices) {
@@ -520,14 +524,16 @@ export function RegistrationForm({
         <button
           type="submit"
           disabled={pending || previewLocked}
+          aria-busy={pending}
           className={cn(
             // 預覽的送出按鈕和首頁「報名前」的按鈕一樣用虛線框表示不能按；不用半透明，文字才保有高對比。
             buttonVariants(previewLocked ? { variant: "secondary" } : undefined),
             actionClass,
-            "min-h-(--button-primary-min-height) text-(length:--text-lead-size) font-bold disabled:opacity-100",
+            "min-h-(--button-primary-min-height) gap-2 text-(length:--text-lead-size) font-bold disabled:opacity-100",
             previewLocked && "border-2 border-dashed border-foreground/40",
           )}
         >
+          {pending && <LoaderCircle aria-hidden className="size-5 animate-spin" />}
           {step < lastStep
             ? t.register.nextButton
             : previewLocked
@@ -535,6 +541,7 @@ export function RegistrationForm({
               : pending
               ? t.register.submittingButton
               : t.register.submitButton}
+          <LoadingOverlay show={pending} label={t.register.submittingButton} />
         </button>
         {reviewed && step < lastStep && (
           <button

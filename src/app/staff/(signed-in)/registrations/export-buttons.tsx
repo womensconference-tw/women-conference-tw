@@ -2,6 +2,7 @@
 
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
+import { LoadingOverlay } from "@/components/loading-overlay";
 import { buttonVariants } from "@/components/ui/button";
 import type { StaffExportError, StaffExportKind } from "@/lib/staff-export";
 import { cn } from "@/lib/utils";
@@ -81,6 +82,7 @@ export function ExportButtons({
           >
             {pending === kind && <LoaderCircle aria-hidden className="size-4 animate-spin" />}
             {pending === kind ? "產生中…" : LABELS[kind]}
+            <LoadingOverlay show={pending === kind} label="檔案產生中…" />
           </button>
         ))}
       </div>

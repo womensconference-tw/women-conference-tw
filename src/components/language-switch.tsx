@@ -1,5 +1,5 @@
 import { EnhancedInput } from "@/components/enhanced-input";
-import { Button } from "@/components/ui/button";
+import { LanguageSwitchButton } from "@/components/language-switch-button";
 import { switchLanguage } from "@/lib/i18n/actions";
 import { languageTags, type Locale } from "@/lib/i18n/locale";
 import { messages } from "@/lib/i18n/messages";
@@ -16,14 +16,9 @@ export async function LanguageSwitch() {
     <form action={switchLanguage}>
       <input type="hidden" name="locale" value={target} />
       <EnhancedInput />
-      <Button
-        type="submit"
-        variant="outline"
-        lang={languageTags[target]}
-        className="h-auto min-h-(--button-min-height) px-6 text-(length:--text-body-size)"
-      >
+      <LanguageSwitchButton lang={languageTags[target]} pendingLabel={messages[locale].languageSwitching}>
         {messages[locale].languageSwitch}
-      </Button>
+      </LanguageSwitchButton>
     </form>
   );
 }

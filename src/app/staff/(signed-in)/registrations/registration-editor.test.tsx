@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RegistrationForEdit } from "@/lib/registration-list";
@@ -133,7 +133,8 @@ describe("後台修改報名的超收確認", () => {
 
     // 測試環境的對話框不會擋住背景，查詢要包含隱藏的元素；所以另外確認對話框真的打開了。
     const dialog = screen.getByRole<HTMLDialogElement>("alertdialog", { hidden: true });
-    expect(dialog.open).toBe(true);
+    // 對話框等遮蔽層結束才打開。
+    await waitFor(() => expect(dialog.open).toBe(true));
     expect(within(dialog).getByText("課程「拼布」：名額 30 人，目前已報 30 人，加入後變成 31 人（超過名額 1 人）")).toBeTruthy();
     expect(editRegistration).toHaveBeenLastCalledWith(
       registration.id,
@@ -164,6 +165,7 @@ describe("後台修改報名的超收確認", () => {
 
     await user.selectOptions(screen.getByLabelText("上午"), QUILTING);
     await user.click(screen.getByRole("button", { name: "儲存修改" }));
+    await waitFor(() => expect(dialog.open).toBe(true));
     await user.click(screen.getByRole("button", { name: "取消", hidden: true }));
 
     expect(dialog.open).toBe(false);
@@ -179,7 +181,7 @@ describe("後台修改報名的超收確認", () => {
       false,
       expect.any(String),
     );
-    expect(dialog.open).toBe(true);
+    await waitFor(() => expect(dialog.open).toBe(true));
   });
 });
 

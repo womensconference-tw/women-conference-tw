@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef } from "react";
+import { afterLoading } from "@/components/loading-overlay";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { buttonClass } from "./ui";
@@ -19,8 +20,11 @@ export function ResultDialog({ kind, message }: { kind: "done" | "error"; messag
   const code = searchParams.get(kind);
 
   useEffect(() => {
-    const dialog = ref.current;
-    if (code && dialog && !dialog.open) dialog.showModal();
+    // 送出按鈕的遮蔽層可能還沒結束，等它結束再打開，對話框才能操作。
+    afterLoading(() => {
+      const dialog = ref.current;
+      if (code && dialog && !dialog.open) dialog.showModal();
+    });
   }, [code]);
 
   function cleanUrl() {
