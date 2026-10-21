@@ -39,7 +39,7 @@ import { RichTextEditor } from "../../rich-text-editor";
 import { ResultMessage } from "../../result-message";
 import { SubmitButton } from "../../submit-button";
 import { buttonClass, formatTime, inputClass, noticeClass } from "../../ui";
-import { CopyUrl } from "./copy-url";
+import { CopyUrl } from "../../copy-url";
 import { COMMITTEE_DONE, COMMITTEE_ERRORS } from "./messages";
 import {
   deleteItemAction,
