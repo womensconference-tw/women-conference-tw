@@ -19,6 +19,8 @@ import {
   hardbreakKeymap,
   hardbreakSchema,
   headingAttr,
+  imageAttr,
+  imageSchema,
   headingIdGenerator,
   headingSchema,
   insertHardbreakCommand,
@@ -61,12 +63,14 @@ import {
   exitTable,
   insertTableCommand,
 } from "@milkdown/kit/preset/gfm";
-import { Fragment, type Node as ProseNode } from "@milkdown/kit/prose/model";
-import { EditorState, Plugin } from "@milkdown/kit/prose/state";
+import { Fragment, type Node as ProseNode, type ResolvedPos } from "@milkdown/kit/prose/model";
+import { EditorState, NodeSelection, Plugin, type Selection, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
 import { TableMap } from "@milkdown/kit/prose/tables";
+import type { NodeSchema } from "@milkdown/kit/transformer";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { $prose, $remark } from "@milkdown/kit/utils";
-import { joinListItemChildren, remarkRichText } from "@/lib/rich-text";
+import { isHighlightImageUrl } from "@/lib/highlight-images";
+import { isAlignment, isImageSize, joinListItemChildren, remarkContainerDirective, remarkRichText } from "@/lib/rich-text";
 import { SAFE_URL } from "@/lib/safe-url";
 
 /*
@@ -74,9 +78,106 @@ import { SAFE_URL } from "@/lib/safe-url";
  * 從 Word、Google 文件貼上時，瀏覽器給的 HTML 只會留下這些格式（其他的不在編輯器的格式表裡，自動去掉）；
  * 貼上 Markdown 或載入存檔內容時，remarkRichText 先把其他寫法改成文字。
  * 不載入 Milkdown 的「保留空行」外掛：它會把空白段落存成 <br />，HTML 不能進到存檔內容。
+ * 大會特色的編輯器另外載入圖片，只留從後台上傳的（#102）。
+ * 段落與標題多記一個對齊（align），圖片的標題記大小，存檔寫法見 src/lib/rich-text.ts（#102）。
  */
 
+const remarkDirectivePlugin = $remark("remarkContainerDirective", () => remarkContainerDirective);
+
+/** 貼上 Word、Google 文件的置中、靠右段落時保留對齊。 */
+function alignOf(dom: HTMLElement): string {
+  const align = dom.style.textAlign || dom.getAttribute("data-align");
+  return isAlignment(align) ? align : "";
+}
+
+const alignAttrs = { align: { default: "", validate: "string" } };
+
+/** remarkRichText 記在 Markdown 節點上的對齊。 */
+const alignFrom = (node: { data?: unknown }) => (node.data as { align?: string } | undefined)?.align ?? "";
+
+/** 有對齊的段落、標題存檔時用「:::center」「:::right」包住。 */
+function withAlignment(runner: NodeSchema["toMarkdown"]["runner"]): NodeSchema["toMarkdown"]["runner"] {
+  return (state, node) => {
+    const align = node.attrs.align as string;
+    if (align) state.openNode("containerDirective", undefined, { name: align, attributes: {} });
+    runner(state, node);
+    if (align) state.closeNode();
+  };
+}
+
+const alignedParagraphSchema = paragraphSchema.extendSchema((prev) => (ctx) => {
+  const base = prev(ctx);
+  return {
+    ...base,
+    attrs: { ...base.attrs, ...alignAttrs },
+    parseDOM: [{ tag: "p", getAttrs: (dom) => ({ align: alignOf(dom as HTMLElement) }) }],
+    toDOM: (node) => ["p", { ...ctx.get(paragraphAttr.key)(node), "data-align": node.attrs.align || null }, 0],
+    parseMarkdown: {
+      match: base.parseMarkdown.match,
+      runner: (state, node, type) => {
+        state.openNode(type, { align: alignFrom(node) });
+        if (node.children) state.next(node.children);
+        else state.addText((node.value || "") as string);
+        state.closeNode();
+      },
+    },
+    toMarkdown: { match: base.toMarkdown.match, runner: withAlignment(base.toMarkdown.runner) },
+  };
+});
+
+const alignedHeadingSchema = headingSchema.extendSchema((prev) => (ctx) => {
+  const base = prev(ctx);
+  const baseToDOM = base.toDOM!;
+  return {
+    ...base,
+    attrs: { ...base.attrs, ...alignAttrs },
+    parseDOM: [1, 2, 3, 4, 5, 6].map((level) => ({
+      tag: `h${level}`,
+      getAttrs: (dom) => ({ level, id: (dom as HTMLElement).id, align: alignOf(dom as HTMLElement) }),
+    })),
+    toDOM: (node) => {
+      const [tag, attrs, hole] = baseToDOM(node) as [string, Record<string, string>, 0];
+      return [tag, { ...attrs, "data-align": node.attrs.align || null }, hole];
+    },
+    parseMarkdown: {
+      match: base.parseMarkdown.match,
+      runner: (state, node, type) => {
+        state.openNode(type, { level: node.depth as number, align: alignFrom(node) });
+        state.next(node.children);
+        state.closeNode();
+      },
+    },
+    toMarkdown: { match: base.toMarkdown.match, runner: withAlignment(base.toMarkdown.runner) },
+  };
+});
+
+/**
+ * 圖片的標題記大小，畫成 data-size，不畫成滑鼠移上去的提示文字。
+ * 在編輯器裡複製貼上圖片時從 data-size 讀回大小（Codex 審查）；其他的標題不是大小，不留。
+ */
+const sizedImageSchema = imageSchema.extendSchema((prev) => (ctx) => {
+  const base = prev(ctx);
+  return {
+    ...base,
+    parseDOM: [
+      {
+        tag: "img[src]",
+        getAttrs: (dom) => {
+          const img = dom as HTMLElement;
+          const size = img.getAttribute("data-size") ?? img.getAttribute("title");
+          return { src: img.getAttribute("src") ?? "", alt: img.getAttribute("alt") ?? "", title: isImageSize(size) ? size : "" };
+        },
+      },
+    ],
+    toDOM: (node) => [
+      "img",
+      { ...ctx.get(imageAttr.key)(node), src: node.attrs.src, alt: node.attrs.alt, "data-size": node.attrs.title || null },
+    ],
+  };
+});
+
 const remarkRichTextPlugin = $remark("remarkRichText", () => remarkRichText);
+const remarkRichTextImagesPlugin = $remark("remarkRichTextImages", () => () => remarkRichText({ images: true }));
 
 /**
  * 表格有合併的儲存格（從 Word、Google 文件貼上）時拆開：Markdown 表格不能合併，合併的文字放在左上那一格，
@@ -115,6 +216,9 @@ function unmergeTable(table: ProseNode): ProseNode | null {
  * - 清單存成緊密清單（項目之間不空行），新增的項目才不會在公開頁面多出段落間距。項目裡的表格前後要不要空行由
  *   joinListItemChildren 決定。
  * - 貼上或拖進來的連結和公開頁面一樣只接受 http(s)，其他的拿掉連結、只留文字。
+ * - 貼上別的網站的圖片拿掉，只留從後台上傳的（#102）；圖片的標題只留大小。沒載入圖片的編輯器本來就貼不進圖片。
+ * - 清單、表格裡的段落與標題不能對齊（存不了），拿掉對齊。
+ * - 圖片自己一段：和文字在同一段的分開（separateImagesAt）；表格的格子裡不放圖片，只留圖片說明。
  * 外掛自己補的修改，ProseMirror 不會再交給它看一次，所以一次做完：先拆合併格，再整理拆好的文件。
  */
 const normalize = $prose(
@@ -124,12 +228,18 @@ const normalize = $prose(
         if (!transactions.some((tr) => tr.docChanged)) return null;
         const { link } = state.schema.marks;
         const tr = state.tr;
+        let separated = false;
         state.doc.descendants((node, pos) => {
+          if (node.isTextblock) {
+            if (separateImagesAt(tr, tr.mapping.map(pos))) separated = true;
+            return false;
+          }
           if (node.type.name !== "table") return true;
           const unmerged = unmergeTable(node);
           if (unmerged) tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), unmerged);
           return false;
         });
+        if (separated) keepSelection(tr, state.selection);
         const doc = tr.doc;
         const base = tr.steps.length;
         const map = (pos: number) => tr.mapping.slice(base).map(pos);
@@ -138,6 +248,21 @@ const normalize = $prose(
             tr.replaceWith(map(pos), map(pos + node.nodeSize), state.schema.text(" "));
             return false;
           }
+          if (node.type.name === "image") {
+            const inTableCell = Boolean(doc.resolve(pos).node(-1).type.spec.tableRole);
+            if (!isHighlightImageUrl(node.attrs.src)) tr.delete(map(pos), map(pos + node.nodeSize));
+            else if (inTableCell) {
+              const alt = (node.attrs.alt as string).trim();
+              if (alt) tr.replaceWith(map(pos), map(pos + node.nodeSize), state.schema.text(alt));
+              else tr.delete(map(pos), map(pos + node.nodeSize));
+            }
+            // 貼上的 <img> 把圖片說明也當成標題；標題只用來記大小。
+            else if (node.attrs.title && !isImageSize(node.attrs.title)) tr.setNodeAttribute(map(pos), "title", "");
+            // 圖片不帶連結、粗體（Codex 審查），和載入時一樣。
+            if (node.marks.length > 0 && isHighlightImageUrl(node.attrs.src)) tr.removeMark(map(pos), map(pos + node.nodeSize));
+            return false;
+          }
+          if (node.attrs.align && doc.resolve(pos).depth > 0) tr.setNodeAttribute(map(pos), "align", "");
           if (node.attrs.spread === true) tr.setNodeAttribute(map(pos), "spread", false);
           const mark = link.isInSet(node.marks);
           if (mark && !SAFE_URL.test(mark.attrs.href)) tr.removeMark(map(pos), map(pos + node.nodeSize), mark);
@@ -146,6 +271,81 @@ const normalize = $prose(
       },
     }),
 );
+
+/**
+ * 分開圖片之後放回選取（Codex 審查）：選的是圖片就還是選那張圖片；游標剛好在圖片前面時留在前面那一段的結尾，
+ * 在圖片後面時到後面那一段的開頭，繼續打的字才接著原本的文字。段落被拿掉時移到最近可以打字的地方。
+ */
+function keepSelection(tr: Transaction, selection: Selection) {
+  if (selection instanceof NodeSelection) {
+    const pos = tr.mapping.map(selection.from, 1);
+    if (tr.doc.nodeAt(pos)?.type === selection.node.type) return void tr.setSelection(NodeSelection.create(tr.doc, pos));
+  }
+  const map = ($pos: ResolvedPos) => tr.doc.resolve(tr.mapping.map($pos.pos, $pos.nodeAfter?.type.name === "image" ? -1 : 1));
+  tr.setSelection(TextSelection.between(map(selection.$anchor), map(selection.$head)));
+}
+
+/** 分開處要拿掉的：換行，或只有空白（含不換行空白）的文字。和 src/lib/rich-text.ts 的 isBlankEdge 一樣。 */
+const isBlankEdge = (node: ProseNode) => node.type.name === "hardbreak" || (node.isText && !node.text!.trim());
+
+/**
+ * 圖片自己一段（Codex 審查）：段落或標題裡的圖片和其他內容分開，圖片各自一段（一般段落），對齊跟著原本那一段；
+ * 別的網站的圖片先拿掉，分開處連續的換行與空白都拿掉（只剩空白的段落不留）。和 src/lib/rich-text.ts 的
+ * separateImages 一樣，那邊整理載入的內容，這裡整理貼上與編輯。在圖片前後切開（不是整段換掉），
+ * 游標才會留在原本的文字裡。傳回有沒有改。
+ */
+function separateImagesAt(tr: Transaction, pos: number): boolean {
+  const { image, paragraph } = tr.doc.type.schema.nodes;
+  if (!image) return false;
+  const allowed = (node: ProseNode) => node.type === image && isHighlightImageUrl(node.attrs.src);
+  const original = tr.doc.nodeAt(pos)!;
+  const foreign: [number, number][] = [];
+  let images = 0;
+  original.forEach((child, offset) => {
+    if (allowed(child)) images++;
+    else if (child.type === image) foreign.push([pos + 1 + offset, pos + 1 + offset + child.nodeSize]);
+  });
+  for (const [from, to] of foreign.reverse()) tr.delete(from, to);
+  const block = tr.doc.nodeAt(pos)!;
+  if (images === 0 || (block.childCount === 1 && block.type === paragraph)) return foreign.length > 0;
+
+  const firstStep = tr.steps.length;
+  const end = pos + block.nodeSize;
+  const own = { align: block.attrs.align ?? "" };
+  const imagePositions: number[] = [];
+  block.forEach((child, offset) => {
+    if (child.type === image) imagePositions.push(pos + 1 + offset);
+  });
+  // 從最後一張往前切，前面的位置才不會跑掉。
+  for (const at of imagePositions.reverse()) {
+    const $at = tr.doc.resolve(at);
+    if ($at.parentOffset + 1 < $at.parent.content.size) tr.split(at + 1, 1, [{ type: block.type, attrs: block.attrs }]);
+    if ($at.parentOffset > 0) tr.split(at, 1, [{ type: paragraph, attrs: own }]);
+    else if ($at.parent.type !== paragraph) tr.setNodeMarkup($at.before(), paragraph, own);
+  }
+
+  // 切出來的每一段，從後往前：拿掉開頭、結尾的換行與空白，只剩空白的整段拿掉。
+  const pieces: number[] = [];
+  for (let at = pos, stop = tr.mapping.slice(firstStep).map(end); at < stop; at += tr.doc.nodeAt(at)!.nodeSize) pieces.push(at);
+  for (const at of pieces.reverse()) {
+    const piece = tr.doc.nodeAt(at)!;
+    if (piece.childCount === 1 && piece.firstChild!.type === image) continue;
+    const children: { node: ProseNode; offset: number }[] = [];
+    piece.forEach((node, offset) => children.push({ node, offset }));
+    let first = 0;
+    let last = children.length;
+    while (first < last && isBlankEdge(children[first].node)) first++;
+    while (last > first && isBlankEdge(children[last - 1].node)) last--;
+    if (first === last) {
+      tr.delete(at, at + piece.nodeSize);
+      continue;
+    }
+    const inner = at + 1;
+    if (last < children.length) tr.delete(inner + children[last].offset, inner + piece.content.size);
+    if (first > 0) tr.delete(inner, inner + children[first].offset);
+  }
+  return true;
+}
 
 /**
  * 從 VS Code 複製的文字，Milkdown 會想建立程式碼區塊，但編輯器沒有載入程式碼區塊，貼上會失敗。
@@ -167,10 +367,10 @@ const plainVsCodePaste = $prose(
 export const richTextPlugins: MilkdownPlugin[] = [
   docSchema,
   paragraphAttr,
-  paragraphSchema,
+  alignedParagraphSchema,
   headingIdGenerator,
   headingAttr,
-  headingSchema,
+  alignedHeadingSchema,
   hardbreakAttr,
   hardbreakSchema,
   bulletListAttr,
@@ -191,7 +391,7 @@ export const richTextPlugins: MilkdownPlugin[] = [
   tableCellSchema,
 
   remarkGFMPlugin,
-  remarkRichTextPlugin,
+  remarkDirectivePlugin,
   tableEditingPlugin,
   tablePasteRule,
   normalize,
@@ -223,13 +423,14 @@ export const richTextPlugins: MilkdownPlugin[] = [
 
 /**
  * 建立編輯器。attributes 是編輯區的 HTML 屬性（無障礙名稱、樣式）；onUpdate 在內容或游標位置變了時呼叫，
- * 工具列依此更新按鈕狀態。
+ * 工具列依此更新按鈕狀態。images：載入圖片（大會特色的編輯器，#102）。
  */
 export function createRichTextEditor(
   root: HTMLElement,
   markdown: string,
   attributes: Record<string, string> = {},
   onUpdate: (view: EditorView) => void = () => {},
+  { images = false }: { images?: boolean } = {},
 ) {
   const updates = $prose(
     () =>
@@ -253,6 +454,7 @@ export function createRichTextEditor(
       }));
     })
     .use(richTextPlugins)
+    .use(images ? [imageAttr, sizedImageSchema, remarkRichTextImagesPlugin].flat() : remarkRichTextPlugin)
     .use(updates)
     .create();
 }

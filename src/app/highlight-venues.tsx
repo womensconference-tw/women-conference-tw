@@ -48,7 +48,7 @@ export function HighlightVenues({ venues, locale }: { venues: HighlightVenue[]; 
           className="flex flex-col gap-4 rounded-lg bg-background p-5"
         >
           <h2 className="text-lead font-bold">{venue.name}</h2>
-          {venue.body && <Markdown newTabLabel={t.opensInNewTab}>{venue.body}</Markdown>}
+          {venue.body && <Markdown newTabLabel={t.opensInNewTab} images>{venue.body}</Markdown>}
           {venue.courses.length > 0 && (
             <div className="flex flex-col gap-2">
               <h3 className="font-bold">{t.courses}</h3>

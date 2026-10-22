@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { CommitteeTexts } from "./committee";
 import { Markdown } from "./markdown";
 
@@ -118,4 +118,61 @@ it("用新的編輯框存過的依 Markdown 排版", () => {
     <CommitteeTexts texts={{ introduction: "*注意*", chairMessage: "", memorandum: "", markdown: true }} />,
   );
   expect(container.querySelector("em")?.textContent).toBe("注意");
+});
+
+it("大會特色介紹頁（images）顯示後台上傳的圖片；別的網站的圖片、籌備委員會文字頁只留圖片說明（#102）", () => {
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:55321");
+  const ours =
+    "http://127.0.0.1:55321/storage/v1/object/public/highlight-images/00000000-0000-4000-8000-000000000102/00000000-0000-4000-8000-000000000001.png";
+  const text = `![練唱場地](${ours})\n\n![外面的圖](https://example.org/a.png)`;
+  const page = render(<Markdown images>{text}</Markdown>).container;
+  expect([...page.querySelectorAll("img")].map((img) => [img.getAttribute("src"), img.getAttribute("alt")])).toEqual([[ours, "練唱場地"]]);
+  expect(page.textContent).toContain("外面的圖");
+  cleanup();
+  const committee = show(text);
+  expect(committee.querySelector("img")).toBeNull();
+  expect(committee.textContent).toContain("練唱場地");
+  vi.unstubAllEnvs();
+});
+
+it("置中、靠右的標題與段落；不認得的 ::: 寫法照原文顯示（#102）", () => {
+  const page = show(":::center\n# 歡迎\n:::\n\n:::right\n籌備委員會\n:::\n\n:::note\n小心\n:::\n\n時間 9:00，Note:bring");
+  expect(page.querySelector("h3")?.className).toContain("text-center");
+  expect(page.querySelector("p")?.className).toContain("text-right");
+  expect(page.textContent).toContain(":::note");
+  expect(page.textContent).toContain("時間 9:00，Note:bring");
+});
+
+it("大會特色的圖片依大小設寬度，沒有大小是滿版；標題不畫成提示文字（#102）", () => {
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:55321");
+  const url = (n: number) =>
+    `http://127.0.0.1:55321/storage/v1/object/public/highlight-images/00000000-0000-4000-8000-000000000102/00000000-0000-4000-8000-00000000000${n}.png`;
+  const page = render(
+    <Markdown images>{`:::center\n![小](${url(1)} "small")\n:::\n\n![滿](${url(2)})`}</Markdown>,
+  ).container;
+  const [small, full] = page.querySelectorAll("img");
+  expect(small.className).toContain("w-1/3");
+  expect(small.getAttribute("title")).toBeNull();
+  expect(small.parentElement?.className).toContain("text-center");
+  expect(full.className).toContain("w-full");
+  vi.unstubAllEnvs();
+});
+
+it("清單、引言裡的對齊只留內容；引言裡不認得的 ::: 不帶出外層的「>」（Codex 審查，#102）", () => {
+  const page = show("- 項目\n\n  :::center\n  甲\n  :::\n\n> :::note\n> 乙\n> :::");
+  expect(page.querySelector(".text-center")).toBeNull();
+  expect(page.querySelector("blockquote")?.textContent?.replace(/\s/g, "")).toBe(":::note乙:::");
+});
+
+it("不認得的 ::: 開頭與結尾照原文，中間照一般內容排（Codex 審查，#102）", () => {
+  const texts = (page: HTMLElement) => [...page.querySelectorAll("p")].map((p) => p.textContent);
+  expect(texts(show("  :::note\n甲乙丙\n:::"))).toEqual([":::note", "甲乙丙", ":::"]);
+  const quoted = show("  :::note\n> 引言\n:::");
+  expect(quoted.querySelector("blockquote")?.textContent?.trim()).toBe("引言");
+  expect(texts(show("> :::note\n>甲\n>:::"))).toEqual([":::note", "甲", ":::"]);
+});
+
+it("沒寫結尾的 ::: 不會多出結尾（Codex 審查，#102）", () => {
+  const texts = (page: HTMLElement) => [...page.querySelectorAll("p")].map((p) => p.textContent);
+  expect(texts(show("::::outer\n:::inner\n甲\n:::"))).toEqual(["::::outer", ":::inner", "甲", ":::"]);
 });

@@ -33,7 +33,7 @@ export async function HighlightPage({ id, preview }: { id: string; preview: bool
         <LanguageSwitch />
       </div>
       <h1 className="text-title leading-tight font-bold">{highlight.name}</h1>
-      {highlight.description && <Markdown newTabLabel={t.highlight.opensInNewTab}>{highlight.description}</Markdown>}
+      {highlight.description && <Markdown newTabLabel={t.highlight.opensInNewTab} images>{highlight.description}</Markdown>}
       {highlight.venues.length > 0 && <HighlightVenues venues={highlight.venues} locale={locale} />}
       <BackHomeLink preview={preview} label={t.highlight.backHome} />
     </main>
