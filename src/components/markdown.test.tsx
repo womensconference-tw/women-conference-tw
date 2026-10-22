@@ -157,3 +157,9 @@ it("大會特色的圖片依大小設寬度，沒有大小是滿版；標題不�
   expect(full.className).toContain("w-full");
   vi.unstubAllEnvs();
 });
+
+it("清單、引言裡的對齊只留內容；引言裡不認得的 ::: 不帶出外層的「>」（Codex 審查，#102）", () => {
+  const page = show("- 項目\n\n  :::center\n  甲\n  :::\n\n> :::note\n> 乙\n> :::");
+  expect(page.querySelector(".text-center")).toBeNull();
+  expect(page.querySelector("blockquote")?.textContent?.replace(/\s/g, "")).toBe(":::note乙:::");
+});

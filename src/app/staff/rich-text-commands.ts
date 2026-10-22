@@ -84,14 +84,22 @@ export function toggleList(type: NodeType): Command {
   };
 }
 
-/** 標題與一般段落互換，對齊不變。 */
+/** 標題與一般段落互換。選到好幾段時每一段的對齊各自不變（Codex 審查）。 */
 export const toggleHeading: Command = (state, dispatch) => {
   const { heading, paragraph } = state.schema.nodes;
-  const { parent } = state.selection.$from;
-  const align = parent.attrs.align ?? "";
-  return parent.type === heading
-    ? setBlockType(paragraph, { align })(state, dispatch)
-    : setBlockType(heading, { level: 1, align })(state, dispatch);
+  const target = state.selection.$from.parent.type === heading ? paragraph : heading;
+  if (!setBlockType(target)(state)) return false;
+  if (dispatch) {
+    const tr = state.tr;
+    for (const { $from, $to } of state.selection.ranges) {
+      tr.setBlockType($from.pos, $to.pos, target, (old) => ({
+        ...(target === heading ? { level: 1 } : {}),
+        align: old.attrs.align ?? "",
+      }));
+    }
+    dispatch(tr.scrollIntoView());
+  }
+  return true;
 };
 
 /** 選取範圍碰到的最外層段落與標題（#102）。清單、表格裡的不能對齊，不算。 */
@@ -146,10 +154,11 @@ export function setImageSize(size: ImageSize | ""): Command {
 
 /**
  * 插入圖片，圖片自己一段（對齊跟著那一段）：游標在段落中間時從游標分開，圖片放在中間；段落是空的就換成圖片。
- * 表格的格子不能分段，圖片插在游標的位置。插好之後選取圖片，馬上可以改大小。
+ * 表格的格子不能分段，不能插圖片（Codex 審查）。插好之後選取圖片，馬上可以改大小。
  */
 export function insertImageBlock(image: ProseNode): Command {
   return (state, dispatch) => {
+    if (isInTable(state)) return false;
     const { paragraph } = state.schema.nodes;
     const tr = state.tr.deleteSelection();
     const $pos = tr.selection.$from;
@@ -159,8 +168,7 @@ export function insertImageBlock(image: ProseNode): Command {
       tr.replaceWith($pos.before(), $pos.after(), paragraph.create(null, image));
       imagePos = $pos.before() + 1;
     } else if (!canSplit(tr.doc, $pos.pos)) {
-      tr.replaceSelectionWith(image, false);
-      imagePos = tr.selection.from - image.nodeSize;
+      return false;
     } else {
       const atStart = $pos.parentOffset === 0;
       const atEnd = $pos.parentOffset === parent.content.size;

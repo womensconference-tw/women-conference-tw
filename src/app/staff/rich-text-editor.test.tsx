@@ -201,4 +201,24 @@ describe("插入圖片（#102）", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("圖片沒有上傳成功，請檢查網路後再試一次。"));
     expect(editor.querySelector("img[src]")).toBeNull();
   });
+
+  it("上傳一直沒有回應：兩分鐘後不等了，畫面解除遮蔽，可以再試（Codex 審查）", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      await renderEditor({ imageFolder: FOLDER });
+      upload.mockReturnValue(new Promise(() => {}));
+      await user.click(screen.getByRole("button", { name: "圖片" }));
+      await user.upload(screen.getByLabelText(/選一張圖片/), image());
+      await user.type(screen.getByLabelText(/圖片說明/), "練唱場地");
+      await user.click(screen.getByRole("button", { name: "插入圖片" }));
+      expect(screen.getByText("上傳圖片中…")).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("上傳太久沒有回應，請檢查網路後再試一次。"));
+      expect(screen.queryByText("上傳圖片中…")).toBeNull();
+      expect((screen.getByRole("button", { name: "插入圖片" }) as HTMLButtonElement).disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

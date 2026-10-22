@@ -19,6 +19,7 @@ import {
   toggleHeading,
   toggleList,
 } from "./rich-text-commands";
+import { plainTextToMarkdown } from "@/lib/rich-text";
 import { createRichTextEditor, editorMarkdown, normalizeMarkdown, replaceMarkdown } from "./rich-text-setup";
 
 /*
@@ -491,7 +492,8 @@ describe("圖片（#102）", () => {
   it("貼上別的網站的圖片拿掉，後台上傳的留著", async () => {
     const { view, markdown } = await open("", { images: true });
     view.pasteHTML(`<p>甲<img src="https://example.org/a.png" alt="外面">乙<img src="${ours}" alt="練唱場地"></p>`);
-    expect(markdown()).toBe(`甲乙![練唱場地](${ours})\n`);
+    // 圖片自己一段（Codex 審查）。
+    expect(markdown()).toBe(`甲乙\n\n![練唱場地](${ours})\n`);
   });
 });
 
@@ -609,5 +611,62 @@ describe("圖片大小與位置（#102）", () => {
     const empty = await open("", { images: true });
     run(empty.view, insertImageBlock(image(empty.view)));
     expect(empty.markdown()).toBe(`![圖](${ours})\n`);
+  });
+});
+
+describe("Codex 審查（#102）", () => {
+  const BASE = "http://127.0.0.1:55321";
+  const ours = `${BASE}/storage/v1/object/public/highlight-images/00000000-0000-4000-8000-000000000102/00000000-0000-4000-8000-000000000001.png`;
+  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", BASE));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("複製貼上圖片保留大小", async () => {
+    const { view, markdown } = await open("", { images: true });
+    view.pasteHTML(`<p><img src="${ours}" alt="練唱場地" data-size="small"></p>`);
+    expect(markdown()).toBe(`![練唱場地](${ours} "small")\n`);
+  });
+
+  it("選了好幾段換成標題，每一段的對齊各自不變", async () => {
+    const { view, markdown } = await open(":::right\n甲\n:::\n\n:::center\n乙\n:::");
+    selectText(view, "甲");
+    const from = view.state.selection.from;
+    placeCursor(view, "乙");
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, view.state.selection.from + 1)));
+    run(view, toggleHeading);
+    expect(markdown()).toBe(":::right\n# 甲\n:::\n\n:::center\n# 乙\n:::\n");
+  });
+
+  it("舊的純文字裡行首的 ::: 照樣是文字，不會變成對齊或消失", async () => {
+    for (const text of [":::center", ":::center\n\n甲\n\n:::", "前言\n:::right\n後記"]) {
+      const { view, markdown } = await open(plainTextToMarkdown(text));
+      expect(view.state.doc.textContent).toContain(":::");
+      expect(markdown()).not.toMatch(/^:::/m);
+    }
+  });
+
+  it("貼上和文字同一段的圖片分開成自己一段；表格裡的圖片只留說明，也不能插圖片", async () => {
+    const { view, markdown } = await open("", { images: true });
+    view.pasteHTML(`<p>前<img src="${ours}" alt="練唱場地">後</p>`);
+    expect(markdown()).toBe(`前\n\n![練唱場地](${ours})\n\n後\n`);
+
+    const table = await open("| 甲 |\n| -- |\n| 乙 |", { images: true });
+    placeCursor(table.view, "乙");
+    expect(run(table.view, insertImageBlock(table.view.state.schema.nodes.image.create({ src: ours, alt: "圖" })))).toBe(false);
+    const loaded = await open(`| 甲 |\n| -- |\n| 乙![練唱場地](${ours}) |`, { images: true });
+    expect(loaded.markdown()).toContain("| 乙練唱場地 |");
+  });
+
+  it("載入時文字裡的圖片就分開，清單裡的對齊就拿掉（和編輯後一樣）", async () => {
+    const images = await open(`前![練唱場地](${ours})後`, { images: true });
+    expect(images.markdown()).toBe(`前\n\n![練唱場地](${ours})\n\n後\n`);
+    const list = await open("- :::center\n  甲\n  :::");
+    expect(list.markdown()).toBe("- 甲\n");
+    expect(list.root.querySelector("[data-align]")).toBeNull();
+  });
+
+  it("引言裡不認得的 ::: 照原文，不帶出外層的「>」", async () => {
+    const { view } = await open("> :::note\n> 甲\n> :::");
+    // 換行在 textContent 裡是「\n」。
+    expect(view.state.doc.textContent).toBe(":::note\n甲\n:::");
   });
 });

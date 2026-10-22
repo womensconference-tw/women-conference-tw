@@ -151,11 +151,24 @@ const alignedHeadingSchema = headingSchema.extendSchema((prev) => (ctx) => {
   };
 });
 
-/** 圖片的標題記大小，畫成 data-size，不畫成滑鼠移上去的提示文字。 */
+/**
+ * 圖片的標題記大小，畫成 data-size，不畫成滑鼠移上去的提示文字。
+ * 在編輯器裡複製貼上圖片時從 data-size 讀回大小（Codex 審查）；其他的標題不是大小，不留。
+ */
 const sizedImageSchema = imageSchema.extendSchema((prev) => (ctx) => {
   const base = prev(ctx);
   return {
     ...base,
+    parseDOM: [
+      {
+        tag: "img[src]",
+        getAttrs: (dom) => {
+          const img = dom as HTMLElement;
+          const size = img.getAttribute("data-size") ?? img.getAttribute("title");
+          return { src: img.getAttribute("src") ?? "", alt: img.getAttribute("alt") ?? "", title: isImageSize(size) ? size : "" };
+        },
+      },
+    ],
     toDOM: (node) => [
       "img",
       { ...ctx.get(imageAttr.key)(node), src: node.attrs.src, alt: node.attrs.alt, "data-size": node.attrs.title || null },
@@ -205,6 +218,7 @@ function unmergeTable(table: ProseNode): ProseNode | null {
  * - 貼上或拖進來的連結和公開頁面一樣只接受 http(s)，其他的拿掉連結、只留文字。
  * - 貼上別的網站的圖片拿掉，只留從後台上傳的（#102）；圖片的標題只留大小。沒載入圖片的編輯器本來就貼不進圖片。
  * - 清單、表格裡的段落與標題不能對齊（存不了），拿掉對齊。
+ * - 圖片自己一段：和文字在同一段的分開（separateImageNodes）；表格的格子裡不放圖片，只留圖片說明。
  * 外掛自己補的修改，ProseMirror 不會再交給它看一次，所以一次做完：先拆合併格，再整理拆好的文件。
  */
 const normalize = $prose(
@@ -215,6 +229,11 @@ const normalize = $prose(
         const { link } = state.schema.marks;
         const tr = state.tr;
         state.doc.descendants((node, pos) => {
+          if (node.isTextblock) {
+            const pieces = separateImageNodes(node);
+            if (pieces) tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), pieces);
+            return false;
+          }
           if (node.type.name !== "table") return true;
           const unmerged = unmergeTable(node);
           if (unmerged) tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), unmerged);
@@ -229,7 +248,13 @@ const normalize = $prose(
             return false;
           }
           if (node.type.name === "image") {
+            const inTableCell = Boolean(doc.resolve(pos).node(-1).type.spec.tableRole);
             if (!isHighlightImageUrl(node.attrs.src)) tr.delete(map(pos), map(pos + node.nodeSize));
+            else if (inTableCell) {
+              const alt = (node.attrs.alt as string).trim();
+              if (alt) tr.replaceWith(map(pos), map(pos + node.nodeSize), state.schema.text(alt));
+              else tr.delete(map(pos), map(pos + node.nodeSize));
+            }
             // 貼上的 <img> 把圖片說明也當成標題；標題只用來記大小。
             else if (node.attrs.title && !isImageSize(node.attrs.title)) tr.setNodeAttribute(map(pos), "title", "");
             return false;
@@ -243,6 +268,41 @@ const normalize = $prose(
       },
     }),
 );
+
+/**
+ * 圖片自己一段（Codex 審查）：段落或標題裡有圖片也有別的內容時分開，圖片各自一段，對齊跟著原本那一段；
+ * 分開處的換行拿掉。和 src/lib/rich-text.ts 的 separateImages 一樣，那邊整理載入的內容，這裡整理貼上與編輯。
+ * 別的網站的圖片先拿掉再分，才不會留下空段落。沒有要改時傳回 null。
+ */
+function separateImageNodes(block: ProseNode): ProseNode[] | null {
+  const { image, paragraph, hardbreak } = block.type.schema.nodes;
+  if (!image) return null;
+  let images = 0;
+  let foreign = false;
+  block.forEach((child) => {
+    if (child.type !== image) return;
+    if (isHighlightImageUrl(child.attrs.src)) images++;
+    else foreign = true;
+  });
+  if (!foreign && (images === 0 || block.childCount === 1)) return null;
+  const pieces: ProseNode[] = [];
+  let run: ProseNode[] = [];
+  const flush = () => {
+    while (run[0]?.type === hardbreak) run.shift();
+    while (run.at(-1)?.type === hardbreak) run.pop();
+    if (run.some((child) => !child.isText || child.text!.trim())) pieces.push(block.type.create(block.attrs, run));
+    run = [];
+  };
+  block.forEach((child) => {
+    if (child.type !== image) return void run.push(child);
+    if (!isHighlightImageUrl(child.attrs.src)) return;
+    flush();
+    pieces.push(paragraph.create({ align: block.attrs.align ?? "" }, child));
+  });
+  flush();
+  // 只有別的網站的圖片：留一個空段落（清單項目、格子裡一定要有段落）。
+  return pieces.length > 0 ? pieces : [block.type.create(block.attrs)];
+}
 
 /**
  * 從 VS Code 複製的文字，Milkdown 會想建立程式碼區塊，但編輯器沒有載入程式碼區塊，貼上會失敗。

@@ -1,4 +1,4 @@
-import type { Break, Nodes, Parent, Parents, PhrasingContent, Root, RootContent, Text } from "mdast";
+import type { Break, Heading, Nodes, Paragraph, Parent, Parents, PhrasingContent, Root, RootContent, Text } from "mdast";
 import { type ContainerDirective, directiveFromMarkdown, directiveToMarkdown } from "mdast-util-directive";
 import { toMarkdown } from "mdast-util-to-markdown";
 import { directive } from "micromark-extension-directive";
@@ -50,10 +50,13 @@ export function remarkContainerDirective(this: Processor) {
   const container = (Array.isArray(flow) ? flow : [flow]).find((construct) => construct?.concrete)!;
   (data.micromarkExtensions ??= []).push({ flow: { 58: container } });
   (data.fromMarkdownExtensions ??= []).push(directiveFromMarkdown());
-  const toMarkdownExtension = directiveToMarkdown();
-  // 只留行首的規則：段落開頭的「:::」要跳脫，才不會讀回來變成區塊。
-  const unsafe = toMarkdownExtension.unsafe?.filter((rule) => rule.character !== ":" || rule.atBreak);
-  (data.toMarkdownExtensions ??= []).push({ ...toMarkdownExtension, unsafe });
+  (data.toMarkdownExtensions ??= []).push(containerDirectiveToMarkdown());
+}
+
+/** 存檔時的 ::: 區塊。冒號只留行首的跳脫規則：行首的「:::」要跳脫，才不會讀回來變成區塊。 */
+function containerDirectiveToMarkdown() {
+  const extension = directiveToMarkdown();
+  return { ...extension, unsafe: extension.unsafe?.filter((rule) => rule.character !== ":" || rule.atBreak) };
 }
 
 /** 「:::center」「:::right」只寫了名稱（沒有 [說明] 或 {屬性}）才是對齊。 */
@@ -63,11 +66,41 @@ function isAlignDirective(node: ContainerDirective): boolean {
   return !node.children.some((child) => child.type === "paragraph" && child.data?.directiveLabel);
 }
 
-/** 不是對齊的 ::: 寫法，照原文。 */
+/**
+ * 不是對齊的 ::: 寫法，照原文。在引言、清單裡時，第二行起每一行前面的「> 」或縮排是外層的，不算進來（Codex 審查）。
+ */
 function directiveSource(node: ContainerDirective, source: string): string {
-  const start = node.position?.start.offset;
-  const end = node.position?.end.offset;
-  return start === undefined || end === undefined ? "" : source.slice(start, end);
+  const { start, end } = node.position ?? {};
+  if (!start || !end) return "";
+  const lines = source.split(/\r?\n|\r/).slice(start.line - 1, end.line);
+  lines[lines.length - 1] = lines[lines.length - 1].slice(0, end.column - 1);
+  return lines.map((line) => line.slice(start.column - 1)).join("\n");
+}
+
+/**
+ * 圖片自己一段（Codex 審查）：段落或標題裡的圖片和文字分開，圖片各自成為一個段落，前後的文字留在原本的段落或標題。
+ * 分開處的換行拿掉。
+ */
+function separateImages(node: Paragraph | Heading): RootContent[] {
+  if (node.children.length < 2 || !node.children.some((child) => child.type === "image")) return [node];
+  const out: RootContent[] = [];
+  let run: PhrasingContent[] = [];
+  const flush = () => {
+    while (run[0]?.type === "break") run.shift();
+    while (run.at(-1)?.type === "break") run.pop();
+    if (run.some((child) => child.type !== "text" || child.value.trim())) out.push({ ...node, children: run });
+    run = [];
+  };
+  for (const child of node.children) {
+    if (child.type !== "image") {
+      run.push(child);
+      continue;
+    }
+    flush();
+    out.push({ type: "paragraph", children: [child] });
+  }
+  flush();
+  return out;
 }
 
 /** 不支援的節點裡的文字，換行變成換行節點。 */
@@ -84,9 +117,9 @@ type Definitions = Map<string, string>;
 
 /**
  * definitions：連結定義（[a]: 網址）；images：大會特色的編輯器，留下從後台上傳的圖片（#102）；
- * source：原本的 Markdown，不認得的指令寫法照原文。
+ * source：原本的 Markdown，不認得的指令寫法照原文；root：在最外層（不在清單、表格、引言裡），只有這裡能對齊。
  */
-type Context = { definitions: Definitions; images: boolean; source: string };
+type Context = { definitions: Definitions; images: boolean; source: string; root: boolean };
 
 /** 整理一串子節點，傳回換掉之後的子節點。 */
 function cleanChildren(children: RootContent[], context: Context, block: boolean): RootContent[] {
@@ -97,14 +130,19 @@ function clean(node: RootContent, context: Context, block: boolean): RootContent
   switch (node.type) {
     case "paragraph":
     case "heading":
+      node.children = cleanChildren(node.children, context, false) as typeof node.children;
+      return separateImages(node);
     case "strong":
-    case "tableCell":
     case "tableRow":
       node.children = cleanChildren(node.children, context, false) as typeof node.children;
       return [node];
+    case "tableCell":
+      // 表格的格子裡不放圖片（自己一段做不到），只留圖片說明。
+      node.children = cleanChildren(node.children, { ...context, images: false }, false) as typeof node.children;
+      return [node];
     case "list":
       node.spread = false;
-      node.children = cleanChildren(node.children, context, true) as typeof node.children;
+      node.children = cleanChildren(node.children, { ...context, root: false }, true) as typeof node.children;
       return [node];
     case "listItem": {
       // 「- [ ]」待辦清單沒有對應的按鈕，打勾的框留成文字。
@@ -116,13 +154,13 @@ function clean(node: RootContent, context: Context, block: boolean): RootContent
         node.checked = null;
       }
       node.spread = false;
-      node.children = cleanChildren(node.children, context, true) as typeof node.children;
+      node.children = cleanChildren(node.children, { ...context, root: false }, true) as typeof node.children;
       // 編輯器的清單項目一定以段落開頭；「1.」後面直接接表格時補一個空段落。
       if (node.children[0]?.type !== "paragraph") node.children.unshift({ type: "paragraph", children: [] });
       return [node];
     }
     case "table":
-      node.children = cleanChildren(node.children, context, true) as typeof node.children;
+      node.children = cleanChildren(node.children, { ...context, root: false }, true) as typeof node.children;
       return [node];
     case "text":
       return textWithBreaks(node.value);
@@ -142,7 +180,7 @@ function clean(node: RootContent, context: Context, block: boolean): RootContent
       return cleanChildren(node.children, context, false);
     case "blockquote":
     case "footnoteDefinition":
-      return cleanChildren(node.children, context, true);
+      return cleanChildren(node.children, { ...context, root: false }, true);
     case "inlineCode":
     case "html":
       return wrap(textWithBreaks(node.value), block);
@@ -161,6 +199,8 @@ function clean(node: RootContent, context: Context, block: boolean): RootContent
     case "containerDirective":
       if (block && isAlignDirective(node)) {
         const children = cleanChildren(node.children, context, true);
+        // 清單、表格、引言裡的對齊存不了（Codex 審查），只留內容。
+        if (!context.root) return children;
         for (const child of children) {
           if (child.type === "paragraph" || child.type === "heading") child.data = { ...child.data, align: node.name as Alignment };
         }
@@ -189,22 +229,23 @@ export function remarkRichText({ images = false }: { images?: boolean } = {}) {
   return (tree: Root, file: VFile) => {
     const definitions: Definitions = new Map();
     collectDefinitions(tree, definitions);
-    tree.children = cleanChildren(tree.children, { definitions, images, source: String(file) }, true);
+    tree.children = cleanChildren(tree.children, { definitions, images, source: String(file), root: true }, true);
   };
 }
 
 /**
  * remark 外掛（公開頁面，排在 remarkContainerDirective 後面）：「:::center」「:::right」包住的段落與標題記下對齊
- * （HTML 的 data-align），其他 ::: 寫法照原文當成文字。
+ * （HTML 的 data-align），其他 ::: 寫法照原文當成文字。和編輯器一樣只有最外層的能對齊，清單、表格、引言裡的只留內容。
  */
 export function remarkAlign() {
-  return (tree: Root, file: VFile) => resolveDirectives(tree, String(file));
+  return (tree: Root, file: VFile) => resolveDirectives(tree, String(file), true);
 }
 
-function resolveDirectives(parent: Parent, source: string) {
+function resolveDirectives(parent: Parent, source: string, root: boolean) {
   parent.children = parent.children.flatMap((child): RootContent[] => {
     if (child.type === "containerDirective" && isAlignDirective(child)) {
-      resolveDirectives(child, source);
+      resolveDirectives(child, source, root);
+      if (!root) return child.children;
       for (const block of child.children) {
         if (block.type === "paragraph" || block.type === "heading") {
           block.data = { ...block.data, hProperties: { ...block.data?.hProperties, dataAlign: child.name } };
@@ -215,14 +256,14 @@ function resolveDirectives(parent: Parent, source: string) {
     if (child.type === "containerDirective") {
       return [{ type: "paragraph", children: [{ type: "text", value: directiveSource(child, source) }] }];
     }
-    if ("children" in child) resolveDirectives(child, source);
+    if ("children" in child) resolveDirectives(child, source, false);
     return [child];
   });
 }
 
 /**
  * 改版前存的純文字（committee_texts.markdown = false），轉成照樣顯示的 Markdown：空一行分段，換行保留，
- * 原本的 * 或 # 跳脫成文字。
+ * 原本的 *、# 與行首的 ::: 跳脫成文字。
  */
 export function plainTextToMarkdown(text: string): string {
   const paragraphs = text
@@ -235,7 +276,8 @@ export function plainTextToMarkdown(text: string): string {
     type: "root",
     children: paragraphs.map((block) => ({ type: "paragraph", children: textWithBreaks(block) })),
   };
-  return toMarkdown(tree);
+  // 行首的「:::」跳脫，才不會被讀成對齊或其他區塊（Codex 審查）。
+  return toMarkdown(tree, { extensions: [containerDirectiveToMarkdown()] });
 }
 
 /**

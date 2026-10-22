@@ -101,6 +101,9 @@ const IMAGE_ERRORS: Record<HighlightImageError, string> = {
   file_too_large: "圖片超過 5 MB，請另存小一點的檔案（例如存成 JPG）。",
 };
 
+/** 上傳等這麼久還沒回應就放棄，畫面才不會一直被遮住（Codex 審查）。 */
+const UPLOAD_TIMEOUT_MS = 2 * 60 * 1000;
+
 const toolClass = cn(buttonVariants({ variant: "outline" }), "h-auto min-h-10 px-3 py-1 text-base aria-pressed:bg-primary/15");
 
 /**
@@ -294,15 +297,28 @@ export function RichTextEditor({
     if (error) return setImageError(IMAGE_ERRORS[error]);
     const alt = imageAlt.trim();
     if (!alt) return setImageError("請寫圖片說明。");
+    const tableMessage = "表格的格子裡不能放圖片，請把游標移到表格外面。";
+    if (viewRef.current && isInTable(viewRef.current.state)) return setImageError(tableMessage);
 
     setUploading(true);
     const path = highlightImagePath(imageFolder, file.type);
     const storage = createClient().storage.from(HIGHLIGHT_IMAGE_BUCKET);
-    // 每次都是新檔名，可以讓瀏覽器與 CDN 一直快取。
-    const uploaded = await storage
-      .upload(path, file, { contentType: file.type, cacheControl: "31536000" })
-      .catch((error: unknown) => ({ error }));
-    setUploading(false);
+    // 存放空間的上傳不能中途取消：太久沒回應就不等了，她可以再試一次。之後才傳完的話，只是多一個沒用到的檔案。
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), UPLOAD_TIMEOUT_MS);
+    });
+    let uploaded: { error: unknown } | "timeout";
+    try {
+      // 每次都是新檔名，可以讓瀏覽器與 CDN 一直快取。
+      uploaded = await Promise.race([storage.upload(path, file, { contentType: file.type, cacheControl: "31536000" }), timedOut]);
+    } catch (error) {
+      uploaded = { error };
+    } finally {
+      clearTimeout(timer);
+      setUploading(false);
+    }
+    if (uploaded === "timeout") return setImageError("上傳太久沒有回應，請檢查網路後再試一次。");
     if (uploaded.error) {
       console.error("上傳大會特色圖片失敗", uploaded.error);
       return setImageError("圖片沒有上傳成功，請檢查網路後再試一次。");
@@ -310,7 +326,10 @@ export function RichTextEditor({
     const view = viewRef.current;
     if (!view) return;
     const src = storage.getPublicUrl(path).data.publicUrl;
-    insertImageBlock(view.state.schema.nodes.image.create({ src, alt }))(view.state, view.dispatch);
+    // 上傳期間游標被移進表格：插不進去，請她移出表格再按一次（會再上傳一次）。
+    if (!insertImageBlock(view.state.schema.nodes.image.create({ src, alt }))(view.state, view.dispatch)) {
+      return setImageError(tableMessage);
+    }
     setImageOpen(false);
     afterLoading(() => view.focus());
   }
@@ -352,7 +371,8 @@ export function RichTextEditor({
         {images && (
           <button
             type="button"
-            disabled={!state}
+            // 表格的格子裡不能放圖片。
+            disabled={!state || inTable}
             aria-expanded={imageOpen}
             onMouseDown={(event) => event.preventDefault()}
             onClick={openImage}
