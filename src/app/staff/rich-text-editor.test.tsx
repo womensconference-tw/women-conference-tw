@@ -1,8 +1,18 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Markdown } from "@/components/markdown";
 import { RichTextEditor } from "./rich-text-editor";
+
+// 瀏覽器端的存放空間換掉，只看編輯器做的事（大會特色的圖片，#102）。
+const upload = vi.fn();
+const PUBLIC_BASE = "http://127.0.0.1:55321/storage/v1/object/public/highlight-images/";
+vi.mock("@/lib/supabase/client", () => ({
+  createClient: () => ({
+    storage: { from: () => ({ upload, getPublicUrl: (path: string) => ({ data: { publicUrl: `${PUBLIC_BASE}${path}` } }) }) },
+  }),
+}));
 
 /*
  * 籌備委員會文字頁的所見即所得編輯器（#88）：工具列、送出的內容、舊的純文字內容、別人更新時的提醒。
@@ -50,7 +60,7 @@ describe("RichTextEditor", () => {
     await renderEditor();
     const toolbar = screen.getByRole("toolbar", { name: "籌備委員會備忘錄的樣式" });
     const labels = [...toolbar.querySelectorAll("button")].map((button) => button.textContent);
-    expect(labels).toEqual(["標題", "粗體", "編號清單", "項目清單", "往內縮一層", "往外移一層", "表格", "連結"]);
+    expect(labels).toEqual(["標題", "粗體", "編號清單", "項目清單", "往內縮一層", "往外移一層", "表格", "靠左", "置中", "靠右", "連結"]);
     // 不在清單裡不能縮排。
     expect((screen.getByRole("button", { name: "往內縮一層" }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -126,5 +136,69 @@ describe("RichTextEditor", () => {
     await waitFor(() => expect(editor.textContent).toBe("已發布"));
     expect(screen.queryByRole("alert")).toBeNull();
     expect(submitted()).toBe("已發布\n");
+  });
+});
+
+describe("插入圖片（#102）", () => {
+  const FOLDER = "00000000-0000-4000-8000-000000000102";
+  const image = (type = "image/png", size = 10) => new File([new Uint8Array(size)], "photo", { type });
+
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:55321");
+    upload.mockReset().mockResolvedValue({ data: {}, error: null });
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("沒有 imageFolder（籌備委員會）時沒有圖片按鈕", async () => {
+    await renderEditor();
+    expect(screen.queryByRole("button", { name: "圖片" })).toBeNull();
+  });
+
+  it("選圖、寫說明，上傳後插在游標的位置，跟著表單送出", async () => {
+    const user = userEvent.setup();
+    const { editor, submitted } = await renderEditor({ defaultValue: "練唱說明", imageFolder: FOLDER });
+    await user.click(screen.getByRole("button", { name: "圖片" }));
+    await user.upload(screen.getByLabelText(/選一張圖片/), image());
+    await user.type(screen.getByLabelText(/圖片說明/), "練唱場地");
+    await user.click(screen.getByRole("button", { name: "插入圖片" }));
+
+    await waitFor(() => expect(editor.querySelector("img[src]")?.getAttribute("alt")).toBe("練唱場地"));
+    const [path, , options] = upload.mock.calls[0];
+    expect(path).toMatch(new RegExp(`^${FOLDER}/[0-9a-f-]{36}\\.png$`));
+    expect(options).toMatchObject({ contentType: "image/png" });
+    expect(submitted()).toContain(`![練唱場地](${PUBLIC_BASE}${path})`);
+    expect(screen.queryByRole("button", { name: "插入圖片" })).toBeNull();
+
+    // 插好後圖片是選取的，可以馬上改大小、對齊。
+    await waitFor(() => expect(screen.getByRole("button", { name: "滿版" }).getAttribute("aria-pressed")).toBe("true"));
+    fireEvent.click(screen.getByRole("button", { name: "小圖" }));
+    fireEvent.click(screen.getByRole("button", { name: "置中" }));
+    expect(submitted()).toContain(`:::center\n![練唱場地](${PUBLIC_BASE}${path} "small")\n:::`);
+  });
+
+  it("沒選圖、格式不對、沒寫說明時說明原因，不上傳；上傳失敗時請她再試一次", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    const { editor } = await renderEditor({ imageFolder: FOLDER });
+    await user.click(screen.getByRole("button", { name: "圖片" }));
+    await user.click(screen.getByRole("button", { name: "插入圖片" }));
+    expect(screen.getByRole("alert").textContent).toBe("請先選一張圖片。");
+
+    await user.upload(screen.getByLabelText(/選一張圖片/), image("image/gif"));
+    await user.type(screen.getByLabelText(/圖片說明/), "練唱場地");
+    await user.click(screen.getByRole("button", { name: "插入圖片" }));
+    expect(screen.getByRole("alert").textContent).toBe("只收 JPG、PNG、WebP 格式的圖片。");
+
+    await user.upload(screen.getByLabelText(/選一張圖片/), image());
+    await user.clear(screen.getByLabelText(/圖片說明/));
+    await user.click(screen.getByRole("button", { name: "插入圖片" }));
+    expect(screen.getByRole("alert").textContent).toBe("請寫圖片說明。");
+    expect(upload).not.toHaveBeenCalled();
+
+    upload.mockResolvedValue({ data: null, error: new Error("network") });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await user.type(screen.getByLabelText(/圖片說明/), "練唱場地");
+    await user.click(screen.getByRole("button", { name: "插入圖片" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("圖片沒有上傳成功，請檢查網路後再試一次。"));
+    expect(editor.querySelector("img[src]")).toBeNull();
   });
 });

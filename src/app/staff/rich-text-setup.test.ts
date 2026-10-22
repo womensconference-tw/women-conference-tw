@@ -2,11 +2,23 @@
 import { editorViewCtx, type Editor } from "@milkdown/kit/core";
 import { undo } from "@milkdown/kit/prose/history";
 import { sinkListItem } from "@milkdown/kit/prose/schema-list";
-import { type Command, TextSelection } from "@milkdown/kit/prose/state";
+import { type Command, NodeSelection, TextSelection } from "@milkdown/kit/prose/state";
 import { addColumnAfter, addRowAfter } from "@milkdown/kit/prose/tables";
 import type { EditorView } from "@milkdown/kit/prose/view";
-import { afterEach, describe, expect, it } from "vitest";
-import { deleteTableColumn, deleteTableRow, insertTable, setLink, toggleHeading, toggleList } from "./rich-text-commands";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  currentAlignment,
+  deleteTableColumn,
+  deleteTableRow,
+  insertImageBlock,
+  insertTable,
+  selectedImage,
+  setAlignment,
+  setImageSize,
+  setLink,
+  toggleHeading,
+  toggleList,
+} from "./rich-text-commands";
 import { createRichTextEditor, editorMarkdown, normalizeMarkdown, replaceMarkdown } from "./rich-text-setup";
 
 /*
@@ -32,20 +44,20 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-async function open(markdown: string) {
+async function open(markdown: string, options: { images?: boolean } = {}) {
   const root = document.createElement("div");
   document.body.append(root);
-  const editor = await createRichTextEditor(root, markdown);
+  const editor = await createRichTextEditor(root, markdown, {}, () => {}, options);
   editors.push(editor);
   const view = editor.action((ctx) => ctx.get(editorViewCtx));
   return { editor, view, root, markdown: () => editorMarkdown(editor) };
 }
 
 /** 存檔後再打開，存出來的一樣。 */
-async function roundTrip(markdown: string) {
-  const first = await open(markdown);
+async function roundTrip(markdown: string, options: { images?: boolean } = {}) {
+  const first = await open(markdown, options);
   const saved = first.markdown();
-  const second = await open(saved);
+  const second = await open(saved, options);
   expect(second.markdown()).toBe(saved);
   return { saved, root: first.root };
 }
@@ -92,7 +104,7 @@ describe("存檔再打開", () => {
       "[報名網站](https://example.com/a?b=1)",
       "",
     ].join("\n");
-    const { saved, root } = await roundTrip(markdown);
+    const { saved, root } = await roundTrip(markdown, { images: true });
     expect(saved).toBe(markdown);
     // 編輯器裡看到的是排好的樣子，沒有 Markdown 符號。
     const text = root.textContent ?? "";
@@ -452,5 +464,150 @@ describe("工具列", () => {
     view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, view.state.doc.content.size - 1)));
     setLink(view, "https://c.example");
     expect(markdown()).toBe("報名網站<https://c.example>\n");
+  });
+});
+
+describe("圖片（#102）", () => {
+  const BASE = "http://127.0.0.1:55321";
+  const ours = `${BASE}/storage/v1/object/public/highlight-images/00000000-0000-4000-8000-000000000102/00000000-0000-4000-8000-000000000001.png`;
+  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", BASE));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("大會特色的編輯器：後台上傳的圖片存檔再打開不變，和文字穿插", async () => {
+    const markdown = `練唱說明\n\n![練唱場地](${ours})\n\n記得帶歌本\n`;
+    const { saved, root } = await roundTrip(markdown, { images: true });
+    expect(saved).toBe(markdown);
+    expect(root.querySelector("img[src]")?.getAttribute("src")).toBe(ours);
+    expect(root.querySelector("img[src]")?.getAttribute("alt")).toBe("練唱場地");
+  });
+
+  it("別的網站的圖片只留圖片說明；沒有圖片按鈕的編輯器（籌備委員會）連後台上傳的也只留說明", async () => {
+    const images = await open(`![外面的圖](https://example.org/a.png)\n\n![練唱場地](${ours})`, { images: true });
+    expect(images.markdown()).toBe(`外面的圖\n\n![練唱場地](${ours})\n`);
+    const plain = await open(`![練唱場地](${ours})`);
+    expect(plain.markdown()).toBe("練唱場地\n");
+  });
+
+  it("貼上別的網站的圖片拿掉，後台上傳的留著", async () => {
+    const { view, markdown } = await open("", { images: true });
+    view.pasteHTML(`<p>甲<img src="https://example.org/a.png" alt="外面">乙<img src="${ours}" alt="練唱場地"></p>`);
+    expect(markdown()).toBe(`甲乙![練唱場地](${ours})\n`);
+  });
+});
+
+describe("對齊（#102）", () => {
+  it("置中、靠右的標題與段落存檔再打開不變；靠左不另外記", async () => {
+    const markdown = ":::center\n# 歡迎\n:::\n\n:::right\n籌備委員會\n:::\n\n一般段落\n";
+    const { saved, root } = await roundTrip(markdown);
+    expect(saved).toBe(markdown);
+    expect(root.querySelector("h1")?.getAttribute("data-align")).toBe("center");
+    expect(root.querySelector("p")?.getAttribute("data-align")).toBe("right");
+    expect(root.querySelectorAll("p")[1].getAttribute("data-align")).toBeNull();
+  });
+
+  it("按置中、靠右、靠左：選到的段落一起改；換成標題對齊不變", async () => {
+    const { view, markdown } = await open("甲\n\n乙\n\n丙");
+    selectText(view, "甲");
+    const from = view.state.selection.from;
+    placeCursor(view, "乙");
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, view.state.selection.from + 1)));
+    expect(run(view, setAlignment("center"))).toBe(true);
+    expect(markdown()).toBe(":::center\n甲\n:::\n\n:::center\n乙\n:::\n\n丙\n");
+    expect(currentAlignment(view.state)).toBe("center");
+
+    placeCursor(view, "乙");
+    run(view, setAlignment("right"));
+    run(view, toggleHeading);
+    expect(markdown()).toBe(":::center\n甲\n:::\n\n:::right\n# 乙\n:::\n\n丙\n");
+    run(view, setAlignment(""));
+    expect(markdown()).toBe(":::center\n甲\n:::\n\n# 乙\n\n丙\n");
+  });
+
+  it("清單、表格裡不能對齊；選到的段落對齊不一樣時沒有按下的按鈕", async () => {
+    const { view } = await open("- 項目\n\n| 甲 |\n| -- |\n| 乙 |\n\n:::center\n丙\n:::\n\n丁");
+    placeCursor(view, "項目");
+    expect(run(view, setAlignment("center"))).toBe(false);
+    expect(currentAlignment(view.state)).toBeNull();
+    placeCursor(view, "乙");
+    expect(run(view, setAlignment("center"))).toBe(false);
+    selectText(view, "丙");
+    const from = view.state.selection.from;
+    placeCursor(view, "丁");
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, view.state.selection.from + 1)));
+    expect(currentAlignment(view.state)).toBeNull();
+  });
+
+  it("從 Word／Google 文件貼上置中、靠右的段落保留對齊；清單裡的拿掉", async () => {
+    const { view, markdown } = await open("");
+    // 貼上的第一段併進游標所在的段落（和 Word 一樣），用那一段的對齊。
+    view.pasteHTML(
+      '<p style="text-align:center">前言</p><p style="text-align:center">甲</p><p style="text-align: right">乙</p><ul><li><p style="text-align:center">丙</p></li></ul>',
+    );
+    expect(markdown()).toBe("前言\n\n:::center\n甲\n:::\n\n:::right\n乙\n:::\n\n- 丙\n");
+  });
+
+  it("不認得的 ::: 寫法照原文當成文字；文字與網址裡的冒號不加反斜線", async () => {
+    const { markdown } = await open(":::note\n小心\n:::\n\n:::center[說明]\n甲\n:::\n\n時間 9:00，Note:bring，https://example.com/a");
+    const saved = markdown();
+    expect(saved).toContain("9:00，Note:bring");
+    expect(saved).not.toMatch(/^:::/m);
+    const again = await open(saved);
+    expect(again.markdown()).toBe(saved);
+    expect(again.view.state.doc.textContent).toContain(":::note");
+  });
+});
+
+describe("圖片大小與位置（#102）", () => {
+  const BASE = "http://127.0.0.1:55321";
+  const ours = `${BASE}/storage/v1/object/public/highlight-images/00000000-0000-4000-8000-000000000102/00000000-0000-4000-8000-000000000001.png`;
+  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", BASE));
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** 選取第一張圖片。 */
+  function selectImage(view: EditorView) {
+    let found = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (found < 0 && node.type.name === "image") found = pos;
+    });
+    view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, found)));
+  }
+
+  it("大小存在圖片的標題，存檔再打開不變；置中跟著那一段；不認得的標題拿掉", async () => {
+    const markdown = `:::center\n![練唱場地](${ours} "small")\n:::\n`;
+    const { saved, root } = await roundTrip(markdown, { images: true });
+    expect(saved).toBe(markdown);
+    expect(root.querySelector("img[src]")?.getAttribute("data-size")).toBe("small");
+    expect(root.querySelector("img[src]")?.getAttribute("title")).toBeNull();
+    const other = await open(`![練唱場地](${ours} "練唱")`, { images: true });
+    expect(other.markdown()).toBe(`![練唱場地](${ours})\n`);
+  });
+
+  it("點一下圖片改大小；滿版拿掉標題", async () => {
+    const { view, markdown } = await open(`![練唱場地](${ours})`, { images: true });
+    expect(run(view, setImageSize("medium"))).toBe(false);
+    selectImage(view);
+    run(view, setImageSize("large"));
+    expect(markdown()).toBe(`![練唱場地](${ours} "large")\n`);
+    expect(selectedImage(view.state)?.attrs.title).toBe("large");
+    run(view, setImageSize(""));
+    expect(markdown()).toBe(`![練唱場地](${ours})\n`);
+  });
+
+  it("插入的圖片自己一段：段落中間從游標分開，開頭、結尾放在前後，空段落換成圖片；插好後選取圖片", async () => {
+    const image = (view: EditorView) => view.state.schema.nodes.image.create({ src: ours, alt: "圖" });
+    const middle = await open("甲乙", { images: true });
+    placeCursor(middle.view, "乙");
+    run(middle.view, insertImageBlock(image(middle.view)));
+    expect(middle.markdown()).toBe(`甲\n\n![圖](${ours})\n\n乙\n`);
+    expect(selectedImage(middle.view.state)).not.toBeNull();
+
+    const start = await open("甲", { images: true });
+    placeCursor(start.view, "甲");
+    run(start.view, insertImageBlock(image(start.view)));
+    expect(start.markdown()).toBe(`![圖](${ours})\n\n甲\n`);
+
+    const empty = await open("", { images: true });
+    run(empty.view, insertImageBlock(image(empty.view)));
+    expect(empty.markdown()).toBe(`![圖](${ours})\n`);
   });
 });

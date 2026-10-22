@@ -372,10 +372,16 @@ function ItemList({
             <details>
               <summary className="cursor-pointer font-semibold">編輯{noun}</summary>
               <div className="mt-3">
-                <ItemForm kind={kind} conferenceId={conferenceId} item={item} submitLabel={`儲存${noun}`} />
+                <ItemForm
+                  kind={kind}
+                  conferenceId={conferenceId}
+                  item={item}
+                  // 大會特色的編輯區都在同一頁展開，寫出是哪一項（#102）。
+                  submitLabel={kind === "highlight" ? `儲存「${item.titleZh}」項目` : `儲存${noun}`}
+                />
               </div>
             </details>
-            {"venues" in item && <HighlightVenueForms item={item} />}
+            {"venues" in item && <HighlightVenueForms item={item} conferenceId={conferenceId} />}
             <details>
               <summary className="cursor-pointer font-semibold text-destructive">刪除{noun}</summary>
               <form action={deleteContentItem} className="mt-3 flex flex-col gap-2">
@@ -411,7 +417,7 @@ function ItemList({
  * 大會特色的教堂分頁（#100）：每間教堂一個表單。介紹頁只顯示有說明或有課程的教堂；
  * 分在這一類的課程由介紹頁自動列出，這裡只顯示有幾門。
  */
-function HighlightVenueForms({ item }: { item: HighlightItem }) {
+function HighlightVenueForms({ item, conferenceId }: { item: HighlightItem; conferenceId: string }) {
   if (item.venues.length === 0) return null;
   return (
     <details>
@@ -440,6 +446,7 @@ function HighlightVenueForms({ item }: { item: HighlightItem }) {
                 hint="中英都清空後儲存，就拿掉這間教堂的說明。"
                 defaultValue={venue.bodyZh}
                 saveLabel="儲存這間教堂"
+                imageFolder={conferenceId}
               />
               <RichTextEditor
                 name="bodyEn"
@@ -447,6 +454,7 @@ function HighlightVenueForms({ item }: { item: HighlightItem }) {
                 hint="不寫的話英文版顯示中文。"
                 defaultValue={venue.bodyEn}
                 saveLabel="儲存這間教堂"
+                imageFolder={conferenceId}
               />
               {missingEnglish(venue.bodyZh, venue.bodyEn) && (
                 <span className="text-sm font-semibold text-destructive">⚠ 這間教堂的說明英文還沒填，英文版會顯示中文。</span>
@@ -496,9 +504,10 @@ function ItemForm({
           <RichTextEditor
             name="bodyZh"
             label="介紹內容（中文）"
-            hint="介紹頁最上面的簡介，例如練唱影片的連結、要帶什麼。各教堂不同的細節寫在下面的「各教堂分頁」。"
+            hint="介紹頁最上面的簡介，例如練唱影片的連結、要帶什麼。各教堂不同的細節寫在下面的「各教堂分頁」。按「圖片」可以插入圖片，英文版要有圖，英文的介紹內容也要插入。"
             defaultValue={item?.bodyZh ?? ""}
             saveLabel={submitLabel}
+            imageFolder={conferenceId}
           />
           <RichTextEditor
             name="bodyEn"
@@ -506,6 +515,7 @@ function ItemForm({
             hint="不寫的話英文版顯示中文。"
             defaultValue={item?.bodyEn ?? ""}
             saveLabel={submitLabel}
+            imageFolder={conferenceId}
           />
           {item && missingEnglish(item.bodyZh, item.bodyEn) && (
             <span className="text-sm font-semibold text-destructive">⚠ 介紹內容的英文還沒填，英文版會顯示中文。</span>

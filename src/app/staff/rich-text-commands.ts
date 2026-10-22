@@ -1,9 +1,11 @@
 import { setBlockType } from "@milkdown/kit/prose/commands";
 import type { Node as ProseNode, NodeType, ResolvedPos } from "@milkdown/kit/prose/model";
 import { liftListItem, wrapInList } from "@milkdown/kit/prose/schema-list";
-import { type Command, type EditorState, TextSelection } from "@milkdown/kit/prose/state";
+import { canSplit } from "@milkdown/kit/prose/transform";
+import { type Command, type EditorState, NodeSelection, TextSelection } from "@milkdown/kit/prose/state";
 import { deleteColumn, deleteRow, deleteTable, isInTable } from "@milkdown/kit/prose/tables";
 import type { EditorView } from "@milkdown/kit/prose/view";
+import type { Alignment, ImageSize } from "@/lib/rich-text";
 
 /* 所見即所得編輯器（#88）工具列的指令。 */
 
@@ -82,13 +84,100 @@ export function toggleList(type: NodeType): Command {
   };
 }
 
-/** 標題與一般段落互換。 */
+/** 標題與一般段落互換，對齊不變。 */
 export const toggleHeading: Command = (state, dispatch) => {
   const { heading, paragraph } = state.schema.nodes;
-  return state.selection.$from.parent.type === heading
-    ? setBlockType(paragraph)(state, dispatch)
-    : setBlockType(heading, { level: 1 })(state, dispatch);
+  const { parent } = state.selection.$from;
+  const align = parent.attrs.align ?? "";
+  return parent.type === heading
+    ? setBlockType(paragraph, { align })(state, dispatch)
+    : setBlockType(heading, { level: 1, align })(state, dispatch);
 };
+
+/** 選取範圍碰到的最外層段落與標題（#102）。清單、表格裡的不能對齊，不算。 */
+function alignableBlocks(state: EditorState) {
+  const { from, to } = state.selection;
+  const blocks: { node: ProseNode; pos: number }[] = [];
+  state.doc.forEach((node, pos) => {
+    const touched = pos < Math.max(to, from + 1) && pos + node.nodeSize > from;
+    if (touched && (node.type.name === "paragraph" || node.type.name === "heading")) blocks.push({ node, pos });
+  });
+  return blocks;
+}
+
+/** 選到的段落與標題的對齊：都一樣時是那一種（靠左是 ""），不一樣或沒有能對齊的是 null。 */
+export function currentAlignment(state: EditorState): Alignment | "" | null {
+  const aligns = new Set(alignableBlocks(state).map(({ node }) => (node.attrs.align ?? "") as Alignment | ""));
+  return aligns.size === 1 ? [...aligns][0] : null;
+}
+
+/** 選到的段落與標題改成這種對齊（靠左是 ""）。圖片的對齊跟著它那一段。 */
+export function setAlignment(align: Alignment | ""): Command {
+  return (state, dispatch) => {
+    const blocks = alignableBlocks(state);
+    if (blocks.length === 0) return false;
+    if (dispatch) {
+      const tr = state.tr;
+      for (const { pos } of blocks) tr.setNodeAttribute(pos, "align", align);
+      dispatch(tr);
+    }
+    return true;
+  };
+}
+
+/** 選取的圖片（點一下圖片），沒有是 null。 */
+export function selectedImage(state: EditorState): ProseNode | null {
+  const { selection } = state;
+  return selection instanceof NodeSelection && selection.node.type.name === "image" ? selection.node : null;
+}
+
+/** 選取的圖片改成這個大小（滿版是 ""）。 */
+export function setImageSize(size: ImageSize | ""): Command {
+  return (state, dispatch) => {
+    if (!selectedImage(state)) return false;
+    const pos = state.selection.from;
+    if (dispatch) {
+      const tr = state.tr.setNodeAttribute(pos, "title", size);
+      dispatch(tr.setSelection(NodeSelection.create(tr.doc, pos)));
+    }
+    return true;
+  };
+}
+
+/**
+ * 插入圖片，圖片自己一段（對齊跟著那一段）：游標在段落中間時從游標分開，圖片放在中間；段落是空的就換成圖片。
+ * 表格的格子不能分段，圖片插在游標的位置。插好之後選取圖片，馬上可以改大小。
+ */
+export function insertImageBlock(image: ProseNode): Command {
+  return (state, dispatch) => {
+    const { paragraph } = state.schema.nodes;
+    const tr = state.tr.deleteSelection();
+    const $pos = tr.selection.$from;
+    const parent = $pos.parent;
+    let imagePos: number;
+    if (parent.content.size === 0 && parent.isTextblock) {
+      tr.replaceWith($pos.before(), $pos.after(), paragraph.create(null, image));
+      imagePos = $pos.before() + 1;
+    } else if (!canSplit(tr.doc, $pos.pos)) {
+      tr.replaceSelectionWith(image, false);
+      imagePos = tr.selection.from - image.nodeSize;
+    } else {
+      const atStart = $pos.parentOffset === 0;
+      const atEnd = $pos.parentOffset === parent.content.size;
+      let at: number;
+      if (atStart) at = $pos.before();
+      else if (atEnd) at = $pos.after();
+      else {
+        tr.split($pos.pos);
+        at = $pos.pos + 1;
+      }
+      tr.insert(at, paragraph.create(null, image));
+      imagePos = at + 1;
+    }
+    if (dispatch) dispatch(tr.setSelection(NodeSelection.create(tr.doc, imagePos)).scrollIntoView());
+    return true;
+  };
+}
 
 /** 插入三列兩欄（含標題列）的表格，游標放在第一格。 */
 export const insertTable: Command = (state, dispatch) => {

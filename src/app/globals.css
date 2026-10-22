@@ -246,6 +246,29 @@
   .rich-text a {
     @apply underline;
   }
+  /* 對齊（#102）。 */
+  .rich-text [data-align="center"] {
+    @apply text-center;
+  }
+  .rich-text [data-align="right"] {
+    @apply text-right;
+  }
+  /* 大會特色的圖片（#102），大小是內容寬度的 1/3、1/2、2/3，沒有設定是滿版。點一下選取，可以改大小或按 Delete 刪掉。 */
+  .rich-text img {
+    @apply my-1 inline-block h-auto w-full max-w-full rounded-lg;
+  }
+  .rich-text img[data-size="small"] {
+    @apply w-1/3;
+  }
+  .rich-text img[data-size="medium"] {
+    @apply w-1/2;
+  }
+  .rich-text img[data-size="large"] {
+    @apply w-2/3;
+  }
+  .rich-text img.ProseMirror-selectednode {
+    @apply ring-4 ring-primary;
+  }
   /* 表格在手機上左右捲動，不撐破版面。 */
   .rich-text table {
     @apply block max-w-full overflow-x-auto border-collapse text-left;

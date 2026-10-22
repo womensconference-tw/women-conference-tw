@@ -8,22 +8,35 @@ import type { Command, EditorState } from "@milkdown/kit/prose/state";
 import { addColumnAfter, addRowAfter, isInTable } from "@milkdown/kit/prose/tables";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { useEffect, useId, useRef, useState } from "react";
+import { afterLoading, LoadingOverlay } from "@/components/loading-overlay";
 import { buttonVariants } from "@/components/ui/button";
+import {
+  checkHighlightImage,
+  HIGHLIGHT_IMAGE_BUCKET,
+  highlightImagePath,
+  type HighlightImageError,
+} from "@/lib/highlight-images";
 import { plainTextToMarkdown } from "@/lib/rich-text";
 import { SAFE_URL } from "@/lib/safe-url";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import {
+  currentAlignment,
   currentLink,
   currentList,
   deleteTableColumn,
   deleteTableRow,
+  insertImageBlock,
   insertTable,
+  selectedImage,
+  setAlignment,
+  setImageSize,
   setLink,
   toggleHeading,
   toggleList,
 } from "./rich-text-commands";
 import { createRichTextEditor, editorMarkdown, normalizeMarkdown, replaceMarkdown } from "./rich-text-setup";
-import { inputClass, noticeClass } from "./ui";
+import { alertClass, inputClass, noticeClass } from "./ui";
 
 type Tool = { label: string; command: (state: EditorState) => Command; pressed?: (state: EditorState) => boolean };
 
@@ -55,7 +68,25 @@ const TOOLS: Tool[] = [
   { label: "往內縮一層", command: (state) => sinkListItem(state.schema.nodes.list_item) },
   { label: "往外移一層", command: (state) => liftListItem(state.schema.nodes.list_item) },
   { label: "表格", command: () => insertTable },
+  // 對齊（#102）：選到的段落與標題；圖片跟著它那一段。清單、表格裡的不能對齊。
+  { label: "靠左", command: () => setAlignment(""), pressed: (state) => currentAlignment(state) === "" },
+  { label: "置中", command: () => setAlignment("center"), pressed: (state) => currentAlignment(state) === "center" },
+  { label: "靠右", command: () => setAlignment("right"), pressed: (state) => currentAlignment(state) === "right" },
 ];
+
+/** 點一下圖片後出現（#102）：內容寬度的 1/3、1/2、2/3、全部。 */
+const IMAGE_TOOLS: Tool[] = (
+  [
+    ["小圖", "small"],
+    ["中圖", "medium"],
+    ["大圖", "large"],
+    ["滿版", ""],
+  ] as const
+).map(([label, size]) => ({
+  label,
+  command: () => setImageSize(size),
+  pressed: (state) => (selectedImage(state)?.attrs.title ?? "") === size,
+}));
 
 const TABLE_TOOLS: Tool[] = [
   { label: "新增一列", command: () => addRowAfter },
@@ -63,6 +94,12 @@ const TABLE_TOOLS: Tool[] = [
   { label: "刪除這一列", command: () => deleteTableRow },
   { label: "刪除這一欄", command: () => deleteTableColumn },
 ];
+
+/** 選圖片時就能說明的錯誤。 */
+const IMAGE_ERRORS: Record<HighlightImageError, string> = {
+  file_type: "只收 JPG、PNG、WebP 格式的圖片。",
+  file_too_large: "圖片超過 5 MB，請另存小一點的檔案（例如存成 JPG）。",
+};
 
 const toolClass = cn(buttonVariants({ variant: "outline" }), "h-auto min-h-10 px-3 py-1 text-base aria-pressed:bg-primary/15");
 
@@ -73,6 +110,9 @@ const toolClass = cn(buttonVariants({ variant: "outline" }), "h-auto min-h-10 px
  * 同一頁重新畫出來、內容換了（存草稿、捨棄草稿、別人發布或存了草稿，#76）：沒動過的編輯器換成新的內容；
  * 正在編輯、還沒存的留著她打的字，提醒她這一頁剛被更新，不會無聲無息蓋掉（Codex 審查）。
  * 她自己捨棄草稿時帶一個新的 resetToken，就算正在編輯也換回已發布的內容。
+ *
+ * 有 imageFolder 時（大會特色，#102）工具列多一個「圖片」：選圖、寫圖片說明，由瀏覽器直接上傳到存放空間，
+ * 自己一段插在游標的位置；點一下圖片可以改大小。上傳完還要按表單的儲存，圖片才會出現在介紹頁。
  */
 export function RichTextEditor({
   name,
@@ -82,6 +122,7 @@ export function RichTextEditor({
   plainText = false,
   saveLabel,
   resetToken,
+  imageFolder,
 }: {
   name: string;
   label: string;
@@ -93,10 +134,14 @@ export function RichTextEditor({
   saveLabel: string;
   /** 換成新的值時，不管有沒有動過都換成 defaultValue。 */
   resetToken?: string;
+  /** 可以插入圖片，上傳到存放空間的這個資料夾（年度大會編號）。 */
+  imageFolder?: string;
 }) {
   const labelId = useId();
   const hintId = useId();
   const urlId = useId();
+  const imageId = useId();
+  const imageInput = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -111,6 +156,11 @@ export function RichTextEditor({
   const [state, setState] = useState<EditorState | null>(null);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [linkError, setLinkError] = useState("");
+  const [imageOpen, setImageOpen] = useState(false);
+  const [imageAlt, setImageAlt] = useState("");
+  const [imageError, setImageError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const images = imageFolder !== undefined;
 
   /** 比對有沒有改用的內容：存出來再讀回來的樣子，兩邊寫法不同（例如空段落）也不會誤判。 */
   function contentOf(editor: Editor) {
@@ -147,6 +197,7 @@ export function RichTextEditor({
         // 提醒出現後，她把內容改成和更新的一樣，就沒有會被蓋掉的修改。
         if (contentOf(editor) === shown.current) setUpdatedElsewhere(false);
       },
+      { images },
     );
     created.then((editor) => {
       if (cancelled) {
@@ -165,7 +216,7 @@ export function RichTextEditor({
       editorRef.current = null;
       viewRef.current = null;
     };
-  }, [labelId, hintId]);
+  }, [labelId, hintId, images]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -225,7 +276,47 @@ export function RichTextEditor({
     viewRef.current?.focus();
   }
 
+  function openImage() {
+    setImageAlt("");
+    setImageError("");
+    setImageOpen(true);
+  }
+
+  function closeImage() {
+    setImageOpen(false);
+    viewRef.current?.focus();
+  }
+
+  async function insertImage() {
+    const file = imageInput.current?.files?.[0];
+    if (!imageFolder || !file || file.size === 0) return setImageError("請先選一張圖片。");
+    const error = checkHighlightImage(file.type, file.size);
+    if (error) return setImageError(IMAGE_ERRORS[error]);
+    const alt = imageAlt.trim();
+    if (!alt) return setImageError("請寫圖片說明。");
+
+    setUploading(true);
+    const path = highlightImagePath(imageFolder, file.type);
+    const storage = createClient().storage.from(HIGHLIGHT_IMAGE_BUCKET);
+    // 每次都是新檔名，可以讓瀏覽器與 CDN 一直快取。
+    const uploaded = await storage
+      .upload(path, file, { contentType: file.type, cacheControl: "31536000" })
+      .catch((error: unknown) => ({ error }));
+    setUploading(false);
+    if (uploaded.error) {
+      console.error("上傳大會特色圖片失敗", uploaded.error);
+      return setImageError("圖片沒有上傳成功，請檢查網路後再試一次。");
+    }
+    const view = viewRef.current;
+    if (!view) return;
+    const src = storage.getPublicUrl(path).data.publicUrl;
+    insertImageBlock(view.state.schema.nodes.image.create({ src, alt }))(view.state, view.dispatch);
+    setImageOpen(false);
+    afterLoading(() => view.focus());
+  }
+
   const inTable = state ? isInTable(state) : false;
+  const imageSelected = state ? selectedImage(state) !== null : false;
   const toolButton = ({ label: toolLabel, command, pressed }: Tool) => (
     <button
       key={toolLabel}
@@ -258,7 +349,20 @@ export function RichTextEditor({
         >
           連結
         </button>
+        {images && (
+          <button
+            type="button"
+            disabled={!state}
+            aria-expanded={imageOpen}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={openImage}
+            className={toolClass}
+          >
+            圖片
+          </button>
+        )}
         {inTable && TABLE_TOOLS.map(toolButton)}
+        {imageSelected && IMAGE_TOOLS.map(toolButton)}
       </div>
       {linkUrl !== null && (
         <div className="flex flex-wrap items-end gap-2 rounded-lg border-2 border-input p-2">
@@ -298,6 +402,56 @@ export function RichTextEditor({
               {linkError}
             </p>
           )}
+        </div>
+      )}
+      {imageOpen && (
+        <div className="flex flex-col gap-2 rounded-lg border-2 border-input p-2">
+          <label htmlFor={imageId} className="font-semibold">
+            選一張圖片（JPG、PNG、WebP，5 MB 以內），會插在游標的位置
+          </label>
+          {/* 沒有 name：檔案不跟著表單送出，由這裡上傳。 */}
+          <input
+            ref={imageInput}
+            id={imageId}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            autoFocus
+            onChange={() => setImageError("")}
+            className={inputClass}
+          />
+          <label htmlFor={`${imageId}-alt`} className="font-semibold">
+            圖片說明（給看不到圖的人聽的文字，例如「詩歌練唱的場地照片」）
+          </label>
+          <input
+            id={`${imageId}-alt`}
+            value={imageAlt}
+            onChange={(event) => setImageAlt(event.target.value)}
+            onKeyDown={(event) => {
+              // Enter 插入圖片，不送出整張表單。
+              if (event.key === "Enter") {
+                event.preventDefault();
+                insertImage();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                closeImage();
+              }
+            }}
+            className={inputClass}
+          />
+          {imageError && (
+            <p role="alert" className={alertClass}>
+              {imageError}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={insertImage} className={toolClass}>
+              插入圖片
+            </button>
+            <button type="button" onClick={closeImage} className={toolClass}>
+              取消
+            </button>
+          </div>
+          <LoadingOverlay show={uploading} label="上傳圖片中…" />
         </div>
       )}
       {updatedElsewhere && (

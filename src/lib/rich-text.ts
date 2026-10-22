@@ -1,12 +1,74 @@
 import type { Break, Nodes, Parent, Parents, PhrasingContent, Root, RootContent, Text } from "mdast";
+import { type ContainerDirective, directiveFromMarkdown, directiveToMarkdown } from "mdast-util-directive";
 import { toMarkdown } from "mdast-util-to-markdown";
+import { directive } from "micromark-extension-directive";
+import type { Processor } from "unified";
+import type { VFile } from "vfile";
+import { isHighlightImageUrl } from "./highlight-images";
 import { SAFE_URL } from "./safe-url";
 
 /*
  * 籌備委員會文字頁與大會特色介紹內容的所見即所得編輯器（#88）讀 Markdown 時的整理，不依賴編輯器，前後台都能用。
  * 編輯器只認得標題、粗體、編號清單、項目清單、表格、連結與換行；其他寫法（引言、程式碼、斜體、刪除線、圖片、HTML 等）
- * 在載入、貼上時改成文字，存檔內容就只會有這幾種格式。
+ * 在載入、貼上時改成文字，存檔內容就只會有這幾種格式。大會特色的編輯器另外留下從後台上傳的圖片（#102）。
+ *
+ * 對齊與圖片大小（#102）：Markdown 本身記不了，用常見的擴充寫法（directive 的區塊寫法）。
+ * - 置中、靠右的段落或標題用「:::center」「:::right」那一行和「:::」那一行包住；靠左是預設，不另外記。
+ *   只有最外層的段落與標題能對齊，清單、表格裡的不行。
+ * - 圖片大小存在圖片的標題：![說明](網址 "small")，small、medium、large 是內容寬度的 1/3、1/2、2/3，沒有標題是滿版。
+ *   圖片自己一段，對齊跟著那一段。
+ * - 其他 ::: 寫法（例如 :::note），照原文當成文字。
  */
+
+/** 段落與標題的對齊；靠左是預設，不在這裡。 */
+export const ALIGNMENTS = ["center", "right"] as const;
+export type Alignment = (typeof ALIGNMENTS)[number];
+export const isAlignment = (value: unknown): value is Alignment => ALIGNMENTS.includes(value as Alignment);
+
+/** 圖片大小；滿版是預設，不在這裡。 */
+export const IMAGE_SIZES = ["small", "medium", "large"] as const;
+export type ImageSize = (typeof IMAGE_SIZES)[number];
+export const isImageSize = (value: unknown): value is ImageSize => IMAGE_SIZES.includes(value as ImageSize);
+
+declare module "mdast" {
+  interface ParagraphData {
+    /** 編輯器讀進來時的對齊（:::center 包住的段落）。 */
+    align?: Alignment;
+  }
+  interface HeadingData {
+    align?: Alignment;
+  }
+}
+
+/**
+ * remark 外掛：讀寫「:::名稱」那一行和「:::」那一行包住的區塊。只載入區塊寫法，不載入 directive 的「:名稱」「::名稱」：
+ * 那兩種會把文字裡的「Note:bring」讀成指令，存檔時也會在幾乎每個冒號前加反斜線（例如 9\:00、網址裡的 \:）。
+ */
+export function remarkContainerDirective(this: Processor) {
+  const data = this.data();
+  const flow = directive().flow![58];
+  const container = (Array.isArray(flow) ? flow : [flow]).find((construct) => construct?.concrete)!;
+  (data.micromarkExtensions ??= []).push({ flow: { 58: container } });
+  (data.fromMarkdownExtensions ??= []).push(directiveFromMarkdown());
+  const toMarkdownExtension = directiveToMarkdown();
+  // 只留行首的規則：段落開頭的「:::」要跳脫，才不會讀回來變成區塊。
+  const unsafe = toMarkdownExtension.unsafe?.filter((rule) => rule.character !== ":" || rule.atBreak);
+  (data.toMarkdownExtensions ??= []).push({ ...toMarkdownExtension, unsafe });
+}
+
+/** 「:::center」「:::right」只寫了名稱（沒有 [說明] 或 {屬性}）才是對齊。 */
+function isAlignDirective(node: ContainerDirective): boolean {
+  if (!isAlignment(node.name)) return false;
+  if (node.attributes && Object.keys(node.attributes).length > 0) return false;
+  return !node.children.some((child) => child.type === "paragraph" && child.data?.directiveLabel);
+}
+
+/** 不是對齊的 ::: 寫法，照原文。 */
+function directiveSource(node: ContainerDirective, source: string): string {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  return start === undefined || end === undefined ? "" : source.slice(start, end);
+}
 
 /** 不支援的節點裡的文字，換行變成換行節點。 */
 function textWithBreaks(value: string): PhrasingContent[] {
@@ -20,23 +82,29 @@ function textWithBreaks(value: string): PhrasingContent[] {
 
 type Definitions = Map<string, string>;
 
+/**
+ * definitions：連結定義（[a]: 網址）；images：大會特色的編輯器，留下從後台上傳的圖片（#102）；
+ * source：原本的 Markdown，不認得的指令寫法照原文。
+ */
+type Context = { definitions: Definitions; images: boolean; source: string };
+
 /** 整理一串子節點，傳回換掉之後的子節點。 */
-function cleanChildren(children: RootContent[], definitions: Definitions, block: boolean): RootContent[] {
-  return children.flatMap((child) => clean(child, definitions, block));
+function cleanChildren(children: RootContent[], context: Context, block: boolean): RootContent[] {
+  return children.flatMap((child) => clean(child, context, block));
 }
 
-function clean(node: RootContent, definitions: Definitions, block: boolean): RootContent[] {
+function clean(node: RootContent, context: Context, block: boolean): RootContent[] {
   switch (node.type) {
     case "paragraph":
     case "heading":
     case "strong":
     case "tableCell":
     case "tableRow":
-      node.children = cleanChildren(node.children, definitions, false) as typeof node.children;
+      node.children = cleanChildren(node.children, context, false) as typeof node.children;
       return [node];
     case "list":
       node.spread = false;
-      node.children = cleanChildren(node.children, definitions, true) as typeof node.children;
+      node.children = cleanChildren(node.children, context, true) as typeof node.children;
       return [node];
     case "listItem": {
       // 「- [ ]」待辦清單沒有對應的按鈕，打勾的框留成文字。
@@ -48,41 +116,57 @@ function clean(node: RootContent, definitions: Definitions, block: boolean): Roo
         node.checked = null;
       }
       node.spread = false;
-      node.children = cleanChildren(node.children, definitions, true) as typeof node.children;
+      node.children = cleanChildren(node.children, context, true) as typeof node.children;
       // 編輯器的清單項目一定以段落開頭；「1.」後面直接接表格時補一個空段落。
       if (node.children[0]?.type !== "paragraph") node.children.unshift({ type: "paragraph", children: [] });
       return [node];
     }
     case "table":
-      node.children = cleanChildren(node.children, definitions, true) as typeof node.children;
+      node.children = cleanChildren(node.children, context, true) as typeof node.children;
       return [node];
     case "text":
       return textWithBreaks(node.value);
     case "break":
       return [node];
     case "link":
-      node.children = cleanChildren(node.children, definitions, false) as typeof node.children;
+      node.children = cleanChildren(node.children, context, false) as typeof node.children;
       // 和公開頁面一樣只接受 http(s)，其他的只留文字。
       return SAFE_URL.test(node.url) ? [{ ...node, title: null }] : node.children;
     case "linkReference": {
-      const url = definitions.get(node.identifier);
-      const children = cleanChildren(node.children, definitions, false) as PhrasingContent[];
+      const url = context.definitions.get(node.identifier);
+      const children = cleanChildren(node.children, context, false) as PhrasingContent[];
       return url && SAFE_URL.test(url) ? [{ type: "link", url, children }] : children;
     }
     case "emphasis":
     case "delete":
-      return cleanChildren(node.children, definitions, false);
+      return cleanChildren(node.children, context, false);
     case "blockquote":
     case "footnoteDefinition":
-      return cleanChildren(node.children, definitions, true);
+      return cleanChildren(node.children, context, true);
     case "inlineCode":
     case "html":
       return wrap(textWithBreaks(node.value), block);
     case "code":
       return [{ type: "paragraph", children: textWithBreaks(node.value) }];
     case "image":
-    case "imageReference":
+    case "imageReference": {
+      const url = node.type === "image" ? node.url : context.definitions.get(node.identifier);
+      // 圖片只留從後台上傳的（#102），其他的只留圖片說明。
+      if (context.images && url && isHighlightImageUrl(url)) {
+        const title = node.type === "image" && isImageSize(node.title) ? node.title : null;
+        return [{ type: "image", url, alt: node.alt ?? "", title }];
+      }
       return node.alt ? wrap([{ type: "text", value: node.alt }], block) : [];
+    }
+    case "containerDirective":
+      if (block && isAlignDirective(node)) {
+        const children = cleanChildren(node.children, context, true);
+        for (const child of children) {
+          if (child.type === "paragraph" || child.type === "heading") child.data = { ...child.data, align: node.name as Alignment };
+        }
+        return children;
+      }
+      return wrap(textWithBreaks(directiveSource(node, context.source)), block);
     default:
       // 分隔線、連結定義、註腳編號等。
       return [];
@@ -100,13 +184,40 @@ function collectDefinitions(node: Nodes, definitions: Definitions) {
   if ("children" in node) for (const child of (node as Parent).children) collectDefinitions(child, definitions);
 }
 
-/** remark 外掛：把 Markdown 整理成編輯器認得的格式。 */
-export function remarkRichText() {
-  return (tree: Root) => {
+/** remark 外掛：把 Markdown 整理成編輯器認得的格式。images：留下從後台上傳的圖片（大會特色的編輯器，#102）。 */
+export function remarkRichText({ images = false }: { images?: boolean } = {}) {
+  return (tree: Root, file: VFile) => {
     const definitions: Definitions = new Map();
     collectDefinitions(tree, definitions);
-    tree.children = cleanChildren(tree.children, definitions, true);
+    tree.children = cleanChildren(tree.children, { definitions, images, source: String(file) }, true);
   };
+}
+
+/**
+ * remark 外掛（公開頁面，排在 remarkContainerDirective 後面）：「:::center」「:::right」包住的段落與標題記下對齊
+ * （HTML 的 data-align），其他 ::: 寫法照原文當成文字。
+ */
+export function remarkAlign() {
+  return (tree: Root, file: VFile) => resolveDirectives(tree, String(file));
+}
+
+function resolveDirectives(parent: Parent, source: string) {
+  parent.children = parent.children.flatMap((child): RootContent[] => {
+    if (child.type === "containerDirective" && isAlignDirective(child)) {
+      resolveDirectives(child, source);
+      for (const block of child.children) {
+        if (block.type === "paragraph" || block.type === "heading") {
+          block.data = { ...block.data, hProperties: { ...block.data?.hProperties, dataAlign: child.name } };
+        }
+      }
+      return child.children;
+    }
+    if (child.type === "containerDirective") {
+      return [{ type: "paragraph", children: [{ type: "text", value: directiveSource(child, source) }] }];
+    }
+    if ("children" in child) resolveDirectives(child, source);
+    return [child];
+  });
 }
 
 /**
