@@ -284,7 +284,7 @@ $$;
 
 /*
  * 複製建立新年度時一起複製介紹頁的版型、副標、引言與人物（大會特色對到新年度的那一項，照片用同一個檔案）。
- * 其餘和 20261117000000_highlight_venues.sql 相同。
+ * 其餘和 20261119000000_committee_site.sql 相同。
  */
 create or replace function public.copy_conference(p_source_id uuid, p_year integer, p_conference_date date)
 returns table (new_conference_id uuid, skipped_course_pairs integer)
@@ -455,8 +455,8 @@ begin
       where conference_id = p_source_id
     ),
     committee_texts as (
-      insert into public.committee_texts (conference_id, introduction, chair_message, memorandum, markdown)
-      select v_id, introduction, chair_message, memorandum, markdown
+      insert into public.committee_texts (conference_id, introduction, chair_message, memorandum, execution_plan, markdown)
+      select v_id, introduction, chair_message, memorandum, execution_plan, markdown
       from public.committee_texts
       where conference_id = p_source_id
     ),

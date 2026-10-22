@@ -453,6 +453,31 @@ describe("複製去年建立新年度", () => {
     ]);
   });
 
+  it("籌備委員會的文字（含執行計畫）一起帶過去", async () => {
+    await lastYear();
+    must(
+      await admin.from("committee_texts").insert({
+        conference_id: sourceId,
+        introduction: "大會簡介",
+        chair_message: "主席的話",
+        memorandum: "備忘錄",
+        execution_plan: "執行計畫",
+      }),
+    );
+
+    const id = await copied();
+
+    expect(
+      must(
+        await admin
+          .from("committee_texts")
+          .select("introduction, chair_message, memorandum, execution_plan")
+          .eq("conference_id", id)
+          .single(),
+      ),
+    ).toEqual({ introduction: "大會簡介", chair_message: "主席的話", memorandum: "備忘錄", execution_plan: "執行計畫" });
+  });
+
   it("大會特色的新編號由去年的編號固定算出（課程的分類才對得到新年度的那一項）", async () => {
     await lastYear();
     const before = must(await admin.from("highlights").select("id").eq("conference_id", sourceId)).map((row) => row.id);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -46,12 +46,19 @@ export function PersonPhotoField({
   focus: number;
 }) {
   const id = useId();
+  const input = useRef<HTMLInputElement>(null);
   const [current, setCurrent] = useState(photo);
-  const [position, setPosition] = useState(FOCUS_OPTIONS.some((option) => option.value === focus) ? focus : 50);
+  const [position, setPosition] = useState(focus);
+  // 已存的位置不是五個選項之一（例如直接改過資料庫）時多一個選項，只改姓名就儲存也不會被改成中間。
+  const options = FOCUS_OPTIONS.some((option) => option.value === focus)
+    ? FOCUS_OPTIONS
+    : [...FOCUS_OPTIONS, { value: focus, label: `目前的位置（${focus}%）` }].sort((a, b) => a.value - b.value);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
 
   async function upload(file: File | undefined) {
+    // 清掉選取，失敗後或拿掉照片後再選同一張，瀏覽器才會再通知一次。
+    if (input.current) input.current.value = "";
     if (!file || file.size === 0) return;
     const problem = checkHighlightImage(file.type, file.size);
     if (problem) return setError(FILE_ERRORS[problem]);
@@ -101,6 +108,7 @@ export function PersonPhotoField({
         {current ? "換一張照片" : "上傳照片"}
       </label>
       <input
+        ref={input}
         id={id}
         type="file"
         accept="image/jpeg,image/png,image/webp"
@@ -132,7 +140,7 @@ export function PersonPhotoField({
           onChange={(event) => setPosition(Number(event.target.value))}
           className={cn(inputClass, "sm:max-w-xs")}
         >
-          {FOCUS_OPTIONS.map((option) => (
+          {options.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
