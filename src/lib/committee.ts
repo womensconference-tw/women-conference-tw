@@ -1,11 +1,17 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import {
+  COMMITTEE_PHOTO_BUCKET,
+  committeePhotoUrl,
+  isCommitteePhotoPath,
+  removeCommitteePhotoFile,
+} from "./committee-photos";
 import { isSafeButtonUrl, validDate } from "./content";
 import { trimBlank, UUID_PATTERN } from "./registration";
 import { REGIONS, type Region } from "./staff";
 
 /*
- * 籌備委員會資訊（#45）：大會簡介、主席的話、籌備委員會備忘錄、會議記錄、重要連結、工作團隊與籌備委員名單。
- * 屬於年度大會。三個文字頁先存成草稿，總管理員預覽確定後才發布（#76）；其他的存了就公開。只有總管理員能編輯，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
+ * 籌備委員會資訊（#45）：大會簡介、主席的話、籌備委員會備忘錄、執行計畫、會議記錄、重要連結、工作團隊與籌備委員名單。
+ * 屬於年度大會。四個文字頁先存成草稿，總管理員預覽確定後才發布（#76）；其他的存了就公開。只有總管理員能編輯，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
  * 目前與過去年度不用登入也讀得到（公開頁面 /committee，#74）；還沒到的年度只有工作人員讀得到。
  * 名單只是資訊，不給任何後台權限：工作團隊的課務組、報報組成員不會因此有後台帳號（GLOSSARY「工作團隊」）。
  */
@@ -20,6 +26,8 @@ export type CommitteeError =
   | "role_invalid"
   | "region_invalid"
   | "stake_required"
+  | "photo_failed"
+  | "photo_changed"
   | "not_found"
   | "no_draft"
   | "draft_changed"
@@ -80,13 +88,19 @@ export type CommitteeMember = {
   /** 支聯會的區。 */
   stakeRegion: Region | null;
   reliefSocietyPresidency: boolean;
+  /** 個人頁的自我介紹，純文字。 */
+  bio: string;
+  /** 照片在存放空間裡的路徑與公開網址；沒有照片時是 null（見 src/lib/committee-photos.ts）。 */
+  photoPath: string | null;
+  photoUrl: string | null;
 };
 
 export type Committee = {
   introduction: string;
   chairMessage: string;
   memorandum: string;
-  /** 三個文字頁是不是 Markdown；改版前存的是純文字，總管理員用新的編輯框存過一次才是（#75）。 */
+  executionPlan: string;
+  /** 文字頁是不是 Markdown；改版前存的是純文字，總管理員用新的編輯框存過一次才是（#75）。 */
   markdown: boolean;
   /** 依日期，同一天依標題。 */
   meetings: Meeting[];
@@ -105,7 +119,7 @@ export async function getCommittee(supabase: SupabaseClient, conferenceId: strin
   const [texts, meetings, links, teamMembers, members, stakeRows] = await Promise.all([
     supabase
       .from("committee_texts")
-      .select("introduction, chair_message, memorandum, markdown")
+      .select("introduction, chair_message, memorandum, execution_plan, markdown")
       .eq("conference_id", conferenceId)
       .maybeSingle(),
     supabase
@@ -129,7 +143,7 @@ export async function getCommittee(supabase: SupabaseClient, conferenceId: strin
       .order("id"),
     supabase
       .from("committee_members")
-      .select("id, name, stake_id, relief_society_presidency")
+      .select("id, name, stake_id, relief_society_presidency, bio, photo_path")
       .eq("conference_id", conferenceId)
       .order("name")
       .order("id"),
@@ -151,6 +165,7 @@ export async function getCommittee(supabase: SupabaseClient, conferenceId: strin
     introduction: texts.data?.introduction ?? "",
     chairMessage: texts.data?.chair_message ?? "",
     memorandum: texts.data?.memorandum ?? "",
+    executionPlan: texts.data?.execution_plan ?? "",
     markdown: texts.data?.markdown ?? true,
     meetings: meetings.data!.map((row) => ({
       id: row.id,
@@ -186,8 +201,33 @@ export async function getCommittee(supabase: SupabaseClient, conferenceId: strin
         stakeName: stakes.get(row.stake_id)?.name_zh ?? "",
         stakeRegion: (stakes.get(row.stake_id)?.region ?? null) as Region | null,
         reliefSocietyPresidency: row.relief_society_presidency,
+        bio: row.bio,
+        photoPath: row.photo_path,
+        photoUrl: row.photo_path && committeePhotoUrl(supabase, row.photo_path),
       })),
   };
+}
+
+/**
+ * 公開頁面上一位籌備委員的個人頁：只找公開年度（目前與過去年度）的委員，找不到或編號格式不對時是 null。
+ * 工作人員讀得到還沒到的年度，但公開頁面一樣不顯示，和名單頁一致。
+ */
+export async function getPublicCommitteeMember(
+  supabase: SupabaseClient,
+  memberId: string,
+): Promise<{ member: CommitteeMember; year: PublicCommitteeYear } | null> {
+  if (!UUID_PATTERN.test(memberId)) return null;
+  const [years, row] = await Promise.all([
+    listPublicCommitteeYears(supabase),
+    supabase.from("committee_members").select("conference_id").eq("id", memberId).maybeSingle(),
+  ]);
+  if (row.error) throw row.error;
+  const conferenceId = row.data?.conference_id;
+  const year = years.find((year) => year.id === conferenceId);
+  if (!year) return null;
+  // 支聯會名稱與區域、照片網址和名單頁一樣由 getCommittee 整理。
+  const member = (await getCommittee(supabase, year.id)).members.find((member) => member.id === memberId);
+  return member ? { member, year } : null;
 }
 
 /** 公開頁面的一個年度。 */
@@ -209,13 +249,14 @@ export type CommitteeTextsInput = {
   introduction: string;
   chairMessage: string;
   memorandum: string;
+  executionPlan: string;
 };
 
-/** 三個文字頁的欄位，依頁面上的順序。 */
-export const COMMITTEE_TEXT_KEYS = ["introduction", "chairMessage", "memorandum"] as const;
+/** 文字頁的欄位，依公開頁面選單的順序。 */
+export const COMMITTEE_TEXT_KEYS = ["introduction", "chairMessage", "memorandum", "executionPlan"] as const;
 export type CommitteeTextKey = (typeof COMMITTEE_TEXT_KEYS)[number];
 
-/** 三個文字頁還沒發布的草稿（#76）。只有總管理員讀得到。 */
+/** 文字頁還沒發布的草稿（#76）。只有總管理員讀得到。 */
 export type CommitteeTextDraft = Record<CommitteeTextKey, string> & {
   /** 這份草稿的版本代號，每次存草稿都換。發布時帶上預覽時看到的代號，確認發布的就是預覽過的那一版。 */
   revision: string;
@@ -223,7 +264,7 @@ export type CommitteeTextDraft = Record<CommitteeTextKey, string> & {
   updatedAt: string;
 };
 
-/** 一個年度三個文字頁的草稿；沒有草稿、或不是總管理員時是 null。 */
+/** 一個年度文字頁的草稿；沒有草稿、或不是總管理員時是 null。 */
 export async function getCommitteeTextDraft(
   supabase: SupabaseClient,
   conferenceId: string,
@@ -231,7 +272,7 @@ export async function getCommitteeTextDraft(
   if (!validIds(conferenceId)) return null;
   const { data, error } = await supabase
     .from("committee_text_drafts")
-    .select("introduction, chair_message, memorandum, revision, updated_at")
+    .select("introduction, chair_message, memorandum, execution_plan, revision, updated_at")
     .eq("conference_id", conferenceId)
     .maybeSingle();
   // 前台訪客連讀取的權限都沒有；課務組、報報組被權限規則擋下，讀到的是空的。
@@ -242,6 +283,7 @@ export async function getCommitteeTextDraft(
       introduction: data.introduction,
       chairMessage: data.chair_message,
       memorandum: data.memorandum,
+      executionPlan: data.execution_plan,
       revision: data.revision,
       updatedAt: data.updated_at,
     }
@@ -261,7 +303,7 @@ export function changedTextPages(
 }
 
 /**
- * 把三個文字頁（大會簡介、主席的話、籌備委員會備忘錄）存成草稿；公開頁面與其他工作人員看到的仍是已發布的版本。
+ * 把四個文字頁（大會簡介、主席的話、籌備委員會備忘錄、執行計畫）存成草稿；公開頁面與其他工作人員看到的仍是已發布的版本。
  * 傳回這份草稿的版本代號。
  */
 export async function saveCommitteeTextDraft(
@@ -277,6 +319,7 @@ export async function saveCommitteeTextDraft(
     p_introduction: trimBlank(input.introduction),
     p_chair_message: trimBlank(input.chairMessage),
     p_memorandum: trimBlank(input.memorandum),
+    p_execution_plan: trimBlank(input.executionPlan),
   });
   return error ? failure(error) : { ok: true, revision: data as string };
 }
@@ -393,9 +436,10 @@ export type CommitteeMemberInput = {
   name: string;
   stakeId: string;
   reliefSocietyPresidency: boolean;
+  bio: string;
 };
 
-/** 新增或修改一位籌備委員。 */
+/** 新增或修改一位籌備委員。照片另外上傳（src/lib/committee-photos.ts）。 */
 export async function saveCommitteeMember(supabase: SupabaseClient, input: CommitteeMemberInput): Promise<SavedResult> {
   const name = trimBlank(input.name);
   if (!name) return { ok: false, error: "name_required" };
@@ -405,7 +449,69 @@ export async function saveCommitteeMember(supabase: SupabaseClient, input: Commi
     name,
     stake_id: input.stakeId,
     relief_society_presidency: input.reliefSocietyPresidency,
+    bio: trimBlank(input.bio),
   });
+}
+
+/**
+ * 把剛上傳的照片記到一位籌備委員上，原本的照片一併刪掉。previous 是畫面上看到的那一張（沒有是 null）：
+ * 別人剛換過照片時不記（photo_changed），由她的瀏覽器刪掉剛上傳的檔案，請她重新整理。
+ * 檔案要真的在存放空間裡（伺服器動作可以被直接呼叫，不能只看路徑格式）。
+ */
+export async function attachCommitteePhoto(
+  supabase: SupabaseClient,
+  input: { memberId: string; path: string; previous: string | null },
+): Promise<CommitteeResult> {
+  if (!validIds(input.memberId)) return { ok: false, error: "not_found" };
+  if (!isCommitteePhotoPath(input.memberId, input.path)) return { ok: false, error: "photo_failed" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+
+  // 存放空間連不上時套件會直接丟出例外，不是回傳錯誤；一樣當成沒上傳成功，後台會刪掉剛上傳的檔案。
+  try {
+    const exists = await supabase.storage.from(COMMITTEE_PHOTO_BUCKET).exists(input.path);
+    if (exists.error || !exists.data) return { ok: false, error: "photo_failed" };
+  } catch (error) {
+    console.error("確認籌備委員照片失敗", input.path, error);
+    return { ok: false, error: "photo_failed" };
+  }
+  return swapCommitteePhoto(supabase, input.memberId, input.previous, input.path);
+}
+
+/** 刪掉一位籌備委員的照片。path 是畫面上看到的那一張：別人剛換成新照片時不刪（photo_changed）。 */
+export async function removeCommitteePhoto(
+  supabase: SupabaseClient,
+  input: { memberId: string; path: string },
+): Promise<CommitteeResult> {
+  if (!validIds(input.memberId)) return { ok: false, error: "not_found" };
+  if (!isCommitteePhotoPath(input.memberId, input.path)) return { ok: false, error: "photo_changed" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+  return swapCommitteePhoto(supabase, input.memberId, input.path, null);
+}
+
+// 只在照片還是 from 的時候換成 to（同一句裡比對與寫入，不會被別人插隊），成功才刪掉 from 的檔案。
+async function swapCommitteePhoto(
+  supabase: SupabaseClient,
+  memberId: string,
+  from: string | null,
+  to: string | null,
+): Promise<CommitteeResult> {
+  let query = supabase
+    .from("committee_members")
+    .update({ photo_path: to, updated_at: new Date().toISOString() })
+    .eq("id", memberId);
+  query = from === null ? query.is("photo_path", null) : query.eq("photo_path", from);
+  const { data, error } = await query.select("id");
+  if (error) return failure(error);
+  if (data.length === 0) {
+    // 沒改到：這位剛被刪掉，或照片剛被別人換掉。
+    const still = await supabase.from("committee_members").select("id").eq("id", memberId).maybeSingle();
+    if (still.error) return failure(still.error);
+    return { ok: false, error: still.data ? "photo_changed" : "not_found" };
+  }
+  if (from && from !== to) await removeCommitteePhotoFile(supabase, from);
+  return { ok: true };
 }
 
 /** 可以刪除的項目。 */
@@ -419,7 +525,7 @@ const TABLES: Record<CommitteeItemKind, string> = {
   member: "committee_members",
 };
 
-/** 刪除一筆會議記錄、重要連結、工作團隊或籌備委員。 */
+/** 刪除一筆會議記錄、重要連結、工作團隊或籌備委員。籌備委員的照片一併刪掉。 */
 export async function deleteCommitteeItem(
   supabase: SupabaseClient,
   kind: CommitteeItemKind,
@@ -429,9 +535,16 @@ export async function deleteCommitteeItem(
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
-  const { data, error } = await supabase.from(TABLES[kind]).delete().eq("id", id).select("id");
+  const { data, error } = await supabase
+    .from(TABLES[kind])
+    .delete()
+    .eq("id", id)
+    .select(kind === "member" ? "id, photo_path" : "id");
   if (error) return failure(error);
-  return data.length === 0 ? { ok: false, error: "not_found" } : { ok: true };
+  if (data.length === 0) return { ok: false, error: "not_found" };
+  const photo = (data[0] as { photo_path?: string | null }).photo_path;
+  if (photo) await removeCommitteePhotoFile(supabase, photo);
+  return { ok: true };
 }
 
 /** 把一個重要連結往前或往後移一格；已經在最前或最後時不動。 */
@@ -511,6 +624,8 @@ function failure(error: PostgrestError): { ok: false; error: CommitteeError } {
       return { ok: false, error: "team_invalid" };
     case violates("committee_team_members_role_valid"):
       return { ok: false, error: "role_invalid" };
+    case violates("committee_members_photo_path_valid"):
+      return { ok: false, error: "photo_failed" };
     case violates("committee_team_members_region_valid"):
       return { ok: false, error: "region_invalid" };
     // 支聯會被刪掉了。

@@ -106,7 +106,7 @@ it("標題裡很長的英文字會斷行，手機上不撐出橫向捲動（Code
 
 it("改版前存的純文字照原樣顯示：空格、空行、星號都不變（#75，Codex 審查）", () => {
   const { container } = render(
-    <CommitteeTexts texts={{ introduction: "甲  乙\n\n\n\n*注意*\n# 說明", chairMessage: "", memorandum: "", markdown: false }} />,
+    <CommitteeTexts texts={{ introduction: "甲  乙\n\n\n\n*注意*\n# 說明", chairMessage: "", memorandum: "", executionPlan: "", markdown: false }} />,
   );
   const text = container.querySelector("p.whitespace-pre-wrap")!;
   expect(text.textContent).toBe("甲  乙\n\n\n\n*注意*\n# 說明");
@@ -115,7 +115,7 @@ it("改版前存的純文字照原樣顯示：空格、空行、星號都不變�
 
 it("用新的編輯框存過的依 Markdown 排版", () => {
   const { container } = render(
-    <CommitteeTexts texts={{ introduction: "*注意*", chairMessage: "", memorandum: "", markdown: true }} />,
+    <CommitteeTexts texts={{ introduction: "*注意*", chairMessage: "", memorandum: "", executionPlan: "", markdown: true }} />,
   );
   expect(container.querySelector("em")?.textContent).toBe("注意");
 });
