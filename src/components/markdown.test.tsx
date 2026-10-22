@@ -163,3 +163,8 @@ it("清單、引言裡的對齊只留內容；引言裡不認得的 ::: 不帶�
   expect(page.querySelector(".text-center")).toBeNull();
   expect(page.querySelector("blockquote")?.textContent?.replace(/\s/g, "")).toBe(":::note乙:::");
 });
+
+it("不認得的 ::: 照原文：每行前綴長短不同也不切到內文（Codex 審查，#102）", () => {
+  expect(show("  :::note\n甲乙丙\n:::").textContent).toBe(":::note\n甲乙丙\n:::");
+  expect(show("> :::note\n>甲\n>:::").querySelector("blockquote")?.textContent?.trim()).toBe(":::note\n甲\n:::");
+});

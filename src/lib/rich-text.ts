@@ -1,4 +1,4 @@
-import type { Break, Heading, Nodes, Paragraph, Parent, Parents, PhrasingContent, Root, RootContent, Text } from "mdast";
+import type { Break, Heading, Image, Nodes, Paragraph, Parent, Parents, PhrasingContent, Root, RootContent, Text } from "mdast";
 import { type ContainerDirective, directiveFromMarkdown, directiveToMarkdown } from "mdast-util-directive";
 import { toMarkdown } from "mdast-util-to-markdown";
 import { directive } from "micromark-extension-directive";
@@ -67,39 +67,73 @@ function isAlignDirective(node: ContainerDirective): boolean {
 }
 
 /**
- * 不是對齊的 ::: 寫法，照原文。在引言、清單裡時，第二行起每一行前面的「> 」或縮排是外層的，不算進來（Codex 審查）。
+ * 不是對齊的 ::: 寫法，照原文。在引言、清單裡時，第二行起每一行開頭的「>」、空白、tab 是外層的，不算進來（Codex 審查）。
+ * 外層的前綴每行長短可能不同（「> 」或「>」、省略的縮排、懶惰續行），所以只拿掉這幾種字元，最多和第一行的前綴一樣長，
+ * 不會切到內文。
  */
 function directiveSource(node: ContainerDirective, source: string): string {
   const { start, end } = node.position ?? {};
   if (!start || !end) return "";
   const lines = source.split(/\r?\n|\r/).slice(start.line - 1, end.line);
   lines[lines.length - 1] = lines[lines.length - 1].slice(0, end.column - 1);
-  return lines.map((line) => line.slice(start.column - 1)).join("\n");
+  const prefix = start.column - 1;
+  return lines
+    .map((line, index) => {
+      if (index === 0) return line.slice(prefix);
+      let cut = 0;
+      while (cut < prefix && /[ \t>]/.test(line[cut] ?? "")) cut++;
+      return line.slice(cut);
+    })
+    .join("\n");
+}
+
+type Piece = { image: Image } | { content: PhrasingContent[] };
+
+const containsImage = (node: PhrasingContent): boolean =>
+  node.type === "image" || ("children" in node && node.children.some(containsImage));
+
+/**
+ * 一串行內內容依圖片切開。連結、粗體裡的圖片也拿出來（Codex 審查）：編輯器的圖片不能有連結或粗體，
+ * 前後的文字保留原本的連結、粗體。
+ */
+function splitAtImages(children: PhrasingContent[]): Piece[] {
+  const pieces: Piece[] = [];
+  const addContent = (node: PhrasingContent) => {
+    const last = pieces.at(-1);
+    if (last && "content" in last) last.content.push(node);
+    else pieces.push({ content: [node] });
+  };
+  for (const child of children) {
+    if (child.type === "image") pieces.push({ image: child });
+    else if ((child.type === "link" || child.type === "strong") && containsImage(child)) {
+      for (const piece of splitAtImages(child.children)) {
+        if ("image" in piece) pieces.push(piece);
+        else addContent({ ...child, children: piece.content } as PhrasingContent);
+      }
+    } else addContent(child);
+  }
+  return pieces;
 }
 
 /**
  * 圖片自己一段（Codex 審查）：段落或標題裡的圖片和文字分開，圖片各自成為一個段落，前後的文字留在原本的段落或標題。
- * 分開處的換行拿掉。
+ * 分開處的換行拿掉。和編輯器的 separateImageNodes 結果一樣，載入後第一次編輯版面才不會變。
  */
 function separateImages(node: Paragraph | Heading): RootContent[] {
-  if (node.children.length < 2 || !node.children.some((child) => child.type === "image")) return [node];
+  if (!node.children.some(containsImage)) return [node];
+  const pieces = splitAtImages(node.children);
+  if (pieces.length === 1 && "image" in pieces[0] && node.type === "paragraph" && node.children.length === 1) return [node];
   const out: RootContent[] = [];
-  let run: PhrasingContent[] = [];
-  const flush = () => {
+  for (const piece of pieces) {
+    if ("image" in piece) {
+      out.push({ type: "paragraph", children: [piece.image] });
+      continue;
+    }
+    const run = [...piece.content];
     while (run[0]?.type === "break") run.shift();
     while (run.at(-1)?.type === "break") run.pop();
     if (run.some((child) => child.type !== "text" || child.value.trim())) out.push({ ...node, children: run });
-    run = [];
-  };
-  for (const child of node.children) {
-    if (child.type !== "image") {
-      run.push(child);
-      continue;
-    }
-    flush();
-    out.push({ type: "paragraph", children: [child] });
   }
-  flush();
   return out;
 }
 

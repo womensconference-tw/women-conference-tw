@@ -670,3 +670,55 @@ describe("Codex 審查（#102）", () => {
     expect(view.state.doc.textContent).toBe(":::note\n甲\n:::");
   });
 });
+
+describe("Codex 第二次審查（#102）", () => {
+  const BASE = "http://127.0.0.1:55321";
+  const ours = `${BASE}/storage/v1/object/public/highlight-images/00000000-0000-4000-8000-000000000102/00000000-0000-4000-8000-000000000001.png`;
+  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", BASE));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("不認得的 ::: 照原文：每行前綴長短不同、tab 縮排也不切到內文", async () => {
+    const cases: [string, string][] = [
+      ["  :::note\n甲乙丙\n:::", ":::note\n甲乙丙\n:::"],
+      ["> :::note\n>甲\n>:::", ":::note\n甲\n:::"],
+      ["- :::note\n\t甲\n\t:::", ":::note\n甲\n:::"],
+    ];
+    for (const [markdown, text] of cases) {
+      const { view } = await open(markdown);
+      expect(view.state.doc.textContent).toBe(text);
+    }
+  });
+
+  it("圖片前面打字，字接在同一段；貼上圖片後繼續打字，接在後面的文字前", async () => {
+    const { view, markdown } = await open(`![圖](${ours})\n\n後段`, { images: true });
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)));
+    view.dispatch(view.state.tr.insertText("甲"));
+    view.dispatch(view.state.tr.insertText("乙"));
+    expect(markdown()).toBe(`甲乙\n\n![圖](${ours})\n\n後段\n`);
+
+    const pasted = await open("前後", { images: true });
+    placeCursor(pasted.view, "後");
+    pasted.view.pasteHTML(`<img src="${ours}" alt="圖">`);
+    pasted.view.dispatch(pasted.view.state.tr.insertText("x"));
+    expect(pasted.markdown()).toBe(`前\n\n![圖](${ours})\n\nx後\n`);
+  });
+
+  it("連結、粗體、標題裡的圖片載入時就分開，第一次編輯後也一樣", async () => {
+    const cases: [string, string][] = [
+      [`前[![圖](${ours})](https://example.com/a)後`, `前\n\n![圖](${ours})\n\n後\n`],
+      [`**前![圖](${ours})後**`, `**前**\n\n![圖](${ours})\n\n**後**\n`],
+      [`[甲![圖](${ours})乙](https://example.com/a)`, `[甲](https://example.com/a)\n\n![圖](${ours})\n\n[乙](https://example.com/a)\n`],
+      [`# 前![圖](${ours})`, `# 前\n\n![圖](${ours})\n`],
+      [`# ![圖](${ours})`, `![圖](${ours})\n`],
+      [`- 前![圖](${ours})`, `- 前\n\n  ![圖](${ours})\n`],
+    ];
+    for (const [input, expected] of cases) {
+      const { view, markdown } = await open(input, { images: true });
+      expect(markdown()).toBe(expected);
+      // 同一次修改裡打一個字再刪掉：內容不變，但 normalize 會跑一次，結果要一樣。
+      const at = TextSelection.atStart(view.state.doc).from;
+      view.dispatch(view.state.tr.insertText("x", at).delete(at, at + 1));
+      expect(markdown()).toBe(expected);
+    }
+  });
+});

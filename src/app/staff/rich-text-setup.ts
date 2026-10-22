@@ -64,7 +64,7 @@ import {
   insertTableCommand,
 } from "@milkdown/kit/preset/gfm";
 import { Fragment, type Node as ProseNode } from "@milkdown/kit/prose/model";
-import { EditorState, Plugin } from "@milkdown/kit/prose/state";
+import { EditorState, Plugin, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
 import { TableMap } from "@milkdown/kit/prose/tables";
 import type { NodeSchema } from "@milkdown/kit/transformer";
 import type { EditorView } from "@milkdown/kit/prose/view";
@@ -218,7 +218,7 @@ function unmergeTable(table: ProseNode): ProseNode | null {
  * - 貼上或拖進來的連結和公開頁面一樣只接受 http(s)，其他的拿掉連結、只留文字。
  * - 貼上別的網站的圖片拿掉，只留從後台上傳的（#102）；圖片的標題只留大小。沒載入圖片的編輯器本來就貼不進圖片。
  * - 清單、表格裡的段落與標題不能對齊（存不了），拿掉對齊。
- * - 圖片自己一段：和文字在同一段的分開（separateImageNodes）；表格的格子裡不放圖片，只留圖片說明。
+ * - 圖片自己一段：和文字在同一段的分開（separateImagesAt）；表格的格子裡不放圖片，只留圖片說明。
  * 外掛自己補的修改，ProseMirror 不會再交給它看一次，所以一次做完：先拆合併格，再整理拆好的文件。
  */
 const normalize = $prose(
@@ -228,10 +228,10 @@ const normalize = $prose(
         if (!transactions.some((tr) => tr.docChanged)) return null;
         const { link } = state.schema.marks;
         const tr = state.tr;
+        let separated = false;
         state.doc.descendants((node, pos) => {
           if (node.isTextblock) {
-            const pieces = separateImageNodes(node);
-            if (pieces) tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), pieces);
+            if (separateImagesAt(tr, tr.mapping.map(pos))) separated = true;
             return false;
           }
           if (node.type.name !== "table") return true;
@@ -239,6 +239,12 @@ const normalize = $prose(
           if (unmerged) tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), unmerged);
           return false;
         });
+        // 游標剛好在圖片前面時留在前面那一段的結尾，在圖片後面時到後面那一段的開頭，繼續打的字才接著原本的文字。
+        const { selection } = state;
+        if (separated && selection instanceof TextSelection && selection.empty) {
+          const assoc = selection.$head.nodeAfter?.type.name === "image" ? -1 : 1;
+          tr.setSelection(TextSelection.create(tr.doc, tr.mapping.map(selection.head, assoc)));
+        }
         const doc = tr.doc;
         const base = tr.steps.length;
         const map = (pos: number) => tr.mapping.slice(base).map(pos);
@@ -270,38 +276,47 @@ const normalize = $prose(
 );
 
 /**
- * 圖片自己一段（Codex 審查）：段落或標題裡有圖片也有別的內容時分開，圖片各自一段，對齊跟著原本那一段；
- * 分開處的換行拿掉。和 src/lib/rich-text.ts 的 separateImages 一樣，那邊整理載入的內容，這裡整理貼上與編輯。
- * 別的網站的圖片先拿掉再分，才不會留下空段落。沒有要改時傳回 null。
+ * 圖片自己一段（Codex 審查）：段落或標題裡的圖片和其他內容分開，圖片各自一段（一般段落），對齊跟著原本那一段；
+ * 分開處的換行拿掉，別的網站的圖片先拿掉。和 src/lib/rich-text.ts 的 separateImages 一樣，那邊整理載入的內容，
+ * 這裡整理貼上與編輯。在圖片前後切開（不是整段換掉），游標才會留在原本的文字裡。傳回有沒有改。
  */
-function separateImageNodes(block: ProseNode): ProseNode[] | null {
-  const { image, paragraph, hardbreak } = block.type.schema.nodes;
-  if (!image) return null;
-  let images = 0;
-  let foreign = false;
-  block.forEach((child) => {
-    if (child.type !== image) return;
-    if (isHighlightImageUrl(child.attrs.src)) images++;
-    else foreign = true;
+function separateImagesAt(tr: Transaction, pos: number): boolean {
+  const { image, paragraph, hardbreak } = tr.doc.type.schema.nodes;
+  if (!image) return false;
+  let block = tr.doc.nodeAt(pos)!;
+  const allowed = (node: ProseNode | null) => node?.type === image && isHighlightImageUrl(node.attrs.src);
+  const removals: [number, number][] = [];
+  block.forEach((child, offset, index) => {
+    const at = pos + 1 + offset;
+    const foreign = child.type === image && !allowed(child);
+    const nextToImage =
+      child.type === hardbreak && (allowed(index > 0 ? block.child(index - 1) : null) || allowed(block.maybeChild(index + 1)));
+    if (foreign || nextToImage) removals.push([at, at + child.nodeSize]);
   });
-  if (!foreign && (images === 0 || block.childCount === 1)) return null;
-  const pieces: ProseNode[] = [];
-  let run: ProseNode[] = [];
-  const flush = () => {
-    while (run[0]?.type === hardbreak) run.shift();
-    while (run.at(-1)?.type === hardbreak) run.pop();
-    if (run.some((child) => !child.isText || child.text!.trim())) pieces.push(block.type.create(block.attrs, run));
-    run = [];
-  };
-  block.forEach((child) => {
-    if (child.type !== image) return void run.push(child);
-    if (!isHighlightImageUrl(child.attrs.src)) return;
-    flush();
-    pieces.push(paragraph.create({ align: block.attrs.align ?? "" }, child));
+  for (const [from, to] of removals.reverse()) tr.delete(from, to);
+  block = tr.doc.nodeAt(pos)!;
+  const images: number[] = [];
+  block.forEach((child, offset) => {
+    if (child.type === image) images.push(pos + 1 + offset);
   });
-  flush();
-  // 只有別的網站的圖片：留一個空段落（清單項目、格子裡一定要有段落）。
-  return pieces.length > 0 ? pieces : [block.type.create(block.attrs)];
+  const own = { align: block.attrs.align ?? "" };
+  let changed = removals.length > 0;
+  // 從最後一張往前切，前面的位置才不會跑掉。
+  for (const at of images.reverse()) {
+    const $at = tr.doc.resolve(at);
+    if ($at.parentOffset + 1 < $at.parent.content.size) {
+      tr.split(at + 1, 1, [{ type: block.type, attrs: block.attrs }]);
+      changed = true;
+    }
+    if ($at.parentOffset > 0) {
+      tr.split(at, 1, [{ type: paragraph, attrs: own }]);
+      changed = true;
+    } else if ($at.parent.type !== paragraph) {
+      tr.setNodeMarkup($at.before(), paragraph, own);
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 /**
