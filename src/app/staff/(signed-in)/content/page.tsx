@@ -606,7 +606,17 @@ function PersonForm({
       <TextPair name="name" label="姓名" zh={person?.nameZh} en={person?.nameEn} required />
       <span className="text-sm text-muted-foreground">照卡片上要顯示的寫，例如「沈亦斌 姐妹」「宋長老及宋馬彩鳳姊妹」。</span>
       <TextPair name="stake" label="支聯會" zh={person?.stakeZh} en={person?.stakeEn} />
-      <TextPair name="ward" label="支會（或分會、傳道部）" zh={person?.wardZh} en={person?.wardEn} />
+      <TextPair
+        name="ward"
+        label={template === "missionary" ? "服務地區" : "支會（或分會）"}
+        zh={person?.wardZh}
+        en={person?.wardEn}
+      />
+      {template === "missionary" && (
+        <span className="text-sm text-muted-foreground">
+          支聯會寫傳教士家鄉的支聯會；服務地區寫他們服務的地方，例如「高雄傳道部」。卡片上分兩行顯示。
+        </span>
+      )}
       <PersonPhotoField conferenceId={conferenceId} photo={person?.photo ?? null} focus={person?.photoFocus ?? 50} />
       <TextPair name="linkLabel" label={link.label} zh={person?.linkLabelZh} en={person?.linkLabelEn} />
       <span className="text-sm text-muted-foreground">{link.hint}</span>
