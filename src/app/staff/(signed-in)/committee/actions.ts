@@ -2,11 +2,13 @@
 
 import { redirect } from "next/navigation";
 import {
+  attachCommitteePhoto,
   COMMITTEE_ITEM_KINDS,
   deleteCommitteeItem,
   discardCommitteeTextDraft,
   moveCommitteeLink,
   publishCommitteeTexts,
+  removeCommitteePhoto,
   saveCommitteeLink,
   saveCommitteeMember,
   saveCommitteeTextDraft,
@@ -22,7 +24,7 @@ import { createClient } from "@/lib/supabase/server";
  * 做完回到籌備委員會頁，停在原本選的年度。
  */
 
-// 三個文字頁只存成草稿，預覽確定後才發布（#76）。
+// 文字頁只存成草稿，預覽確定後才發布（#76）。
 export async function saveTextDraftAction(formData: FormData) {
   const field = fieldsOf(formData);
   const result = await saveCommitteeTextDraft(await createClient(), {
@@ -30,6 +32,7 @@ export async function saveTextDraftAction(formData: FormData) {
     introduction: field("introduction"),
     chairMessage: field("chairMessage"),
     memorandum: field("memorandum"),
+    executionPlan: field("executionPlan"),
   });
   done(formData, result, "draft_saved");
 }
@@ -99,8 +102,23 @@ export async function saveMemberAction(formData: FormData) {
     name: field("name"),
     stakeId: field("stakeId"),
     reliefSocietyPresidency: formData.get("reliefSocietyPresidency") === "on",
+    bio: field("bio"),
   });
   done(formData, result, "saved");
+}
+
+/**
+ * 瀏覽器把照片直接上傳到存放空間之後，呼叫這裡把路徑記到這位籌備委員上（見 src/lib/committee.ts）。
+ * 回傳結果，由瀏覽器決定要不要刪掉剛上傳的檔案、再換頁說明結果。
+ */
+export async function attachPhotoAction(input: { memberId: string; path: string; previous: string | null }): Promise<CommitteeResult> {
+  return attachCommitteePhoto(await createClient(), input);
+}
+
+export async function removePhotoAction(formData: FormData) {
+  const field = fieldsOf(formData);
+  const result = await removeCommitteePhoto(await createClient(), { memberId: field("id"), path: field("path") });
+  done(formData, result, "photo_removed");
 }
 
 export async function deleteItemAction(formData: FormData) {

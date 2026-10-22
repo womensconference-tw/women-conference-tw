@@ -7,6 +7,7 @@ import {
   COMMITTEE_TEXT_PAGES,
   CommitteeTexts,
   committeeCardClass as cardClass,
+  type CommitteeTextsData,
   LinkList,
   MeetingList,
   MemberTable,
@@ -20,7 +21,6 @@ import {
   getCommittee,
   getCommitteeTextDraft,
   listPublicCommitteeYears,
-  type Committee,
   type CommitteeItemKind,
   type CommitteeTextDraft,
   type CommitteeLink,
@@ -41,10 +41,12 @@ import { SubmitButton } from "../../submit-button";
 import { buttonClass, formatTime, inputClass, noticeClass } from "../../ui";
 import { CopyUrl } from "../../copy-url";
 import { COMMITTEE_DONE, COMMITTEE_ERRORS } from "./messages";
+import { CommitteePhotoUpload } from "./photo-upload";
 import {
   deleteItemAction,
   discardTextDraftAction,
   moveLinkAction,
+  removePhotoAction,
   saveLinkAction,
   saveMeetingAction,
   saveMemberAction,
@@ -60,8 +62,8 @@ const submitClass = cn(buttonVariants(), buttonClass, "self-start font-bold");
 type YearFields = { conferenceId: string; year: number };
 
 /**
- * 籌備委員會（所有工作人員都看得到，只有總管理員能編輯）：大會簡介、主席的話、籌備委員會備忘錄、
- * 會議記錄、重要連結、工作團隊與籌備委員名單。預設是目前年度，可以選年度看別的年度。
+ * 籌備委員會（所有工作人員都看得到，只有總管理員能編輯）：大會簡介、主席的話、籌備委員會備忘錄、執行計畫、
+ * 會議記錄、重要連結、工作團隊與籌備委員名單（含個人頁的照片與自我介紹）。預設是目前年度，可以選年度看別的年度。
  * 名單只是資訊，名單上的人不會因此有後台帳號。目前與過去年度不用登入也能在公開頁面 /committee 看（#74），
  * 這裡放公開網址，方便總管理員傳給工作團隊與籌備委員。
  */
@@ -125,6 +127,7 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
               <>
                 <p>
                   目前與過去年度的籌備委員會資訊不用登入就能看，把這個網址傳給工作團隊與籌備委員。
+                  上方選單有大會簡介、主席的話、會議記錄、工作團隊、籌備委員（點進去是個人頁）、執行計畫。
                   前台首頁沒有連到這裡，搜尋引擎也不會收錄。
                 </p>
                 <CopyUrl key={publicPath} path={publicPath} />
@@ -146,7 +149,7 @@ export default async function CommitteePage({ searchParams }: PageProps<"/staff/
 }
 
 /**
- * 三個文字頁。上面顯示已發布的版本（大家看到的樣子），標出草稿裡有修改的頁面。
+ * 文字頁。上面顯示已發布的版本（大家看到的樣子），標出草稿裡有修改的頁面。
  * 總管理員編輯後只存成草稿，到預覽頁確認排版後才發布，或捨棄草稿回到已發布的版本（#76）。
  */
 function Texts({
@@ -155,7 +158,7 @@ function Texts({
   edit,
   resetToken,
 }: {
-  texts: Pick<Committee, "introduction" | "chairMessage" | "memorandum" | "markdown">;
+  texts: CommitteeTextsData;
   draft: CommitteeTextDraft | null;
   edit: YearFields | null;
   /** 剛捨棄草稿時有值（discardTextDraftAction）。 */
@@ -193,7 +196,7 @@ function Texts({
       )}
       {edit && (
         <details className={cardClass}>
-          <summary className="cursor-pointer text-lg font-bold">編輯大會簡介、主席的話、備忘錄</summary>
+          <summary className="cursor-pointer text-lg font-bold">編輯大會簡介、主席的話、備忘錄、執行計畫</summary>
           <form action={saveTextDraftAction} className="mt-3 flex flex-col gap-3">
             <YearInputs {...edit} />
             {!texts.markdown && (
@@ -287,6 +290,7 @@ function Links({ links, edit }: { links: CommitteeLink[]; edit: YearFields | nul
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-xl font-bold">重要連結</h2>
+      <p>公開頁面列在「執行計畫」那一頁的下面。</p>
       <LinkList
         links={links}
         manage={
@@ -444,7 +448,10 @@ function Members({
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-xl font-bold">籌備委員（{members.length} 人）</h2>
-      <p>每個支聯會推兩位，其中一位須為慈助會會長團成員。依支聯會名單的順序排列。</p>
+      <p>
+        每個支聯會推兩位，其中一位須為慈助會會長團成員。依支聯會名單的順序排列。
+        公開頁面每位有一張卡片，點進去是個人頁，顯示照片與自我介紹。
+      </p>
       <MemberTable
         members={members}
         manage={
@@ -455,6 +462,12 @@ function Members({
                 <summary className="cursor-pointer font-semibold">編輯</summary>
                 <div className="mt-3">
                   <MemberForm edit={edit} stakes={stakes} member={member} submitLabel="儲存" />
+                </div>
+              </details>
+              <details>
+                <summary className="cursor-pointer font-semibold">照片{member.photoUrl ? "（已上傳）" : "（還沒有）"}</summary>
+                <div className="mt-3">
+                  <MemberPhoto edit={edit} member={member} />
                 </div>
               </details>
               <DeleteForm edit={edit} kind="member" id={member.id} noun="這位" />
@@ -501,8 +514,42 @@ function MemberForm({
         />
         <span className="font-semibold">是慈助會會長團成員</span>
       </label>
+      <Field label="自我介紹" hint="顯示在公開頁面的個人頁，例如所屬支會、加入教會多久、擔任過的召喚。換行會保留。">
+        <textarea name="bio" defaultValue={member?.bio} rows={6} className={inputClass} />
+      </Field>
+      {!member && <p className="text-sm text-muted-foreground">照片在新增之後，到名單上這一位的「照片」上傳。</p>}
       <SubmitButton className={submitClass}>{submitLabel}</SubmitButton>
     </form>
+  );
+}
+
+/** 一位籌備委員的照片：目前的照片、上傳或更換、刪除。 */
+function MemberPhoto({ edit, member }: { edit: YearFields; member: CommitteeMember }) {
+  return (
+    <div className="flex flex-col gap-3">
+      {member.photoUrl && (
+        // 照片放在存放空間（Supabase），不經過 Next.js 的圖片最佳化。
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={member.photoUrl} alt={`${member.name}目前的照片`} className="max-h-48 self-start rounded border object-contain" />
+      )}
+      <CommitteePhotoUpload {...edit} memberId={member.id} previous={member.photoPath} />
+      {member.photoPath && (
+        <details>
+          <summary className="cursor-pointer font-semibold text-destructive">刪除照片</summary>
+          <form action={removePhotoAction} className="mt-3 flex flex-col gap-2">
+            <YearInputs {...edit} />
+            <input type="hidden" name="id" value={member.id} />
+            <input type="hidden" name="path" value={member.photoPath} />
+            <p>確定要刪除照片嗎？個人頁會改顯示姓氏，不能復原。</p>
+            <SubmitButton
+              className={cn(buttonVariants(), buttonClass, "self-start bg-destructive text-white hover:bg-destructive/80")}
+            >
+              確定刪除
+            </SubmitButton>
+          </form>
+        </details>
+      )}
+    </div>
   );
 }
 

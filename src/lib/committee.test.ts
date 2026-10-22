@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminClient, anonClient, must, signedInClient } from "../../test/supabase";
 import {
+  attachCommitteePhoto,
   deleteCommitteeItem,
+  getPublicCommitteeMember,
+  removeCommitteePhoto,
   getCommittee,
   listPublicCommitteeYears,
   moveCommitteeLink,
@@ -20,6 +23,7 @@ import {
   type MeetingInput,
   type TeamMemberInput,
 } from "./committee";
+import { COMMITTEE_PHOTO_BUCKET, committeePhotoPath } from "./committee-photos";
 import { deleteUnit } from "./stakes";
 import { copyConference } from "./years";
 
@@ -99,11 +103,11 @@ async function pastConference(): Promise<string> {
 
 // 每一種資料各一筆。
 async function fillCommittee(id: string) {
-  await ok(publishTexts(headAdmin, { conferenceId: id, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄" }));
+  await ok(publishTexts(headAdmin, { conferenceId: id, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄", executionPlan: "" }));
   await ok(saveMeeting(headAdmin, meeting({ conferenceId: id })));
   await ok(saveCommitteeLink(headAdmin, { conferenceId: id, title: "執行計畫", url: "https://example.com/plan" }));
   await ok(saveTeamMember(headAdmin, teamMember({ conferenceId: id })));
-  await ok(saveCommitteeMember(headAdmin, { conferenceId: id, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: true }));
+  await ok(saveCommitteeMember(headAdmin, { conferenceId: id, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: true, bio: "" }));
 }
 
 // 三個文字頁存成草稿再發布，大家才看得到（#76）。
@@ -133,6 +137,7 @@ describe("讀取", () => {
       introduction: "",
       chairMessage: "",
       memorandum: "",
+      executionPlan: "",
       markdown: true,
       meetings: [],
       links: [],
@@ -142,11 +147,11 @@ describe("讀取", () => {
   });
 
   it("三種角色登入後都看得到所有內容", async () => {
-    await ok(publishTexts(headAdmin, { conferenceId, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄", executionPlan: "" }));
     await ok(saveMeeting(headAdmin, meeting()));
     await ok(saveCommitteeLink(headAdmin, { conferenceId, title: "執行計畫", url: "https://docs.google.com/spreadsheets/d/x" }));
     await ok(saveTeamMember(headAdmin, teamMember()));
-    await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: true }));
+    await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: true, bio: "" }));
 
     const expected = await getCommittee(headAdmin, conferenceId);
     expect(expected.introduction).toBe("大會簡介");
@@ -203,7 +208,7 @@ describe("讀取", () => {
     );
     try {
       await ok(saveTeamMember(headAdmin, teamMember({ conferenceId: pastId, stakeId: stake.id })));
-      await ok(saveCommitteeMember(headAdmin, { conferenceId: pastId, name: "測試乙", stakeId: stake.id, reliefSocietyPresidency: false }));
+      await ok(saveCommitteeMember(headAdmin, { conferenceId: pastId, name: "測試乙", stakeId: stake.id, reliefSocietyPresidency: false, bio: "" }));
       const { teamMembers, members } = await getCommittee(anonClient(), pastId);
       expect(teamMembers[0].stakeName).toBe("測試停用支聯會");
       expect(members[0]).toMatchObject({ stakeName: "測試停用支聯會", stakeRegion: "south" });
@@ -225,7 +230,7 @@ describe("讀取", () => {
         .single(),
     );
     try {
-      await ok(saveCommitteeMember(headAdmin, { conferenceId: pastId, name: "測試乙", stakeId: stake.id, reliefSocietyPresidency: false }));
+      await ok(saveCommitteeMember(headAdmin, { conferenceId: pastId, name: "測試乙", stakeId: stake.id, reliefSocietyPresidency: false, bio: "" }));
       const { data } = await anonClient().from("stakes").select("id").eq("id", stake.id);
       expect(data).toEqual([]);
     } finally {
@@ -291,9 +296,9 @@ describe("讀取", () => {
   });
 
   it("籌備委員依支聯會名單的順序排列，標示慈助會會長團", async () => {
-    await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試丙", stakeId: stakes[2].id, reliefSocietyPresidency: true }));
-    await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試甲", stakeId: stakes[0].id, reliefSocietyPresidency: false }));
-    await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: true }));
+    await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試丙", stakeId: stakes[2].id, reliefSocietyPresidency: true, bio: "" }));
+    await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試甲", stakeId: stakes[0].id, reliefSocietyPresidency: false, bio: "" }));
+    await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: true, bio: "" }));
 
     const { members } = await getCommittee(courseTeam, conferenceId);
     expect(members.map((m) => [m.stakeName, m.name, m.reliefSocietyPresidency])).toEqual([
@@ -315,8 +320,8 @@ describe("讀取", () => {
 
 describe("總管理員編輯", () => {
   it("文字頁可以修改，去掉頭尾空白", async () => {
-    await ok(publishTexts(headAdmin, { conferenceId, introduction: " 舊的 ", chairMessage: "", memorandum: "" }));
-    await ok(publishTexts(headAdmin, { conferenceId, introduction: "新的簡介\n第二段", chairMessage: " 主席 ", memorandum: "章程" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: " 舊的 ", chairMessage: "", memorandum: "", executionPlan: "" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: "新的簡介\n第二段", chairMessage: " 主席 ", memorandum: "章程", executionPlan: "" }));
     expect(await getCommittee(headAdmin, conferenceId)).toMatchObject({
       introduction: "新的簡介\n第二段",
       chairMessage: "主席",
@@ -329,7 +334,7 @@ describe("總管理員編輯", () => {
     must(await admin.from("committee_texts").insert({ conference_id: conferenceId, introduction: "*舊的*", markdown: false }));
     expect(await getCommittee(anonClient(), conferenceId)).toMatchObject({ introduction: "", markdown: true });
     expect((await getCommittee(headAdmin, conferenceId)).markdown).toBe(false);
-    await ok(publishTexts(headAdmin, { conferenceId, introduction: "*舊的*", chairMessage: "", memorandum: "" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: "*舊的*", chairMessage: "", memorandum: "", executionPlan: "" }));
     expect((await getCommittee(headAdmin, conferenceId)).markdown).toBe(true);
   });
 
@@ -413,9 +418,18 @@ describe("總管理員編輯", () => {
 
   it("籌備委員可以修改與刪除；要有姓名與支聯會", async () => {
     const { id } = await ok(
-      saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: false }),
+      saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: false, bio: "" }),
     );
-    await ok(saveCommitteeMember(headAdmin, { id, conferenceId, name: "測試乙改", stakeId: stakes[1].id, reliefSocietyPresidency: true }));
+    await ok(
+      saveCommitteeMember(headAdmin, {
+        id,
+        conferenceId,
+        name: "測試乙改",
+        stakeId: stakes[1].id,
+        reliefSocietyPresidency: true,
+        bio: " 我是測試乙。\n加入教會十年。 ",
+      }),
+    );
     expect((await getCommittee(headAdmin, conferenceId)).members).toEqual([
       {
         id,
@@ -424,13 +438,16 @@ describe("總管理員編輯", () => {
         stakeName: stakes[1].name,
         stakeRegion: stakes[1].region,
         reliefSocietyPresidency: true,
+        bio: "我是測試乙。\n加入教會十年。",
+        photoPath: null,
+        photoUrl: null,
       },
     ]);
 
     expect(
-      await saveCommitteeMember(headAdmin, { conferenceId, name: "", stakeId: stakes[0].id, reliefSocietyPresidency: false }),
+      await saveCommitteeMember(headAdmin, { conferenceId, name: "", stakeId: stakes[0].id, reliefSocietyPresidency: false, bio: "" }),
     ).toEqual({ ok: false, error: "name_required" });
-    expect(await saveCommitteeMember(headAdmin, { conferenceId, name: "測試", stakeId: "", reliefSocietyPresidency: false })).toEqual({
+    expect(await saveCommitteeMember(headAdmin, { conferenceId, name: "測試", stakeId: "", reliefSocietyPresidency: false, bio: "" })).toEqual({
       ok: false,
       error: "stake_required",
     });
@@ -445,7 +462,7 @@ describe("總管理員編輯", () => {
     expect(await deleteCommitteeItem(headAdmin, "member", missing)).toEqual({ ok: false, error: "not_found" });
     expect(await moveCommitteeLink(headAdmin, missing, "up")).toEqual({ ok: false, error: "not_found" });
     expect(await saveMeeting(headAdmin, meeting({ conferenceId: missing }))).toEqual({ ok: false, error: "not_found" });
-    expect(await saveCommitteeTextDraft(headAdmin, { conferenceId: missing, introduction: "", chairMessage: "", memorandum: "" })).toEqual({
+    expect(await saveCommitteeTextDraft(headAdmin, { conferenceId: missing, introduction: "", chairMessage: "", memorandum: "", executionPlan: "" })).toEqual({
       ok: false,
       error: "not_found",
     });
@@ -458,6 +475,7 @@ describe("文字頁的草稿與發布（#76）", () => {
     introduction: "已發布的簡介",
     chairMessage: "已發布的主席的話",
     memorandum: "已發布的備忘錄",
+    executionPlan: "已發布的執行計畫",
     ...changes,
   });
 
@@ -491,11 +509,15 @@ describe("文字頁的草稿與發布（#76）", () => {
   });
 
   it("發布後大家立即看到新版本，草稿清掉", async () => {
-    const { revision } = await ok(saveCommitteeTextDraft(headAdmin, texts({ memorandum: "# 新的備忘錄" })));
+    const { revision } = await ok(saveCommitteeTextDraft(headAdmin, texts({ memorandum: "# 新的備忘錄", executionPlan: "## 新的執行計畫" })));
     await ok(publishCommitteeTexts(headAdmin, conferenceId, revision));
 
     for (const client of [headAdmin, courseTeam, registrationTeam, anonClient()]) {
-      expect(await getCommittee(client, conferenceId)).toMatchObject({ memorandum: "# 新的備忘錄", markdown: true });
+      expect(await getCommittee(client, conferenceId)).toMatchObject({
+        memorandum: "# 新的備忘錄",
+        executionPlan: "## 新的執行計畫",
+        markdown: true,
+      });
     }
     expect(await getCommitteeTextDraft(headAdmin, conferenceId)).toBeNull();
     // 已經發布過了，再按一次發布：沒有草稿。
@@ -572,11 +594,11 @@ describe("文字頁的草稿與發布（#76）", () => {
   });
 
   it("標出哪幾頁和已發布的版本不同", () => {
-    const texts = { introduction: "簡介", chairMessage: "主席", memorandum: "備忘錄" };
+    const texts = { introduction: "簡介", chairMessage: "主席", memorandum: "備忘錄", executionPlan: "" };
     const published = { ...texts, markdown: true };
     expect(changedTextPages(published, null)).toEqual([]);
     expect(changedTextPages(published, texts)).toEqual([]);
-    expect(changedTextPages(published, { ...texts, chairMessage: "新的", memorandum: "" })).toEqual([
+    expect(changedTextPages(published, { ...texts, chairMessage: "新的", memorandum: "", executionPlan: "" })).toEqual([
       "chairMessage",
       "memorandum",
     ]);
@@ -591,7 +613,7 @@ describe("文字頁的草稿與發布（#76）", () => {
 describe("其他角色不能修改", () => {
   it("課務組、報報組、訪客用頁面的功能會被擋下", async () => {
     for (const client of [courseTeam, registrationTeam, anonClient()]) {
-      expect(await saveCommitteeTextDraft(client, { conferenceId, introduction: "x", chairMessage: "", memorandum: "" })).toEqual({
+      expect(await saveCommitteeTextDraft(client, { conferenceId, introduction: "x", chairMessage: "", memorandum: "", executionPlan: "" })).toEqual({
         ok: false,
         error: "not_admin",
       });
@@ -602,7 +624,7 @@ describe("其他角色不能修改", () => {
       });
       expect(await saveTeamMember(client, teamMember())).toEqual({ ok: false, error: "not_admin" });
       expect(
-        await saveCommitteeMember(client, { conferenceId, name: "測試", stakeId: stakes[0].id, reliefSocietyPresidency: false }),
+        await saveCommitteeMember(client, { conferenceId, name: "測試", stakeId: stakes[0].id, reliefSocietyPresidency: false, bio: "" }),
       ).toEqual({ ok: false, error: "not_admin" });
     }
   });
@@ -613,12 +635,12 @@ describe("其他角色不能修改", () => {
     ["公開的過去年度", true],
   ])("直接呼叫資料庫也被擋下（權限規則）：%s", async (_, isPast) => {
     const targetId = isPast ? await pastConference() : conferenceId;
-    await ok(publishTexts(headAdmin, { conferenceId: targetId, introduction: "原本的", chairMessage: "", memorandum: "" }));
+    await ok(publishTexts(headAdmin, { conferenceId: targetId, introduction: "原本的", chairMessage: "", memorandum: "", executionPlan: "" }));
     const meetingId = (await ok(saveMeeting(headAdmin, meeting({ conferenceId: targetId })))).id;
     const linkId = (await ok(saveCommitteeLink(headAdmin, { conferenceId: targetId, title: "原本的", url: "https://example.com" }))).id;
     const teamId = (await ok(saveTeamMember(headAdmin, teamMember({ conferenceId: targetId })))).id;
     const memberId = (
-      await ok(saveCommitteeMember(headAdmin, { conferenceId: targetId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: false }))
+      await ok(saveCommitteeMember(headAdmin, { conferenceId: targetId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: false, bio: "" }))
     ).id;
     const before = await getCommittee(headAdmin, targetId);
 
@@ -693,7 +715,7 @@ describe("支聯會名單", () => {
       await admin.from("stakes").insert({ name_zh: "測試支聯會", region: "north" }).select("id").single(),
     ).id;
     try {
-      await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId, reliefSocietyPresidency: false }));
+      await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId, reliefSocietyPresidency: false, bio: "" }));
       expect(await deleteUnit(headAdmin, "stake", stakeId)).toEqual({ ok: false, error: "in_use" });
     } finally {
       must(await admin.from("committee_members").delete().eq("stake_id", stakeId));
@@ -704,13 +726,13 @@ describe("支聯會名單", () => {
 
 describe("複製年度", () => {
   it("複製三個文字頁與重要連結；會議記錄與兩份名單不複製", async () => {
-    await ok(publishTexts(headAdmin, { conferenceId, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: "大會簡介", chairMessage: "主席的話", memorandum: "備忘錄", executionPlan: "" }));
     await ok(saveCommitteeLink(headAdmin, { conferenceId, title: "執行計畫", url: "https://example.com/plan" }));
     const second = await ok(saveCommitteeLink(headAdmin, { conferenceId, title: "交接清單", url: "https://example.com/handover" }));
     await ok(moveCommitteeLink(headAdmin, second.id, "up"));
     await ok(saveMeeting(headAdmin, meeting()));
     await ok(saveTeamMember(headAdmin, teamMember()));
-    await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: true }));
+    await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: true, bio: "" }));
 
     const copied = await copyConference(headAdmin, { sourceConferenceId: conferenceId, year: "2100", conferenceDate: "2100-05-15" });
     if (!copied.ok) throw new Error(copied.error);
@@ -732,8 +754,8 @@ describe("複製年度", () => {
   });
 
   it("只複製已發布的文字頁，草稿不複製（#76）", async () => {
-    await ok(publishTexts(headAdmin, { conferenceId, introduction: "已發布", chairMessage: "", memorandum: "" }));
-    await ok(saveCommitteeTextDraft(headAdmin, { conferenceId, introduction: "草稿", chairMessage: "", memorandum: "" }));
+    await ok(publishTexts(headAdmin, { conferenceId, introduction: "已發布", chairMessage: "", memorandum: "", executionPlan: "" }));
+    await ok(saveCommitteeTextDraft(headAdmin, { conferenceId, introduction: "草稿", chairMessage: "", memorandum: "", executionPlan: "" }));
 
     const copied = await copyConference(headAdmin, { sourceConferenceId: conferenceId, year: "2100", conferenceDate: "2100-05-15" });
     if (!copied.ok) throw new Error(copied.error);
@@ -751,5 +773,120 @@ describe("複製年度", () => {
     if (!copied.ok) throw new Error(copied.error);
     conferenceIds.push(copied.conferenceId);
     expect(await getCommittee(headAdmin, copied.conferenceId)).toMatchObject({ introduction: "*注意*  內容", markdown: false });
+  });
+});
+
+describe("籌備委員的照片與個人頁", () => {
+  const PNG = Uint8Array.from(
+    atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="),
+    (char) => char.charCodeAt(0),
+  );
+  let memberId: string;
+
+  beforeEach(async () => {
+    memberId = (
+      await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試乙", stakeId: stakes[0].id, reliefSocietyPresidency: false, bio: "" }))
+    ).id;
+  });
+
+  // 存放空間裡的檔案不會跟著年度刪掉，每個測試自己清。
+  afterEach(async () => {
+    const files = must(await admin.storage.from(COMMITTEE_PHOTO_BUCKET).list(conferenceId)) ?? [];
+    if (files.length > 0) {
+      must(await admin.storage.from(COMMITTEE_PHOTO_BUCKET).remove(files.map((file) => `${conferenceId}/${file.name}`)));
+    }
+  });
+
+  const files = async () =>
+    ((must(await admin.storage.from(COMMITTEE_PHOTO_BUCKET).list(conferenceId)) ?? []) as { name: string }[])
+      .map((file) => `${conferenceId}/${file.name}`)
+      .sort();
+
+  async function upload(client: SupabaseClient = headAdmin, id = memberId) {
+    const path = committeePhotoPath(conferenceId, id, "image/png");
+    must(await client.storage.from(COMMITTEE_PHOTO_BUCKET).upload(path, new Blob([PNG], { type: "image/png" }), { contentType: "image/png" }));
+    return path;
+  }
+
+  const photoOf = async () => (await getCommittee(headAdmin, conferenceId)).members[0];
+
+  it("上傳後記到委員上，有公開網址；換照片時舊的檔案刪掉；刪照片後回到沒有照片", async () => {
+    const first = await upload();
+    await ok(attachCommitteePhoto(headAdmin, { memberId, path: first, previous: null }));
+    expect(await photoOf()).toMatchObject({ photoPath: first, photoUrl: expect.stringContaining(`/${COMMITTEE_PHOTO_BUCKET}/${first}`) });
+
+    const second = await upload();
+    await ok(attachCommitteePhoto(headAdmin, { memberId, path: second, previous: first }));
+    expect((await photoOf()).photoPath).toBe(second);
+    expect(await files()).toEqual([second]);
+
+    await ok(removeCommitteePhoto(headAdmin, { memberId, path: second }));
+    expect(await photoOf()).toMatchObject({ photoPath: null, photoUrl: null });
+    expect(await files()).toEqual([]);
+  });
+
+  it("別人剛換過照片：不記，說明照片已經被換過", async () => {
+    const first = await upload();
+    await ok(attachCommitteePhoto(headAdmin, { memberId, path: first, previous: null }));
+    const second = await upload();
+
+    // 她看到的還是沒有照片的畫面。
+    expect(await attachCommitteePhoto(headAdmin, { memberId, path: second, previous: null })).toEqual({
+      ok: false,
+      error: "photo_changed",
+    });
+    expect((await photoOf()).photoPath).toBe(first);
+    expect(await removeCommitteePhoto(headAdmin, { memberId, path: second })).toEqual({ ok: false, error: "photo_changed" });
+  });
+
+  it("檔案沒上傳、或是別位委員的照片路徑：不記", async () => {
+    expect(
+      await attachCommitteePhoto(headAdmin, { memberId, path: committeePhotoPath(conferenceId, memberId, "image/png"), previous: null }),
+    ).toEqual({ ok: false, error: "photo_failed" });
+
+    const other = (
+      await ok(saveCommitteeMember(headAdmin, { conferenceId, name: "測試丙", stakeId: stakes[0].id, reliefSocietyPresidency: false, bio: "" }))
+    ).id;
+    const path = await upload(headAdmin, other);
+    expect(await attachCommitteePhoto(headAdmin, { memberId, path, previous: null })).toEqual({ ok: false, error: "photo_failed" });
+  });
+
+  it("刪除委員時照片一併刪掉", async () => {
+    const path = await upload();
+    await ok(attachCommitteePhoto(headAdmin, { memberId, path, previous: null }));
+
+    await ok(deleteCommitteeItem(headAdmin, "member", memberId));
+    expect(await files()).toEqual([]);
+  });
+
+  it("課務組、報報組與訪客不能上傳照片，也不能記到委員上", async () => {
+    const path = committeePhotoPath(conferenceId, memberId, "image/png");
+    for (const client of [courseTeam, registrationTeam, anonClient()]) {
+      const uploaded = await client.storage
+        .from(COMMITTEE_PHOTO_BUCKET)
+        .upload(path, new Blob([PNG], { type: "image/png" }), { contentType: "image/png" });
+      expect(uploaded.error).not.toBeNull();
+    }
+    const uploaded = await upload();
+    for (const client of [courseTeam, registrationTeam]) {
+      expect(await attachCommitteePhoto(client, { memberId, path: uploaded, previous: null })).toEqual({ ok: false, error: "not_admin" });
+    }
+    expect((await photoOf()).photoPath).toBeNull();
+  });
+
+  it("公開的個人頁只找得到公開年度的委員", async () => {
+    // 2099 年度還沒到。
+    expect(await getPublicCommitteeMember(anonClient(), memberId)).toBeNull();
+    expect(await getPublicCommitteeMember(headAdmin, memberId)).toBeNull();
+
+    const pastId = await pastConference();
+    const { id } = await ok(
+      saveCommitteeMember(headAdmin, { conferenceId: pastId, name: "測試丁", stakeId: stakes[0].id, reliefSocietyPresidency: true, bio: "介紹" }),
+    );
+    expect(await getPublicCommitteeMember(anonClient(), id)).toMatchObject({
+      member: { name: "測試丁", bio: "介紹", stakeName: stakes[0].name, photoUrl: null },
+      year: { id: pastId, year: 2001, isCurrent: false },
+    });
+    expect(await getPublicCommitteeMember(anonClient(), "not-a-uuid")).toBeNull();
   });
 });

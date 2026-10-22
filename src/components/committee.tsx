@@ -18,33 +18,8 @@ import { Markdown } from "./markdown";
  * 後台的總管理員傳入 manage，在每一項旁邊放編輯、刪除等功能。文字頁草稿的預覽（#76）也用公開頁面這一套。
  */
 
-/** 公開頁面與草稿預覽的版面。 */
+/** 草稿預覽頁沒有草稿時的版面。 */
 export const committeePageClass = "mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-5 pt-6 pb-10 leading-relaxed";
-
-/** 公開頁面的內容：三個文字頁、會議記錄、重要連結與兩份名單，只能看不能改。 */
-export function CommitteeView({ committee }: { committee: Committee }) {
-  return (
-    <>
-      <CommitteeTexts texts={committee} />
-      <section className="flex flex-col gap-4">
-        <h2 className="text-xl font-bold">會議記錄</h2>
-        <MeetingList meetings={committee.meetings} />
-      </section>
-      <section className="flex flex-col gap-4">
-        <h2 className="text-xl font-bold">重要連結</h2>
-        <LinkList links={committee.links} />
-      </section>
-      <section className="flex flex-col gap-4">
-        <h2 className="text-xl font-bold">工作團隊</h2>
-        <TeamTable members={committee.teamMembers} />
-      </section>
-      <section className="flex flex-col gap-4">
-        <h2 className="text-xl font-bold">籌備委員</h2>
-        <MemberTable members={committee.members} />
-      </section>
-    </>
-  );
-}
 
 export const committeeCardClass = "flex flex-col gap-3 rounded-lg border-2 border-card-outline p-4";
 const tableClass = "w-full border-collapse text-left [&_td]:border-t [&_td]:px-2 [&_td]:py-2 [&_th]:px-2 [&_th]:py-2";
@@ -56,38 +31,38 @@ export const COMMITTEE_TEXT_PAGES = [
     name: "memorandum",
     key: "memorandum",
     label: "籌備委員會備忘錄",
-    hint: "籌備委員會的組織章程。頁面下方已有工作團隊與籌備委員的名單，備忘錄裡的名單可以只寫「見下方名單」，不必兩邊都維護。",
+    hint: "籌備委員會的組織章程，公開頁面放在「會議記錄」那一頁的最上面。工作團隊與籌備委員另有名單頁，備忘錄裡的名單可以只寫「見工作團隊、籌備委員名單」，不必兩邊都維護。",
+  },
+  {
+    name: "executionPlan",
+    key: "executionPlan",
+    label: "執行計畫",
+    hint: "大會的執行計畫。公開頁面在這一頁下面列出重要連結。",
   },
 ] as const;
 
+/** 文字頁的內容，依頁面上的順序。 */
+export type CommitteeTextsData = Pick<Committee, CommitteeTextKey | "markdown">;
+
 /**
- * 三個文字頁。改版前存的純文字照原樣顯示（保留空格與換行），存過 Markdown 的才依樣式排版（#75）。
- * changed 是草稿裡有修改、還沒發布的頁面，在標題旁標示（後台，#76）。
+ * 所有文字頁。changed 是草稿裡有修改、還沒發布的頁面，在標題旁標示（後台，#76）。
  */
-export function CommitteeTexts({
-  texts,
-  changed = [],
-}: {
-  texts: Pick<Committee, "introduction" | "chairMessage" | "memorandum" | "markdown">;
-  changed?: readonly CommitteeTextKey[];
-}) {
+export function CommitteeTexts({ texts, changed = [] }: { texts: CommitteeTextsData; changed?: readonly CommitteeTextKey[] }) {
   return COMMITTEE_TEXT_PAGES.map((page) => (
     <section key={page.key} className="flex flex-col gap-3">
       <h2 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xl font-bold">
         {page.label}
         {changed.includes(page.key) && <UnpublishedBadge />}
       </h2>
-      {texts[page.key] ? (
-        texts.markdown ? (
-          <Markdown>{texts[page.key]}</Markdown>
-        ) : (
-          <p className="whitespace-pre-wrap break-words">{texts[page.key]}</p>
-        )
-      ) : (
-        <p className="text-muted-foreground">還沒有內容。</p>
-      )}
+      <CommitteeText text={texts[page.key]} markdown={texts.markdown} />
     </section>
   ));
+}
+
+/** 一個文字頁的內文。改版前存的純文字照原樣顯示（保留空格與換行），存過 Markdown 的才依樣式排版（#75）。 */
+export function CommitteeText({ text, markdown }: { text: string; markdown: boolean }) {
+  if (!text) return <p className="text-muted-foreground">還沒有內容。</p>;
+  return markdown ? <Markdown>{text}</Markdown> : <p className="whitespace-pre-wrap break-words">{text}</p>;
 }
 
 /** 草稿裡哪幾頁有修改，例如「主席的話、籌備委員會備忘錄有修改。」（#76）。 */

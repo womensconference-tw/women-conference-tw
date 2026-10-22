@@ -302,3 +302,19 @@
     }
   }
 }
+
+/*
+ * 籌備委員會公開頁面（/committee，設計稿 docs/design/committee.html）的顏色與標題字型。
+ * 和前台報名網站分開：籌備委員會的網站有自己的樣子，改前台的主視覺不會影響這裡。
+ */
+@theme {
+  --color-committee: #2b4c7e;
+  --color-committee-hover: #1c3459;
+  --color-committee-tint: #e6ecf5;
+  --color-committee-soft: #f5f7fa;
+  --color-committee-line: #e4e7eb;
+  --color-committee-line-strong: #cbd2d9;
+  --color-committee-text-2: #52606d;
+  --color-committee-text-3: #616e7c;
+  --font-committee-serif: var(--font-noto-serif-tc), "Noto Serif TC", "Songti TC", serif;
+}
