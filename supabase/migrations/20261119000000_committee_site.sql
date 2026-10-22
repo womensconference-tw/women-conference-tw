@@ -57,7 +57,11 @@ drop function public.save_committee_texts(uuid, text, text, text);
 /*
  * 正式環境的 migration 和網站不是同時上線，三頁版先留著，舊版網站在上線前的空檔（或回滾時）照樣存得了；
  * 下一次改資料庫時再刪掉。舊版網站不知道執行計畫：新開的草稿沿用已發布的執行計畫，已經有草稿時不動它，
- * 否則草稿的執行計畫是空的，一發布就把已發布的清掉（Codex 審查）。其餘和 20261111000000_committee_text_drafts.sql 相同。
+ * 否則草稿的執行計畫是空的，一發布就把已發布的清掉（Codex 審查）。
+ * 讀已發布的執行計畫之前先鎖住年度，和發布（publish_committee_texts 也鎖年度）排隊：不然發布還沒做完時
+ * 讀到的是舊的執行計畫，等發布清掉草稿後又用舊的開了新草稿，下次發布就退回舊版（Codex 審查）。
+ * 用 for no key update，不擋住其他資料表新增指向這個年度的資料（例如報名）。
+ * 其餘和 20261111000000_committee_text_drafts.sql 相同。
  */
 create or replace function public.save_committee_text_draft(
   p_conference_id uuid,
@@ -76,7 +80,8 @@ begin
   if not public.is_staff_admin() then
     raise exception 'not_admin';
   end if;
-  if not exists (select 1 from public.conferences where id = p_conference_id) then
+  perform 1 from public.conferences where id = p_conference_id for no key update;
+  if not found then
     raise exception 'not_found';
   end if;
 
@@ -141,7 +146,10 @@ $$;
 revoke all on function public.save_committee_text_draft(uuid, text, text, text, text) from public, anon;
 grant execute on function public.save_committee_text_draft(uuid, text, text, text, text) to authenticated;
 
-/* 發布草稿，多了執行計畫；其餘和 20261111000000_committee_text_drafts.sql 相同。 */
+/*
+ * 發布草稿，多了執行計畫。先鎖住年度，和舊版網站的三頁版存草稿排隊（見上面）。
+ * 其餘和 20261111000000_committee_text_drafts.sql 相同。
+ */
 create or replace function public.publish_committee_texts(p_conference_id uuid, p_revision uuid)
 returns void
 language plpgsql
@@ -155,6 +163,7 @@ begin
     raise exception 'not_admin';
   end if;
 
+  perform 1 from public.conferences where id = p_conference_id for no key update;
   select * into v_draft from public.committee_text_drafts where conference_id = p_conference_id for update;
   if not found then
     raise exception 'no_draft';

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { submitWhileHolding } from "../../test/hold-transaction";
 import { adminClient, anonClient, must, signedInClient } from "../../test/supabase";
 import {
   attachCommitteePhoto,
@@ -525,6 +526,37 @@ describe("文字頁的草稿與發布（#76）", () => {
     await ok(saveCommitteeTextDraft(headAdmin, texts({ executionPlan: "草稿的執行計畫" })));
     await ok(publishCommitteeTexts(headAdmin, conferenceId, await saveOld()));
     expect((await getCommittee(headAdmin, conferenceId)).executionPlan).toBe("草稿的執行計畫");
+  });
+
+  it("舊版網站存草稿時正好有人在發布：等發布做完才讀執行計畫，不會用舊的開草稿（Codex 審查）", async () => {
+    const { revision } = await ok(saveCommitteeTextDraft(headAdmin, texts({ executionPlan: "新的執行計畫" })));
+    const adminId = must(await admin.from("staff_members").select("user_id").eq("role", "admin").single()).user_id;
+
+    // 另一位總管理員的發布做到一半（交易還沒結束）時，舊版網站存草稿。
+    const saved = await submitWhileHolding(
+      async (tx) => {
+        await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: adminId, role: "authenticated" })}, true)`;
+        await tx`set local role authenticated`;
+        await tx`select public.publish_committee_texts(${conferenceId}, ${revision})`;
+      },
+      // 要 await 才會真的送出。
+      async () =>
+        await headAdmin.rpc("save_committee_text_draft", {
+          p_conference_id: conferenceId,
+          p_introduction: "舊版存的簡介",
+          p_chair_message: "",
+          p_memorandum: "",
+        }),
+      undefined,
+      "save_committee_text_draft",
+    );
+    expect(saved.error).toBeNull();
+
+    await ok(publishCommitteeTexts(headAdmin, conferenceId, saved.data as string));
+    expect(await getCommittee(headAdmin, conferenceId)).toMatchObject({
+      introduction: "舊版存的簡介",
+      executionPlan: "新的執行計畫",
+    });
   });
 
   it("沒有草稿時讀到的是空的", async () => {
