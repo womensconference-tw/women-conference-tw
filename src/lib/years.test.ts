@@ -121,6 +121,30 @@ async function lastYear() {
   const first = await insert("sessions", { venue_id: venue, position: 1, name_zh: "第一場" });
   const second = await insert("sessions", { venue_id: venue, position: 2, name_zh: "第二場" });
   const service = await insert("highlights", { position: 2, name_zh: "公益服務" });
+  const honor = await insert("highlights", {
+    position: 3,
+    name_zh: "向貴賓致敬",
+    page_template: "honor",
+    subtitle_zh: "80 歲長輩",
+    lead_quote_zh: "值得尊敬的姐妹",
+    lead_quote_source_en: "Source",
+  });
+  await insert("highlight_people", {
+    highlight_id: honor,
+    position: 2,
+    name_zh: "黃蘋 姐妹",
+    link_label_zh: "她的故事",
+    link_url: "/story",
+  });
+  await insert("highlight_people", {
+    highlight_id: honor,
+    position: 1,
+    stake_zh: "中台北支聯會",
+    ward_en: "Luzhou Ward",
+    name_zh: "沈亦斌 姐妹",
+    photo_path: `${sourceId}/00000000-0000-4000-8000-000000000000.jpg`,
+    photo_focus: 20,
+  });
   await insert("highlights", {
     position: 1,
     name_zh: "即席唱詩班",
@@ -340,6 +364,7 @@ describe("複製去年建立新年度", () => {
       highlights: [
         { titleZh: "即席唱詩班", titleEn: "Choir", summaryZh: "跟著影片練唱", bodyZh: "[練唱影片](https://www.youtube.com/)" },
         { titleZh: "公益服務", summaryZh: "", bodyZh: "" },
+        { titleZh: "向貴賓致敬", pageTemplate: "honor" },
       ],
     });
   });
@@ -407,6 +432,52 @@ describe("複製去年建立新年度", () => {
     ]);
   });
 
+  it("介紹頁的版型、副標、引言與人物一起帶過去，照片用同一個檔案", async () => {
+    await lastYear();
+
+    await switchedTo(await copied());
+
+    const honor = (await getContentEditor(headAdmin))!.highlights.find((highlight) => highlight.titleZh === "向貴賓致敬")!;
+    expect(honor).toMatchObject({
+      pageTemplate: "honor",
+      subtitleZh: "80 歲長輩",
+      leadQuoteZh: "值得尊敬的姐妹",
+      leadQuoteSourceEn: "Source",
+      linkable: true,
+    });
+    expect(
+      honor.people.map((person) => [person.nameZh, person.stakeZh, person.wardEn, person.photo?.path ?? null, person.photoFocus, person.linkUrl]),
+    ).toEqual([
+      ["沈亦斌 姐妹", "中台北支聯會", "Luzhou Ward", `${sourceId}/00000000-0000-4000-8000-000000000000.jpg`, 20, ""],
+      ["黃蘋 姐妹", "", "", null, 50, "/story"],
+    ]);
+  });
+
+  it("籌備委員會的文字（含執行計畫）一起帶過去", async () => {
+    await lastYear();
+    must(
+      await admin.from("committee_texts").insert({
+        conference_id: sourceId,
+        introduction: "大會簡介",
+        chair_message: "主席的話",
+        memorandum: "備忘錄",
+        execution_plan: "執行計畫",
+      }),
+    );
+
+    const id = await copied();
+
+    expect(
+      must(
+        await admin
+          .from("committee_texts")
+          .select("introduction, chair_message, memorandum, execution_plan")
+          .eq("conference_id", id)
+          .single(),
+      ),
+    ).toEqual({ introduction: "大會簡介", chair_message: "主席的話", memorandum: "備忘錄", execution_plan: "執行計畫" });
+  });
+
   it("大會特色的新編號由去年的編號固定算出（課程的分類才對得到新年度的那一項）", async () => {
     await lastYear();
     const before = must(await admin.from("highlights").select("id").eq("conference_id", sourceId)).map((row) => row.id);
@@ -414,7 +485,7 @@ describe("複製去年建立新年度", () => {
     const id = await copied();
 
     const after = must(await admin.from("highlights").select("id").eq("conference_id", id)).map((row) => row.id);
-    expect(after).toHaveLength(2);
+    expect(after).toHaveLength(3);
     expect(after.some((highlight) => before.includes(highlight))).toBe(false);
     const sql = databaseClient();
     try {
