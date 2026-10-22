@@ -69,14 +69,16 @@ function isAlignDirective(node: ContainerDirective): boolean {
 /**
  * 不是對齊的 ::: 寫法：開頭那一行（「:::note」）和結尾的「:::」照原文當成文字，中間的內容照一般內容讀。
  * 不從原文切整段（Codex 審查）：在引言、清單裡時，分不出每一行開頭的「>」、縮排是外層的還是內文的。
- * 沒寫結尾（寫到文件最後）時沒有結尾那一段。
+ * 沒寫結尾時沒有結尾那一段。有沒有結尾看最後一行是不是在所有內容之後（Codex 審查）：沒結尾時節點在最後一段內容
+ * 就結束了，那一行的冒號（例如裡面那一層的結尾、引言裡的 :::）是內容的。
  */
 function unknownDirective(node: ContainerDirective, source: string): { open: string; close: string | null; children: RootContent[] } {
   const { start, end } = node.position ?? {};
   const lines = source.split(/\r?\n|\r/);
   const open = start ? lines[start.line - 1].slice(start.column - 1) : `:::${node.name}`;
   let close: string | null = null;
-  if (start && end && end.line > start.line) {
+  const contentEnd = node.children.at(-1)?.position?.end.line ?? start?.line ?? 0;
+  if (start && end && end.line > contentEnd) {
     const last = lines[end.line - 1].slice(0, end.column - 1).replace(/^[ \t>]*/, "");
     if (/^:{3,}[ \t]*$/.test(last)) close = last.trim();
   }
@@ -87,8 +89,14 @@ function unknownDirective(node: ContainerDirective, source: string): { open: str
 
 type Piece = { image: Image } | { content: PhrasingContent[] };
 
-/** 分開處要拿掉的：換行，或只有空白（含不換行空白）的文字。 */
-const isBlankEdge = (node: PhrasingContent) => node.type === "break" || (node.type === "text" && !node.value.trim());
+/**
+ * 分開處要拿掉的：換行，或只有空白（含不換行空白）的文字，包在粗體、連結裡的也算（Codex 審查），
+ * 和編輯器裡帶粗體、連結的空白文字一樣。
+ */
+const isBlankEdge = (node: PhrasingContent): boolean =>
+  node.type === "break" ||
+  (node.type === "text" && !node.value.trim()) ||
+  ((node.type === "strong" || node.type === "link") && node.children.every(isBlankEdge));
 
 const containsImage = (node: PhrasingContent): boolean =>
   node.type === "image" || ("children" in node && node.children.some(containsImage));

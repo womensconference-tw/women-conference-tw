@@ -770,3 +770,45 @@ describe("Codex 第三次審查（#102）", () => {
     expect(markdown()).toBe(`**前**\n\n![圖](${ours})\n\n**後**\n\n![乙](${ours})\n`);
   });
 });
+
+describe("Codex 第四次審查（#102）", () => {
+  const BASE = "http://127.0.0.1:55321";
+  const ours = `${BASE}/storage/v1/object/public/highlight-images/00000000-0000-4000-8000-000000000102/00000000-0000-4000-8000-000000000001.png`;
+  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", BASE));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("空白段落拿掉後，選取在可以操作的地方，對齊照樣能用", async () => {
+    const { view, markdown } = await open("", { images: true });
+    view.pasteHTML(`<p>&nbsp;<img src="${ours}" alt="圖">&nbsp;</p>`);
+    const { selection } = view.state;
+    expect(selection instanceof NodeSelection || selection.$head.parent.inlineContent).toBe(true);
+    expect(run(view, setAlignment("center"))).toBe(true);
+    expect(markdown()).toBe(`:::center\n![圖](${ours})\n:::\n`);
+  });
+
+  it("選著圖片時前面多了字：分開後還是選著那張圖片", async () => {
+    const { view } = await open(`![圖](${ours})`, { images: true });
+    view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, 1)));
+    view.dispatch(view.state.tr.insertText("甲", 1));
+    expect(selectedImage(view.state)?.attrs.alt).toBe("圖");
+  });
+
+  it("沒寫結尾的 ::: 不會多出結尾：裡面那一層的結尾、引言裡的 ::: 是內容的", async () => {
+    const cases: [string, string[]][] = [
+      ["::::outer\n:::inner\n甲\n:::", ["::::outer", ":::inner", "甲", ":::"]],
+      [":::outer\n> :::", [":::outer", ":::"]],
+    ];
+    for (const [markdown, texts] of cases) {
+      const { view } = await open(markdown);
+      expect(blockTexts(view)).toEqual(texts);
+    }
+  });
+
+  it("粗體、連結包住的空白在分開處也拿掉，載入和貼上一樣", async () => {
+    const loaded = await open(`**&nbsp;**![圖](${ours})[ ](https://example.com/a)`, { images: true });
+    expect(loaded.markdown()).toBe(`![圖](${ours})\n`);
+    const { view, markdown } = await open("", { images: true });
+    view.pasteHTML(`<p><strong>&nbsp;</strong><img src="${ours}" alt="圖"><a href="https://example.com/a"> </a></p>`);
+    expect(markdown()).toBe(`![圖](${ours})\n`);
+  });
+});

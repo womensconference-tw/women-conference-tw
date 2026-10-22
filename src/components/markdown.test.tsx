@@ -171,3 +171,8 @@ it("不認得的 ::: 開頭與結尾照原文，中間照一般內容排（Codex
   expect(quoted.querySelector("blockquote")?.textContent?.trim()).toBe("引言");
   expect(texts(show("> :::note\n>甲\n>:::"))).toEqual([":::note", "甲", ":::"]);
 });
+
+it("沒寫結尾的 ::: 不會多出結尾（Codex 審查，#102）", () => {
+  const texts = (page: HTMLElement) => [...page.querySelectorAll("p")].map((p) => p.textContent);
+  expect(texts(show("::::outer\n:::inner\n甲\n:::"))).toEqual(["::::outer", ":::inner", "甲", ":::"]);
+});

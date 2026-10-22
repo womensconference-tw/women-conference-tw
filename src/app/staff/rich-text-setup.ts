@@ -63,8 +63,8 @@ import {
   exitTable,
   insertTableCommand,
 } from "@milkdown/kit/preset/gfm";
-import { Fragment, type Node as ProseNode } from "@milkdown/kit/prose/model";
-import { EditorState, Plugin, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
+import { Fragment, type Node as ProseNode, type ResolvedPos } from "@milkdown/kit/prose/model";
+import { EditorState, NodeSelection, Plugin, type Selection, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
 import { TableMap } from "@milkdown/kit/prose/tables";
 import type { NodeSchema } from "@milkdown/kit/transformer";
 import type { EditorView } from "@milkdown/kit/prose/view";
@@ -239,12 +239,7 @@ const normalize = $prose(
           if (unmerged) tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), unmerged);
           return false;
         });
-        // 游標剛好在圖片前面時留在前面那一段的結尾，在圖片後面時到後面那一段的開頭，繼續打的字才接著原本的文字。
-        const { selection } = state;
-        if (separated && selection instanceof TextSelection && selection.empty) {
-          const assoc = selection.$head.nodeAfter?.type.name === "image" ? -1 : 1;
-          tr.setSelection(TextSelection.create(tr.doc, tr.mapping.map(selection.head, assoc)));
-        }
+        if (separated) keepSelection(tr, state.selection);
         const doc = tr.doc;
         const base = tr.steps.length;
         const map = (pos: number) => tr.mapping.slice(base).map(pos);
@@ -276,6 +271,19 @@ const normalize = $prose(
       },
     }),
 );
+
+/**
+ * 分開圖片之後放回選取（Codex 審查）：選的是圖片就還是選那張圖片；游標剛好在圖片前面時留在前面那一段的結尾，
+ * 在圖片後面時到後面那一段的開頭，繼續打的字才接著原本的文字。段落被拿掉時移到最近可以打字的地方。
+ */
+function keepSelection(tr: Transaction, selection: Selection) {
+  if (selection instanceof NodeSelection) {
+    const pos = tr.mapping.map(selection.from, 1);
+    if (tr.doc.nodeAt(pos)?.type === selection.node.type) return void tr.setSelection(NodeSelection.create(tr.doc, pos));
+  }
+  const map = ($pos: ResolvedPos) => tr.doc.resolve(tr.mapping.map($pos.pos, $pos.nodeAfter?.type.name === "image" ? -1 : 1));
+  tr.setSelection(TextSelection.between(map(selection.$anchor), map(selection.$head)));
+}
 
 /** 分開處要拿掉的：換行，或只有空白（含不換行空白）的文字。和 src/lib/rich-text.ts 的 isBlankEdge 一樣。 */
 const isBlankEdge = (node: ProseNode) => node.type.name === "hardbreak" || (node.isText && !node.text!.trim());
