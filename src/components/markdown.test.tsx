@@ -164,7 +164,10 @@ it("清單、引言裡的對齊只留內容；引言裡不認得的 ::: 不帶�
   expect(page.querySelector("blockquote")?.textContent?.replace(/\s/g, "")).toBe(":::note乙:::");
 });
 
-it("不認得的 ::: 照原文：每行前綴長短不同也不切到內文（Codex 審查，#102）", () => {
-  expect(show("  :::note\n甲乙丙\n:::").textContent).toBe(":::note\n甲乙丙\n:::");
-  expect(show("> :::note\n>甲\n>:::").querySelector("blockquote")?.textContent?.trim()).toBe(":::note\n甲\n:::");
+it("不認得的 ::: 開頭與結尾照原文，中間照一般內容排（Codex 審查，#102）", () => {
+  const texts = (page: HTMLElement) => [...page.querySelectorAll("p")].map((p) => p.textContent);
+  expect(texts(show("  :::note\n甲乙丙\n:::"))).toEqual([":::note", "甲乙丙", ":::"]);
+  const quoted = show("  :::note\n> 引言\n:::");
+  expect(quoted.querySelector("blockquote")?.textContent?.trim()).toBe("引言");
+  expect(texts(show("> :::note\n>甲\n>:::"))).toEqual([":::note", "甲", ":::"]);
 });

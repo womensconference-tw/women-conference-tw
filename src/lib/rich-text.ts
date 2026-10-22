@@ -67,27 +67,28 @@ function isAlignDirective(node: ContainerDirective): boolean {
 }
 
 /**
- * 不是對齊的 ::: 寫法，照原文。在引言、清單裡時，第二行起每一行開頭的「>」、空白、tab 是外層的，不算進來（Codex 審查）。
- * 外層的前綴每行長短可能不同（「> 」或「>」、省略的縮排、懶惰續行），所以只拿掉這幾種字元，最多和第一行的前綴一樣長，
- * 不會切到內文。
+ * 不是對齊的 ::: 寫法：開頭那一行（「:::note」）和結尾的「:::」照原文當成文字，中間的內容照一般內容讀。
+ * 不從原文切整段（Codex 審查）：在引言、清單裡時，分不出每一行開頭的「>」、縮排是外層的還是內文的。
+ * 沒寫結尾（寫到文件最後）時沒有結尾那一段。
  */
-function directiveSource(node: ContainerDirective, source: string): string {
+function unknownDirective(node: ContainerDirective, source: string): { open: string; close: string | null; children: RootContent[] } {
   const { start, end } = node.position ?? {};
-  if (!start || !end) return "";
-  const lines = source.split(/\r?\n|\r/).slice(start.line - 1, end.line);
-  lines[lines.length - 1] = lines[lines.length - 1].slice(0, end.column - 1);
-  const prefix = start.column - 1;
-  return lines
-    .map((line, index) => {
-      if (index === 0) return line.slice(prefix);
-      let cut = 0;
-      while (cut < prefix && /[ \t>]/.test(line[cut] ?? "")) cut++;
-      return line.slice(cut);
-    })
-    .join("\n");
+  const lines = source.split(/\r?\n|\r/);
+  const open = start ? lines[start.line - 1].slice(start.column - 1) : `:::${node.name}`;
+  let close: string | null = null;
+  if (start && end && end.line > start.line) {
+    const last = lines[end.line - 1].slice(0, end.column - 1).replace(/^[ \t>]*/, "");
+    if (/^:{3,}[ \t]*$/.test(last)) close = last.trim();
+  }
+  // 「:::名稱[說明]」的說明已經在開頭那一行裡。
+  const children = node.children.filter((child) => !(child.type === "paragraph" && child.data?.directiveLabel)) as RootContent[];
+  return { open, close, children };
 }
 
 type Piece = { image: Image } | { content: PhrasingContent[] };
+
+/** 分開處要拿掉的：換行，或只有空白（含不換行空白）的文字。 */
+const isBlankEdge = (node: PhrasingContent) => node.type === "break" || (node.type === "text" && !node.value.trim());
 
 const containsImage = (node: PhrasingContent): boolean =>
   node.type === "image" || ("children" in node && node.children.some(containsImage));
@@ -117,12 +118,13 @@ function splitAtImages(children: PhrasingContent[]): Piece[] {
 
 /**
  * 圖片自己一段（Codex 審查）：段落或標題裡的圖片和文字分開，圖片各自成為一個段落，前後的文字留在原本的段落或標題。
- * 分開處的換行拿掉。和編輯器的 separateImageNodes 結果一樣，載入後第一次編輯版面才不會變。
+ * 分開處連續的換行與空白都拿掉（只剩空白的就不留），存出來才不會在行尾留下看得到的「\」（Codex 審查）。
+ * 和編輯器的 separateImagesAt 結果一樣，載入後第一次編輯版面才不會變。
  */
 function separateImages(node: Paragraph | Heading): RootContent[] {
   if (!node.children.some(containsImage)) return [node];
+  if (node.type === "paragraph" && node.children.length === 1 && node.children[0].type === "image") return [node];
   const pieces = splitAtImages(node.children);
-  if (pieces.length === 1 && "image" in pieces[0] && node.type === "paragraph" && node.children.length === 1) return [node];
   const out: RootContent[] = [];
   for (const piece of pieces) {
     if ("image" in piece) {
@@ -130,9 +132,9 @@ function separateImages(node: Paragraph | Heading): RootContent[] {
       continue;
     }
     const run = [...piece.content];
-    while (run[0]?.type === "break") run.shift();
-    while (run.at(-1)?.type === "break") run.pop();
-    if (run.some((child) => child.type !== "text" || child.value.trim())) out.push({ ...node, children: run });
+    while (run.length && isBlankEdge(run[0])) run.shift();
+    while (run.length && isBlankEdge(run.at(-1)!)) run.pop();
+    if (run.length) out.push({ ...node, children: run });
   }
   return out;
 }
@@ -240,7 +242,11 @@ function clean(node: RootContent, context: Context, block: boolean): RootContent
         }
         return children;
       }
-      return wrap(textWithBreaks(directiveSource(node, context.source)), block);
+      {
+        const { open, close, children } = unknownDirective(node, context.source);
+        const fence = (value: string): RootContent => ({ type: "paragraph", children: [{ type: "text", value }] });
+        return [fence(open), ...cleanChildren(children, { ...context, root: false }, true), ...(close ? [fence(close)] : [])];
+      }
     default:
       // 分隔線、連結定義、註腳編號等。
       return [];
@@ -288,7 +294,11 @@ function resolveDirectives(parent: Parent, source: string, root: boolean) {
       return child.children;
     }
     if (child.type === "containerDirective") {
-      return [{ type: "paragraph", children: [{ type: "text", value: directiveSource(child, source) }] }];
+      const { open, close, children } = unknownDirective(child, source);
+      const fence = (value: string): RootContent => ({ type: "paragraph", children: [{ type: "text", value }] });
+      const inner: Parent = { type: "root", children };
+      resolveDirectives(inner, source, false);
+      return [fence(open), ...(inner.children as RootContent[]), ...(close ? [fence(close)] : [])];
     }
     if ("children" in child) resolveDirectives(child, source, false);
     return [child];

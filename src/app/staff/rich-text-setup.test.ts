@@ -81,6 +81,16 @@ function selectText(view: EditorView, text: string) {
 
 const run = (view: EditorView, command: Command) => command(view.state, view.dispatch);
 
+/** 每一段（段落、標題、格子裡的段落）的文字。 */
+function blockTexts(view: EditorView) {
+  const texts: string[] = [];
+  view.state.doc.descendants((node) => {
+    if (node.isTextblock) texts.push(node.textContent);
+    return !node.isTextblock;
+  });
+  return texts;
+}
+
 describe("存檔再打開", () => {
   it("表格、多層清單、粗體、連結、換行格式不變", async () => {
     const markdown = [
@@ -666,8 +676,7 @@ describe("Codex 審查（#102）", () => {
 
   it("引言裡不認得的 ::: 照原文，不帶出外層的「>」", async () => {
     const { view } = await open("> :::note\n> 甲\n> :::");
-    // 換行在 textContent 裡是「\n」。
-    expect(view.state.doc.textContent).toBe(":::note\n甲\n:::");
+    expect(blockTexts(view)).toEqual([":::note", "甲", ":::"]);
   });
 });
 
@@ -678,14 +687,21 @@ describe("Codex 第二次審查（#102）", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it("不認得的 ::: 照原文：每行前綴長短不同、tab 縮排也不切到內文", async () => {
-    const cases: [string, string][] = [
-      ["  :::note\n甲乙丙\n:::", ":::note\n甲乙丙\n:::"],
-      ["> :::note\n>甲\n>:::", ":::note\n甲\n:::"],
-      ["- :::note\n\t甲\n\t:::", ":::note\n甲\n:::"],
+    // 開頭那一行與結尾的 ::: 是文字，中間照一般內容讀；引言在編輯器裡本來就只留文字。
+    const cases: [string, string[]][] = [
+      ["  :::note\n甲乙丙\n:::", [":::note", "甲乙丙", ":::"]],
+      ["> :::note\n>甲\n>:::", [":::note", "甲", ":::"]],
+      ["- :::note\n\t甲\n\t:::", [":::note", "甲", ":::"]],
+      ["  :::note\n> 引言\n:::", [":::note", "引言", ":::"]],
+      ["> :::note\n>> 引言\n>:::", [":::note", "引言", ":::"]],
+      [":::note\n沒寫結尾", [":::note", "沒寫結尾"]],
     ];
-    for (const [markdown, text] of cases) {
-      const { view } = await open(markdown);
-      expect(view.state.doc.textContent).toBe(text);
+    for (const [markdown, texts] of cases) {
+      const { view, markdown: saved } = await open(markdown);
+      expect(blockTexts(view)).toEqual(texts);
+      // 存檔再打開不變，::: 也不會變成區塊。
+      const again = await open(saved());
+      expect(blockTexts(again.view)).toEqual(texts);
     }
   });
 
@@ -720,5 +736,37 @@ describe("Codex 第二次審查（#102）", () => {
       view.dispatch(view.state.tr.insertText("x", at).delete(at, at + 1));
       expect(markdown()).toBe(expected);
     }
+  });
+});
+
+describe("Codex 第三次審查（#102）", () => {
+  const BASE = "http://127.0.0.1:55321";
+  const ours = `${BASE}/storage/v1/object/public/highlight-images/00000000-0000-4000-8000-000000000102/00000000-0000-4000-8000-000000000001.png`;
+  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", BASE));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("貼上圖片前後有好幾個換行或空白：分開處全部拿掉，和載入一樣，存出來沒有多的反斜線", async () => {
+    const cases: [string, string][] = [
+      [`<p>前<br><br><br><img src="${ours}" alt="圖">後</p>`, `前\n\n![圖](${ours})\n\n後\n`],
+      [`<p>前<br>&nbsp;<br><img src="${ours}" alt="圖">&nbsp;<br>後</p>`, `前\n\n![圖](${ours})\n\n後\n`],
+      [`<p>&nbsp;<img src="${ours}" alt="圖">&nbsp;</p>`, `![圖](${ours})\n`],
+    ];
+    for (const [html, expected] of cases) {
+      const { view, markdown } = await open("", { images: true });
+      view.pasteHTML(html);
+      expect(markdown()).toBe(expected);
+    }
+    const loaded = await open(`前\\\n\\\n![圖](${ours})後`, { images: true });
+    expect(loaded.markdown()).toBe(`前\n\n![圖](${ours})\n\n後\n`);
+  });
+
+  it("圖片本身的連結、粗體拿掉，前後文字的留著（載入與貼上一樣）", async () => {
+    for (const input of [`[![圖](${ours})](https://example.com/a)`, `**![圖](${ours})**`]) {
+      const { markdown } = await open(input, { images: true });
+      expect(markdown()).toBe(`![圖](${ours})\n`);
+    }
+    const { view, markdown } = await open("", { images: true });
+    view.pasteHTML(`<p><strong>前<img src="${ours}" alt="圖">後</strong> <a href="https://example.com/a"><img src="${ours}" alt="乙"></a></p>`);
+    expect(markdown()).toBe(`**前**\n\n![圖](${ours})\n\n**後**\n\n![乙](${ours})\n`);
   });
 });

@@ -263,6 +263,8 @@ const normalize = $prose(
             }
             // 貼上的 <img> 把圖片說明也當成標題；標題只用來記大小。
             else if (node.attrs.title && !isImageSize(node.attrs.title)) tr.setNodeAttribute(map(pos), "title", "");
+            // 圖片不帶連結、粗體（Codex 審查），和載入時一樣。
+            if (node.marks.length > 0 && isHighlightImageUrl(node.attrs.src)) tr.removeMark(map(pos), map(pos + node.nodeSize));
             return false;
           }
           if (node.attrs.align && doc.resolve(pos).depth > 0) tr.setNodeAttribute(map(pos), "align", "");
@@ -275,48 +277,66 @@ const normalize = $prose(
     }),
 );
 
+/** 分開處要拿掉的：換行，或只有空白（含不換行空白）的文字。和 src/lib/rich-text.ts 的 isBlankEdge 一樣。 */
+const isBlankEdge = (node: ProseNode) => node.type.name === "hardbreak" || (node.isText && !node.text!.trim());
+
 /**
  * 圖片自己一段（Codex 審查）：段落或標題裡的圖片和其他內容分開，圖片各自一段（一般段落），對齊跟著原本那一段；
- * 分開處的換行拿掉，別的網站的圖片先拿掉。和 src/lib/rich-text.ts 的 separateImages 一樣，那邊整理載入的內容，
- * 這裡整理貼上與編輯。在圖片前後切開（不是整段換掉），游標才會留在原本的文字裡。傳回有沒有改。
+ * 別的網站的圖片先拿掉，分開處連續的換行與空白都拿掉（只剩空白的段落不留）。和 src/lib/rich-text.ts 的
+ * separateImages 一樣，那邊整理載入的內容，這裡整理貼上與編輯。在圖片前後切開（不是整段換掉），
+ * 游標才會留在原本的文字裡。傳回有沒有改。
  */
 function separateImagesAt(tr: Transaction, pos: number): boolean {
-  const { image, paragraph, hardbreak } = tr.doc.type.schema.nodes;
+  const { image, paragraph } = tr.doc.type.schema.nodes;
   if (!image) return false;
-  let block = tr.doc.nodeAt(pos)!;
-  const allowed = (node: ProseNode | null) => node?.type === image && isHighlightImageUrl(node.attrs.src);
-  const removals: [number, number][] = [];
-  block.forEach((child, offset, index) => {
-    const at = pos + 1 + offset;
-    const foreign = child.type === image && !allowed(child);
-    const nextToImage =
-      child.type === hardbreak && (allowed(index > 0 ? block.child(index - 1) : null) || allowed(block.maybeChild(index + 1)));
-    if (foreign || nextToImage) removals.push([at, at + child.nodeSize]);
+  const allowed = (node: ProseNode) => node.type === image && isHighlightImageUrl(node.attrs.src);
+  const original = tr.doc.nodeAt(pos)!;
+  const foreign: [number, number][] = [];
+  let images = 0;
+  original.forEach((child, offset) => {
+    if (allowed(child)) images++;
+    else if (child.type === image) foreign.push([pos + 1 + offset, pos + 1 + offset + child.nodeSize]);
   });
-  for (const [from, to] of removals.reverse()) tr.delete(from, to);
-  block = tr.doc.nodeAt(pos)!;
-  const images: number[] = [];
-  block.forEach((child, offset) => {
-    if (child.type === image) images.push(pos + 1 + offset);
-  });
+  for (const [from, to] of foreign.reverse()) tr.delete(from, to);
+  const block = tr.doc.nodeAt(pos)!;
+  if (images === 0 || (block.childCount === 1 && block.type === paragraph)) return foreign.length > 0;
+
+  const firstStep = tr.steps.length;
+  const end = pos + block.nodeSize;
   const own = { align: block.attrs.align ?? "" };
-  let changed = removals.length > 0;
+  const imagePositions: number[] = [];
+  block.forEach((child, offset) => {
+    if (child.type === image) imagePositions.push(pos + 1 + offset);
+  });
   // 從最後一張往前切，前面的位置才不會跑掉。
-  for (const at of images.reverse()) {
+  for (const at of imagePositions.reverse()) {
     const $at = tr.doc.resolve(at);
-    if ($at.parentOffset + 1 < $at.parent.content.size) {
-      tr.split(at + 1, 1, [{ type: block.type, attrs: block.attrs }]);
-      changed = true;
-    }
-    if ($at.parentOffset > 0) {
-      tr.split(at, 1, [{ type: paragraph, attrs: own }]);
-      changed = true;
-    } else if ($at.parent.type !== paragraph) {
-      tr.setNodeMarkup($at.before(), paragraph, own);
-      changed = true;
-    }
+    if ($at.parentOffset + 1 < $at.parent.content.size) tr.split(at + 1, 1, [{ type: block.type, attrs: block.attrs }]);
+    if ($at.parentOffset > 0) tr.split(at, 1, [{ type: paragraph, attrs: own }]);
+    else if ($at.parent.type !== paragraph) tr.setNodeMarkup($at.before(), paragraph, own);
   }
-  return changed;
+
+  // 切出來的每一段，從後往前：拿掉開頭、結尾的換行與空白，只剩空白的整段拿掉。
+  const pieces: number[] = [];
+  for (let at = pos, stop = tr.mapping.slice(firstStep).map(end); at < stop; at += tr.doc.nodeAt(at)!.nodeSize) pieces.push(at);
+  for (const at of pieces.reverse()) {
+    const piece = tr.doc.nodeAt(at)!;
+    if (piece.childCount === 1 && piece.firstChild!.type === image) continue;
+    const children: { node: ProseNode; offset: number }[] = [];
+    piece.forEach((node, offset) => children.push({ node, offset }));
+    let first = 0;
+    let last = children.length;
+    while (first < last && isBlankEdge(children[first].node)) first++;
+    while (last > first && isBlankEdge(children[last - 1].node)) last--;
+    if (first === last) {
+      tr.delete(at, at + piece.nodeSize);
+      continue;
+    }
+    const inner = at + 1;
+    if (last < children.length) tr.delete(inner + children[last].offset, inner + piece.content.size);
+    if (first > 0) tr.delete(inner, inner + children[first].offset);
+  }
+  return true;
 }
 
 /**
