@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { NavLink } from "@/app/staff/nav-link";
 import { getPublicCommitteeMember } from "@/lib/committee";
 import { createClient } from "@/lib/supabase/server";
@@ -15,11 +15,15 @@ export async function generateMetadata({ params }: PageProps<"/committee/members
  * 一位籌備委員的個人頁（設計稿 docs/design/committee-member-page.html）：照片、支聯會、姓名與自我介紹。
  * 照片與介紹由總管理員在後台籌備委員會頁填；沒有照片時顯示姓氏，沒有介紹時說明還沒提供。
  * 只有公開年度的委員找得到，其他（還沒到的年度、已刪除、網址打錯）顯示找不到。
+ * 網址上的年度和這位委員的年度不同（例如收藏的去年個人頁沒帶年度）時，換成她的年度，
+ * 頁首選單才會停在那個年度（Codex 審查）。
  */
-export default async function CommitteeMemberPage({ params }: PageProps<"/committee/members/[memberId]">) {
-  const found = await getPublicCommitteeMember(await createClient(), (await params).memberId);
+export default async function CommitteeMemberPage({ params, searchParams }: PageProps<"/committee/members/[memberId]">) {
+  const [{ memberId }, query] = await Promise.all([params, searchParams]);
+  const found = await getPublicCommitteeMember(await createClient(), memberId);
   if (!found) notFound();
   const { member, year } = found;
+  if (yearQuery(year) !== (query.year ? `?year=${query.year}` : "")) redirect(`/committee/members/${member.id}${yearQuery(year)}`);
 
   return (
     <div className="-mt-4 sm:-mt-6">

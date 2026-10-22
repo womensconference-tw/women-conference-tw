@@ -504,6 +504,29 @@ describe("文字頁的草稿與發布（#76）", () => {
     }
   });
 
+  it("舊版網站（三頁版）存草稿：沿用已發布、或草稿裡原本的執行計畫，發布後不會被清掉（Codex 審查）", async () => {
+    const saveOld = async () => {
+      const { data, error } = await headAdmin.rpc("save_committee_text_draft", {
+        p_conference_id: conferenceId,
+        p_introduction: "舊版存的簡介",
+        p_chair_message: "",
+        p_memorandum: "",
+      });
+      expect(error).toBeNull();
+      return data as string;
+    };
+
+    await ok(publishCommitteeTexts(headAdmin, conferenceId, await saveOld()));
+    expect(await getCommittee(headAdmin, conferenceId)).toMatchObject({
+      introduction: "舊版存的簡介",
+      executionPlan: "已發布的執行計畫",
+    });
+
+    await ok(saveCommitteeTextDraft(headAdmin, texts({ executionPlan: "草稿的執行計畫" })));
+    await ok(publishCommitteeTexts(headAdmin, conferenceId, await saveOld()));
+    expect((await getCommittee(headAdmin, conferenceId)).executionPlan).toBe("草稿的執行計畫");
+  });
+
   it("沒有草稿時讀到的是空的", async () => {
     expect(await getCommitteeTextDraft(headAdmin, conferenceId)).toBeNull();
   });

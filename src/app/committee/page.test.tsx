@@ -6,7 +6,7 @@ import { messages } from "@/lib/i18n/messages";
 import { adminClient, anonClient, must } from "../../../test/supabase";
 import Home from "../page";
 import ChairMessagePage from "./chair-message/page";
-import { CommitteeNav } from "./committee-nav";
+import { CommitteeHomeLink, CommitteeNav } from "./committee-nav";
 import { metadata } from "./layout";
 import MeetingsPage from "./meetings/page";
 import MemberPage from "./members/[memberId]/page";
@@ -183,8 +183,20 @@ it("看過去的年度時，委員卡片連到的個人頁、個人頁的「回�
   expect(card.getAttribute("href")).toBe(`/committee/members/${memberIds["2001"]}?year=2001`);
   cleanup();
 
-  await renderPage(MemberPage({ params: Promise.resolve({ memberId: memberIds["2001"] }), searchParams: Promise.resolve({}) }));
+  await renderPage(MemberPage({ params: Promise.resolve({ memberId: memberIds["2001"] }), searchParams: Promise.resolve({ year: "2001" }) }));
   expect(screen.getByRole("link", { name: /回到委員名單/ }).getAttribute("href")).toBe("/committee/members?year=2001");
+});
+
+it("打開過去年度的個人頁卻沒帶年度、或帶錯年度：換成這位委員的年度，頁首選單才會停在那個年度（Codex 審查）", async () => {
+  for (const year of [undefined, "2026"]) {
+    await expect(
+      renderPage(MemberPage({ params: Promise.resolve({ memberId: memberIds["2001"] }), searchParams: Promise.resolve(year ? { year } : {}) })),
+    ).rejects.toThrow("NEXT_REDIRECT");
+  }
+  // 目前年度的個人頁不帶年度。
+  await expect(
+    renderPage(MemberPage({ params: Promise.resolve({ memberId: memberIds["今年"] }), searchParams: Promise.resolve({ year: "2001" }) })),
+  ).rejects.toThrow("NEXT_REDIRECT");
 });
 
 it("個人頁：支聯會、姓名與自我介紹；還沒到的年度、不存在的委員找不到", async () => {
@@ -229,6 +241,17 @@ it("選單：依序是七項，標出目前這一頁；看過去的年度時換�
     ["大會網站", "/"],
   ]);
   expect(screen.getByRole("link", { current: "page" }).textContent).toBe("籌備委員");
+});
+
+it("頁首的網站標題連到大會簡介，看過去的年度時帶著年度（Codex 審查）", () => {
+  navigation.search = "year=2001";
+  render(<CommitteeHomeLink>台灣姐妹大會籌備委員會</CommitteeHomeLink>);
+  expect(screen.getByRole("link", { name: "台灣姐妹大會籌備委員會" }).getAttribute("href")).toBe("/committee?year=2001");
+  cleanup();
+
+  navigation.search = "";
+  render(<CommitteeHomeLink>台灣姐妹大會籌備委員會</CommitteeHomeLink>);
+  expect(screen.getByRole("link", { name: "台灣姐妹大會籌備委員會" }).getAttribute("href")).toBe("/committee");
 });
 
 it("不給搜尋引擎收錄，前台首頁也沒有連到這裡", async () => {

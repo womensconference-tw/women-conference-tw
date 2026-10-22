@@ -99,6 +99,7 @@ export default async function CommitteePreviewPage({ searchParams }: PageProps<"
         </div>
       </div>
       <CommitteeShell
+        homeHref={`/preview/committee?year=${selected.year}&page=introduction`}
         nav={
           <CommitteeNavList
             items={COMMITTEE_PAGES.map((item) => ({

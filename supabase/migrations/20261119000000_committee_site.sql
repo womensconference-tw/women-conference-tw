@@ -55,9 +55,51 @@ create policy "Admins can delete committee photos"
 drop function public.save_committee_texts(uuid, text, text, text);
 
 /*
+ * 正式環境的 migration 和網站不是同時上線，三頁版先留著，舊版網站在上線前的空檔（或回滾時）照樣存得了；
+ * 下一次改資料庫時再刪掉。舊版網站不知道執行計畫：新開的草稿沿用已發布的執行計畫，已經有草稿時不動它，
+ * 否則草稿的執行計畫是空的，一發布就把已發布的清掉（Codex 審查）。其餘和 20261111000000_committee_text_drafts.sql 相同。
+ */
+create or replace function public.save_committee_text_draft(
+  p_conference_id uuid,
+  p_introduction text,
+  p_chair_message text,
+  p_memorandum text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_revision uuid := gen_random_uuid();
+begin
+  if not public.is_staff_admin() then
+    raise exception 'not_admin';
+  end if;
+  if not exists (select 1 from public.conferences where id = p_conference_id) then
+    raise exception 'not_found';
+  end if;
+
+  insert into public.committee_text_drafts (
+    conference_id, introduction, chair_message, memorandum, execution_plan, revision
+  )
+  values (
+    p_conference_id, p_introduction, p_chair_message, p_memorandum,
+    coalesce((select execution_plan from public.committee_texts where conference_id = p_conference_id), ''),
+    v_revision
+  )
+  on conflict (conference_id) do update
+  set introduction = excluded.introduction,
+    chair_message = excluded.chair_message,
+    memorandum = excluded.memorandum,
+    revision = excluded.revision,
+    updated_at = now();
+  return v_revision;
+end;
+$$;
+
+/*
  * 存四個文字頁的草稿，多了執行計畫；其餘和 20261111000000_committee_text_drafts.sql 的三頁版相同。
- * 正式環境的 migration 和網站不是同時上線，三頁版先留著，舊版網站在上線前的空檔照樣存得了（執行計畫不變）；
- * 下一次改資料庫時再刪掉。
  */
 create function public.save_committee_text_draft(
   p_conference_id uuid,

@@ -1,8 +1,9 @@
 import { Noto_Serif_TC } from "next/font/google";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { languageTags } from "@/lib/i18n/locale";
 import { cn } from "@/lib/utils";
+import { CommitteeHomeLink } from "./committee-nav";
 import { committeeWrapClass } from "./committee-site";
 
 // 標題用的明體。中文字型很大，不預先下載，用到的字才下載。
@@ -14,16 +15,36 @@ export const COMMITTEE_SITE_TITLE = "台灣姐妹大會籌備委員會";
  * 籌備委員會公開頁面的外框（設計稿 docs/design/committee.html）：頁首有選單，各頁內容在中間，頁尾可以回到頂端。
  * 公開頁面與文字頁草稿的預覽（/preview/committee）共用，預覽才會和發布後的樣子一樣。
  * 內容只有中文；前台選了英文的訪客，網頁的語言（html lang）會是英文，這裡標回中文。
+ * 頁首的網站標題連到大會簡介：公開頁面帶著網址上的年度；預覽給 homeHref，連到預覽的大會簡介。
  */
-export function CommitteeShell({ nav, children }: { nav: ReactNode; children: ReactNode }) {
+export function CommitteeShell({ nav, homeHref, children }: { nav: ReactNode; homeHref?: string; children: ReactNode }) {
+  const brandClass = "flex flex-col gap-0.5 text-[#1f2933] no-underline";
+  const brand = (
+    <>
+      <span className="font-committee-serif text-xl font-bold tracking-[.04em]">{COMMITTEE_SITE_TITLE}</span>
+      <span className="text-xs text-committee-text-3">耶穌基督後期聖徒教會</span>
+    </>
+  );
   return (
     <div id="top" lang={languageTags.zh} className={cn(serif.variable, "flex flex-1 flex-col bg-background text-[#1f2933]")}>
       <header className="border-b border-committee-line">
         <div className={cn(committeeWrapClass, "flex flex-wrap items-center justify-between gap-x-8 gap-y-3 py-[18px]")}>
-          <Link href="/committee" className="flex flex-col gap-0.5 text-[#1f2933] no-underline">
-            <span className="font-committee-serif text-xl font-bold tracking-[.04em]">{COMMITTEE_SITE_TITLE}</span>
-            <span className="text-xs text-committee-text-3">耶穌基督後期聖徒教會</span>
-          </Link>
+          {homeHref ? (
+            <Link href={homeHref} className={brandClass}>
+              {brand}
+            </Link>
+          ) : (
+            // 讀網址上的年度；讀好之前先連到目前年度。
+            <Suspense
+              fallback={
+                <Link href="/committee" className={brandClass}>
+                  {brand}
+                </Link>
+              }
+            >
+              <CommitteeHomeLink className={brandClass}>{brand}</CommitteeHomeLink>
+            </Suspense>
+          )}
           {nav}
         </div>
       </header>

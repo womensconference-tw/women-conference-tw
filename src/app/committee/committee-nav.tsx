@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import type { ReactNode } from "react";
 import { NavLink } from "@/app/staff/nav-link";
 import { cn } from "@/lib/utils";
 import { COMMITTEE_PAGES } from "./committee-routes";
@@ -14,8 +16,7 @@ export type CommitteeNavItem = { label: string; href: string; current: boolean; 
  */
 export function CommitteeNav() {
   const pathname = usePathname();
-  const year = useSearchParams().get("year");
-  const query = year && /^\d{4}$/.test(year) ? `?year=${year}` : "";
+  const query = useYearQuery();
 
   return (
     <CommitteeNavList
@@ -26,6 +27,21 @@ export function CommitteeNav() {
       }))}
     />
   );
+}
+
+/** 頁首的網站標題，連到大會簡介；看過去的年度時照樣停在那個年度（Codex 審查）。 */
+export function CommitteeHomeLink({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <Link href={`/committee${useYearQuery()}`} className={className}>
+      {children}
+    </Link>
+  );
+}
+
+// 網址上選的年度，換頁時要帶著。格式不對時（網址被改過）不帶，回到目前年度。
+function useYearQuery(): string {
+  const year = useSearchParams().get("year");
+  return year && /^\d{4}$/.test(year) ? `?year=${year}` : "";
 }
 
 /**
