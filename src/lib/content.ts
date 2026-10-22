@@ -1,6 +1,7 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { HERO_SLOTS, heroImageUrl, heroPathsOf, type HeroSlot } from "./hero";
-import { hasHighlightPage } from "./home-content";
+import { highlightImageUrl, isHighlightImagePath } from "./highlight-images";
+import { hasHighlightPage, PAGE_TEMPLATES, type PageTemplate } from "./home-content";
 import { trimBlank, UUID_PATTERN } from "./registration";
 
 /*
@@ -24,6 +25,8 @@ export type ContentError =
   | "body_required"
   | "button_label_required"
   | "button_url_invalid"
+  | "person_name_required"
+  | "link_url_invalid"
   | "not_found"
   | "unavailable";
 
@@ -246,6 +249,14 @@ export type HomeItemInput = {
   buttonUrl?: string;
   summaryZh?: string;
   summaryEn?: string;
+  /** 大會特色介紹頁的人物版型；空白是一般的介紹頁。 */
+  pageTemplate?: string;
+  subtitleZh?: string;
+  subtitleEn?: string;
+  leadQuoteZh?: string;
+  leadQuoteEn?: string;
+  leadQuoteSourceZh?: string;
+  leadQuoteSourceEn?: string;
 };
 
 /** 新增或修改一個常見問題、自訂區塊或大會特色。 */
@@ -279,7 +290,20 @@ export async function saveHomeItem(
     });
   }
   if (input.kind === "highlight") {
-    Object.assign(values, { summary_zh: text(input.summaryZh), summary_en: text(input.summaryEn) });
+    const pageTemplate = text(input.pageTemplate);
+    // 表單送來不認得的版型，只可能是有人改了網頁。
+    if (pageTemplate && !(PAGE_TEMPLATES as readonly string[]).includes(pageTemplate)) return { ok: false, error: "not_found" };
+    Object.assign(values, {
+      summary_zh: text(input.summaryZh),
+      summary_en: text(input.summaryEn),
+      page_template: pageTemplate || null,
+      subtitle_zh: text(input.subtitleZh),
+      subtitle_en: text(input.subtitleEn),
+      lead_quote_zh: text(input.leadQuoteZh),
+      lead_quote_en: text(input.leadQuoteEn),
+      lead_quote_source_zh: text(input.leadQuoteSourceZh),
+      lead_quote_source_en: text(input.leadQuoteSourceEn),
+    });
   }
 
   if (!validIds(input.id, input.conferenceId)) return { ok: false, error: "not_found" };
@@ -350,6 +374,87 @@ export async function saveHighlightVenue(supabase: SupabaseClient, input: Highli
   return error ? failure(error) : { ok: true };
 }
 
+/** 新增或修改介紹頁的一位人物時填的欄位，都是表單上的原始文字。 */
+export type HighlightPersonInput = {
+  highlightId: string;
+  /** 有就是修改，沒有就是新增（排在最後）。 */
+  id?: string | null;
+  stakeZh: string;
+  stakeEn: string;
+  wardZh: string;
+  wardEn: string;
+  nameZh: string;
+  nameEn: string;
+  /** highlight-images 裡的路徑；空白是沒有照片。 */
+  photoPath: string;
+  /** 0–100；看不懂的當成中間。 */
+  photoFocus: string;
+  linkLabelZh: string;
+  linkLabelEn: string;
+  /** 空白是沒有連結。 */
+  linkUrl: string;
+};
+
+/** 新增或修改大會特色介紹頁的一位人物。只能改目前年度的。 */
+export async function saveHighlightPerson(supabase: SupabaseClient, input: HighlightPersonInput): Promise<ContentResult> {
+  const text = (value: string) => trimBlank(value);
+  const nameZh = text(input.nameZh);
+  if (!nameZh) return { ok: false, error: "person_name_required" };
+  const linkUrl = text(input.linkUrl);
+  if (linkUrl && !isSafeButtonUrl(linkUrl)) return { ok: false, error: "link_url_invalid" };
+  const photoPath = text(input.photoPath);
+  // 照片是後台上傳後自動填的，格式不對只可能是有人改了網頁。
+  if (photoPath && !isHighlightImagePath(photoPath)) return { ok: false, error: "not_found" };
+  const focus = Number(input.photoFocus);
+
+  if (!validIds(input.highlightId, input.id) || !input.highlightId) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+
+  const { error } = await supabase.rpc("save_highlight_person", {
+    p_highlight_id: input.highlightId,
+    p_id: input.id || null,
+    p_values: {
+      stake_zh: text(input.stakeZh),
+      stake_en: text(input.stakeEn),
+      ward_zh: text(input.wardZh),
+      ward_en: text(input.wardEn),
+      name_zh: nameZh,
+      name_en: text(input.nameEn),
+      photo_path: photoPath || null,
+      photo_focus: Number.isInteger(focus) && focus >= 0 && focus <= 100 ? focus : 50,
+      link_label_zh: text(input.linkLabelZh),
+      link_label_en: text(input.linkLabelEn),
+      link_url: linkUrl || null,
+    },
+  });
+  return error ? failure(error) : { ok: true };
+}
+
+/** 刪除介紹頁的一位人物。照片檔案不刪（複製的新年度可能也在用）。只能刪目前年度的。 */
+export async function deleteHighlightPerson(supabase: SupabaseClient, id: string): Promise<ContentResult> {
+  if (!validIds(id) || !id) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+
+  const { error } = await supabase.rpc("delete_highlight_person", { p_id: id });
+  return error ? failure(error) : { ok: true };
+}
+
+/** 把一位人物往前或往後移一格；已經在最前或最後時不動。只能移目前年度的。 */
+export async function moveHighlightPerson(
+  supabase: SupabaseClient,
+  id: string,
+  direction: "up" | "down",
+): Promise<ContentResult> {
+  if (!validIds(id) || !id) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+
+  const { error } = await supabase.rpc("move_highlight_person", { p_id: id, p_up: direction === "up" });
+  return error ? failure(error) : { ok: true };
+}
+
 // 表單送來的編號格式不對（網頁被改過、或是很舊的頁面），當成找不到，不必交給資料庫。空的不算。
 function validIds(...ids: (string | null | undefined)[]): boolean {
   return ids.every((id) => !id || UUID_PATTERN.test(id));
@@ -377,6 +482,10 @@ function failure(error: PostgrestError): { ok: false; error: ContentError } {
       return { ok: false, error: "schedule_order" };
     case violates("custom_blocks_button_url_safe"):
       return { ok: false, error: "button_url_invalid" };
+    case violates("highlight_people_link_url_safe"):
+      return { ok: false, error: "link_url_invalid" };
+    case violates("highlight_people_name_not_blank"):
+      return { ok: false, error: "person_name_required" };
     case violates("custom_blocks_button_has_label"):
       return { ok: false, error: "button_label_required" };
     case violates("custom_blocks_title_not_blank"):
@@ -448,12 +557,40 @@ export type ContentEditor = {
   highlights: HighlightItem[];
 };
 
-/** 後台的一項大會特色：除了首頁項目的欄位，還有各教堂分頁（#100）與介紹頁有沒有內容。 */
+/** 後台的一項大會特色：除了首頁項目的欄位，還有各教堂分頁（#100）、人物版型與介紹頁有沒有內容。 */
 export type HighlightItem = HomeItem & {
   /** 介紹頁有內容（首頁卡片能點），見 hasHighlightPage。 */
   linkable: boolean;
+  /** 人物版型；一般的介紹頁是 null。 */
+  pageTemplate: PageTemplate | null;
+  subtitleZh: string;
+  subtitleEn: string;
+  leadQuoteZh: string;
+  leadQuoteEn: string;
+  leadQuoteSourceZh: string;
+  leadQuoteSourceEn: string;
+  /** 介紹頁的人物，照排序。沒選版型時也留著（改回版型時還在），只是介紹頁不顯示。 */
+  people: HighlightPersonItem[];
   /** 目前年度的每個場地，照場地的順序：這間教堂的說明，與這間教堂分在這一類的課程數（介紹頁自動列出）。 */
   venues: { venueId: string; venueName: string; bodyZh: string; bodyEn: string; courseCount: number }[];
+};
+
+/** 後台的一位人物，中英兩欄都在。 */
+export type HighlightPersonItem = {
+  id: string;
+  stakeZh: string;
+  stakeEn: string;
+  wardZh: string;
+  wardEn: string;
+  nameZh: string;
+  nameEn: string;
+  /** 照片的路徑與公開網址；沒有照片是 null。 */
+  photo: { path: string; url: string } | null;
+  photoFocus: number;
+  linkLabelZh: string;
+  linkLabelEn: string;
+  /** 沒有是空字串。 */
+  linkUrl: string;
 };
 
 const noButton = { buttonLabelZh: "", buttonLabelEn: "", buttonUrl: "" };
@@ -472,8 +609,11 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       faqs(id, question_zh, question_en, answer_zh, answer_en),
       custom_blocks(id, title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
       venues(id, name_zh, sessions(courses(highlight_id))),
-      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en,
-        courses(count), highlight_venues(venue_id, body_zh, body_en))`,
+      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en, page_template,
+        subtitle_zh, subtitle_en, lead_quote_zh, lead_quote_en, lead_quote_source_zh, lead_quote_source_en,
+        courses(count), highlight_venues(venue_id, body_zh, body_en),
+        highlight_people(id, stake_zh, stake_en, ward_zh, ward_en, name_zh, name_en, photo_path, photo_focus,
+          link_label_zh, link_label_en, link_url))`,
     )
     .eq("is_current", true)
     .order("position", { referencedTable: "faqs" })
@@ -484,6 +624,8 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
     .order("id", { referencedTable: "venues" })
     .order("position", { referencedTable: "highlights" })
     .order("id", { referencedTable: "highlights" })
+    .order("position", { referencedTable: "highlights.highlight_people" })
+    .order("id", { referencedTable: "highlights.highlight_people" })
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -547,7 +689,28 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       summaryZh: highlight.summary_zh,
       summaryEn: highlight.summary_en,
       courseCount: highlight.courses[0]?.count ?? 0,
-      linkable: hasHighlightPage(highlight.description_zh, highlight.highlight_venues, (highlight.courses[0]?.count ?? 0) > 0),
+      linkable: hasHighlightPage(highlight, (highlight.courses[0]?.count ?? 0) > 0),
+      pageTemplate: highlight.page_template as PageTemplate | null,
+      subtitleZh: highlight.subtitle_zh,
+      subtitleEn: highlight.subtitle_en,
+      leadQuoteZh: highlight.lead_quote_zh,
+      leadQuoteEn: highlight.lead_quote_en,
+      leadQuoteSourceZh: highlight.lead_quote_source_zh,
+      leadQuoteSourceEn: highlight.lead_quote_source_en,
+      people: highlight.highlight_people.map((person) => ({
+        id: person.id,
+        stakeZh: person.stake_zh,
+        stakeEn: person.stake_en,
+        wardZh: person.ward_zh,
+        wardEn: person.ward_en,
+        nameZh: person.name_zh,
+        nameEn: person.name_en,
+        photo: person.photo_path ? { path: person.photo_path, url: highlightImageUrl(supabase, person.photo_path) } : null,
+        photoFocus: person.photo_focus,
+        linkLabelZh: person.link_label_zh,
+        linkLabelEn: person.link_label_en,
+        linkUrl: person.link_url ?? "",
+      })),
       venues: data.venues.map((venue) => {
         const text = highlight.highlight_venues.find((row) => row.venue_id === venue.id);
         return {

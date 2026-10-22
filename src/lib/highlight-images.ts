@@ -4,9 +4,13 @@
  * 只有總管理員能上傳，由存放空間的權限規則強制（ADR 0004）；這裡先檢查一次格式與大小，好說明原因。
  * 介紹頁只顯示這個存放空間的圖片，貼上別的網站的圖片不會顯示。
  *
- * 上傳了沒存、或之後從內容拿掉的圖片不會自動刪除：複製建立新年度時介紹內容跟著複製，新舊年度用的是同一個檔案，
+ * 介紹頁人物版型的照片也放這裡，資料庫存的是路徑。
+ *
+ * 上傳了沒存、或之後從內容拿掉的圖片（含換下來的人物照片）不會自動刪除：複製建立新年度時介紹內容跟著複製，新舊年度用的是同一個檔案，
  * 刪了會讓另一個年度破圖。
  */
+
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const HIGHLIGHT_IMAGE_BUCKET = "highlight-images";
 
@@ -31,6 +35,16 @@ export function highlightImagePath(conferenceId: string, type: string): string {
 }
 
 const IMAGE_FILE = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|webp)$/;
+
+/** 是不是上傳到 highlight-images 的檔案路徑（介紹頁人物的照片存路徑，和資料庫 highlight_people_photo_path_valid 一致）。 */
+export function isHighlightImagePath(path: string): boolean {
+  return IMAGE_FILE.test(path);
+}
+
+/** 檔案路徑的公開網址。 */
+export function highlightImageUrl(supabase: SupabaseClient, path: string): string {
+  return supabase.storage.from(HIGHLIGHT_IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+}
 
 /** 是不是從後台上傳到 highlight-images 的圖片的公開網址。 */
 export function isHighlightImageUrl(url: string): boolean {

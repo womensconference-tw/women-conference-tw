@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Locale } from "./i18n/locale";
 import { localized } from "./i18n/localized";
 import { heroImageUrl, heroPathsOf, pickHeroPaths } from "./hero";
+import { highlightImageUrl } from "./highlight-images";
 import { UUID_PATTERN } from "./registration";
 
 /** 首頁「大會程序」的一間教堂：名稱、地址、地圖連結與這間教堂的時間軸（#84）。 */
@@ -102,7 +103,8 @@ export async function getHomeContent(
         agenda_item_parts(name_zh, name_en, highlight_id),
         agenda_item_venues(venue_id, place_zh, place_en, note_zh, note_en, session_id)),
       custom_blocks(title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
-      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, highlight_venues(body_zh))`,
+      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, page_template,
+        highlight_venues(body_zh), highlight_people(id))`,
     )
     .eq("is_current", true)
     // 排序相同時再依 id，讓順序每次都一樣。
@@ -134,7 +136,7 @@ export async function getHomeContent(
     data.venues.flatMap((venue) => venue.sessions.flatMap((session) => session.courses.map((course) => course.highlight_id))),
   );
   const linkable = new Set(
-    data.highlights.filter((h) => hasHighlightPage(h.description_zh, h.highlight_venues, categorized.has(h.id))).map((h) => h.id),
+    data.highlights.filter((h) => hasHighlightPage(h, categorized.has(h.id))).map((h) => h.id),
   );
   const highlightLink = (id: string | null) => (id && linkable.has(id) ? id : null);
 
@@ -204,19 +206,61 @@ export async function getHomeContent(
 
 /**
  * 介紹頁有沒有東西可看：簡介、任何一間教堂的說明、或有課程分在這一類（#100），有一個就算。
+ * 選了人物版型的介紹頁不分教堂，改看簡介或人物。
  * 英文沒填時顯示中文，所以只看中文有沒有寫。首頁卡片、大會程序與課程分類的連結都依這個規則。
  */
-export function hasHighlightPage(descriptionZh: string, venues: { body_zh: string }[], hasCourses: boolean): boolean {
-  return descriptionZh.trim() !== "" || venues.some((venue) => venue.body_zh.trim() !== "") || hasCourses;
+export function hasHighlightPage(
+  highlight: {
+    description_zh: string;
+    page_template: string | null;
+    highlight_venues: { body_zh: string }[];
+    highlight_people: unknown[];
+  },
+  hasCourses: boolean,
+): boolean {
+  if (highlight.description_zh.trim() !== "") return true;
+  if (highlight.page_template) return highlight.highlight_people.length > 0;
+  return highlight.highlight_venues.some((venue) => venue.body_zh.trim() !== "") || hasCourses;
 }
+
+/**
+ * 介紹頁的人物版型（設計稿 docs/design/activity-*.dc.html）：三種共用一個版面，只差人物卡片的照片大小與按鈕。
+ * 沒選版型的大會特色是一般的介紹頁（簡介加教堂分頁）。
+ */
+export const PAGE_TEMPLATES = ["honor", "missionary", "exhibit"] as const;
+export type PageTemplate = (typeof PAGE_TEMPLATES)[number];
+
+/** 人物版型介紹頁的一位人物，已依語言挑好（英文缺漏時是中文）。 */
+export type HighlightPerson = {
+  id: string;
+  /** 支聯會與支會；都沒填是空陣列。 */
+  unit: string[];
+  name: string;
+  /** 照片的公開網址；沒有照片是 null。 */
+  photoUrl: string | null;
+  /** 照片裁成圓形時對準的高度，0 是最上面、100 是最下面。 */
+  photoFocus: number;
+  /** 按鈕文字（靜態展示是作品名稱）；沒填是空字串，由頁面用預設文字。 */
+  linkLabel: string;
+  /** 個人或作品介紹頁；沒有是 null。 */
+  linkUrl: string | null;
+};
 
 /** 介紹頁要顯示的一項大會特色，已依語言挑好（英文缺漏時是中文）。 */
 export type Highlight = {
   name: string;
   /** 簡介；沒寫是空字串。 */
   description: string;
-  /** 教堂分頁，照場地的順序；只有有說明或有課程的教堂。 */
+  /** 教堂分頁，照場地的順序；只有有說明或有課程的教堂。人物版型不分教堂，是空陣列。 */
   venues: HighlightVenue[];
+  /** 人物版型；一般的介紹頁是 null。 */
+  template: PageTemplate | null;
+  /** 以下只有人物版型用，沒填是空字串。 */
+  subtitle: string;
+  leadQuote: string;
+  leadQuoteSource: string;
+  /** 人物，照排序。 */
+  people: HighlightPerson[];
 };
 
 /** 介紹頁的一個教堂分頁：這間教堂的說明，與分在這項大會特色底下的課程（照場次、課程的順序）。 */
@@ -239,13 +283,43 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
   const { data, error } = await supabase
     .from("highlights")
     .select(
-      "id, conference_id, name_zh, name_en, description_zh, description_en, highlight_venues(venue_id, body_zh, body_en), conferences!inner(is_current)",
+      `id, conference_id, name_zh, name_en, description_zh, description_en, page_template,
+      subtitle_zh, subtitle_en, lead_quote_zh, lead_quote_en, lead_quote_source_zh, lead_quote_source_en,
+      highlight_venues(venue_id, body_zh, body_en),
+      highlight_people(id, stake_zh, stake_en, ward_zh, ward_en, name_zh, name_en, photo_path, photo_focus,
+        link_label_zh, link_label_en, link_url),
+      conferences!inner(is_current)`,
     )
     .eq("id", id)
     .eq("conferences.is_current", true)
+    .order("position", { referencedTable: "highlight_people" })
+    .order("id", { referencedTable: "highlight_people" })
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
+  const description = data.description_zh.trim() === "" ? "" : localized(data, "description", locale);
+
+  if (data.page_template) {
+    if (description === "" && data.highlight_people.length === 0) return null;
+    return {
+      name: localized(data, "name", locale),
+      description,
+      venues: [],
+      template: data.page_template as PageTemplate,
+      subtitle: localized(data, "subtitle", locale),
+      leadQuote: localized(data, "lead_quote", locale),
+      leadQuoteSource: localized(data, "lead_quote_source", locale),
+      people: data.highlight_people.map((person) => ({
+        id: person.id,
+        unit: [localized(person, "stake", locale), localized(person, "ward", locale)].filter((part) => part.trim() !== ""),
+        name: localized(person, "name", locale),
+        photoUrl: person.photo_path && highlightImageUrl(supabase, person.photo_path),
+        photoFocus: person.photo_focus,
+        linkLabel: localized(person, "link_label", locale),
+        linkUrl: person.link_url,
+      })),
+    };
+  }
   const venueRows = await supabase
     .from("venues")
     .select("id, name_zh, name_en, sessions(name_zh, name_en, courses(title_zh, title_en, speaker_zh, speaker_en, highlight_id))")
@@ -281,11 +355,16 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
     .filter((venue) => venue.body !== "" || venue.courses.length > 0);
   // 和 hasHighlightPage 同一個規則，但看實際要顯示的分頁：兩次讀取之間換了目前年度時，場地讀不到，
   // 只有教堂說明的就沒東西可看，要顯示找不到，不能是一頁空白。
-  if (data.description_zh.trim() === "" && venues.length === 0) return null;
+  if (description === "" && venues.length === 0) return null;
   return {
     name: localized(data, "name", locale),
-    description: data.description_zh.trim() === "" ? "" : localized(data, "description", locale),
+    description,
     venues,
+    template: null,
+    subtitle: "",
+    leadQuote: "",
+    leadQuoteSource: "",
+    people: [],
   };
 }
 

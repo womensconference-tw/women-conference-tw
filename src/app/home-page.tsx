@@ -1,6 +1,5 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { LanguageSwitch } from "@/components/language-switch";
 import { buttonVariants } from "@/components/ui/button";
 import { getCurrentConference, homePhase, type CurrentConference, type SchedulePhase } from "@/lib/conference";
 import { getHomeContent, type HomeContent } from "@/lib/home-content";
@@ -11,6 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { HomeAgenda } from "./home-agenda";
 import { PreviewBanner } from "./preview/preview-banner";
+import { SiteFooter, SiteHeader } from "./site-chrome";
 
 // 預覽首頁的報名按鈕連到預覽報名表，工作人員點了不會真的報名。
 const registerPaths = { live: "/register", preview: "/preview/register" };
@@ -116,47 +116,6 @@ type PhaseProps = SectionProps & {
   content: HomeContent;
   locale: Locale;
 };
-
-/** 網站名稱與語言切換；電腦寬度另有頁內連結（手機上連結太多會擠掉第一屏）。 */
-function SiteHeader({ t, links }: SectionProps & { links: { href: string; label: string }[] }) {
-  return (
-    <header id="top" className="border-b border-card-outline">
-      <div className="mx-auto flex w-full max-w-(--content-max-width) items-center justify-between gap-4 px-5 py-3 md:max-w-5xl">
-        <h1 className="text-lead leading-tight font-bold">{t.site.title}</h1>
-        <div className="flex items-center gap-2">
-          {links.length > 0 && (
-            <nav aria-label={t.home.navLabel} className="hidden md:block">
-              <ul className="flex items-center">
-                {links.map((link) => (
-                  <li key={link.href}>
-                    <a href={link.href} className="inline-flex min-h-11 items-center px-3 font-semibold hover:underline">
-                      {link.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          )}
-          <LanguageSwitch />
-        </div>
-      </div>
-    </header>
-  );
-}
-
-function SiteFooter({ t }: SectionProps) {
-  return (
-    <footer className="bg-foreground text-background">
-      <div className="mx-auto flex w-full max-w-(--content-max-width) flex-col gap-1 px-5 pt-7 pb-10 md:max-w-5xl">
-        <p className="font-bold">{t.site.title}</p>
-        <p>{t.home.church}</p>
-        <a href="#top" className="inline-flex min-h-11 items-center self-start underline">
-          {t.home.backToTop}
-        </a>
-      </div>
-    </footer>
-  );
-}
 
 /**
  * 第一屏的主視覺：有圖時顯示圖（圖裡已經有主題經文），沒有圖時用文字顯示主題經文。

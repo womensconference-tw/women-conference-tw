@@ -92,6 +92,30 @@ const zh = {
     venuePickerLabel: "選擇教堂",
     courses: "課程",
   },
+  // 大會特色介紹頁的人物版型（設計稿 docs/design/activity-*.dc.html）：向貴賓致敬、與年長夫婦傳教士有約、靜態展示。
+  activity: {
+    breadcrumbLabel: "目前位置",
+    home: "首頁",
+    unitSeparator: "・",
+    honor: {
+      peopleHeading: "貴賓介紹",
+      peopleCount: (count: number) => `共 ${count} 位貴賓。`,
+      linkHint: "點按鈕，閱讀每一位貴賓的故事。",
+      linkLabel: "閱讀她的故事",
+    },
+    missionary: {
+      peopleHeading: "傳教士介紹",
+      peopleCount: (count: number) => `共 ${count} 對傳教士。`,
+      linkHint: "點按鈕，閱讀每一對傳教士的故事。",
+      linkLabel: "認識這對傳教士",
+    },
+    exhibit: {
+      peopleHeading: "參展姐妹與作品",
+      peopleCount: (count: number) => `共 ${count} 位姐妹參展。`,
+      linkHint: "點作品名稱可以看作品介紹。",
+      linkLabel: "看作品介紹",
+    },
+  },
   register: {
     title: "報名台灣姐妹大會",
     proxyIntro: "您正在幫家人或朋友報名：姓名請填她的名字，電話可以填您自己的。",
@@ -377,6 +401,29 @@ const en = {
     opensInNewTab: " (opens in a new tab)",
     venuePickerLabel: "Choose a chapel",
     courses: "Classes",
+  },
+  activity: {
+    breadcrumbLabel: "You are here",
+    home: "Home",
+    unitSeparator: " · ",
+    honor: {
+      peopleHeading: "Our honoured guests",
+      peopleCount: (count: number) => `${count} ${count === 1 ? "guest" : "guests"}.`,
+      linkHint: "Tap a button to read each guest's story.",
+      linkLabel: "Read her story",
+    },
+    missionary: {
+      peopleHeading: "Our missionary couples",
+      peopleCount: (count: number) => `${count} missionary ${count === 1 ? "couple" : "couples"}.`,
+      linkHint: "Tap a button to read each couple's story.",
+      linkLabel: "Meet this couple",
+    },
+    exhibit: {
+      peopleHeading: "Exhibitors and their work",
+      peopleCount: (count: number) => `${count} ${count === 1 ? "sister is" : "sisters are"} exhibiting.`,
+      linkHint: "Tap a title to read about the work.",
+      linkLabel: "About the work",
+    },
   },
   register: {
     title: "Register for the Taiwan Women's Conference",

@@ -2,10 +2,13 @@
 
 import { redirect } from "next/navigation";
 import {
+  deleteHighlightPerson,
   deleteHomeItem,
   HOME_ITEM_KINDS,
+  moveHighlightPerson,
   moveHomeItem,
   saveConferenceDetails,
+  saveHighlightPerson,
   saveHighlightVenue,
   saveHomeItem,
   saveSchedule,
@@ -67,6 +70,13 @@ export async function saveContentItem(formData: FormData) {
     buttonUrl: field("buttonUrl"),
     summaryZh: field("summaryZh"),
     summaryEn: field("summaryEn"),
+    pageTemplate: field("pageTemplate"),
+    subtitleZh: field("subtitleZh"),
+    subtitleEn: field("subtitleEn"),
+    leadQuoteZh: field("leadQuoteZh"),
+    leadQuoteEn: field("leadQuoteEn"),
+    leadQuoteSourceZh: field("leadQuoteSourceZh"),
+    leadQuoteSourceEn: field("leadQuoteSourceEn"),
   });
   done(result, "saved");
 }
@@ -96,6 +106,37 @@ export async function saveHighlightVenueAction(formData: FormData) {
     bodyEn: field("bodyEn"),
   });
   done(result, "venueSaved");
+}
+
+export async function saveHighlightPersonAction(formData: FormData) {
+  const field = fieldsOf(formData);
+  const result = await saveHighlightPerson(await createClient(), {
+    highlightId: field("highlightId"),
+    id: field("id") || null,
+    stakeZh: field("stakeZh"),
+    stakeEn: field("stakeEn"),
+    wardZh: field("wardZh"),
+    wardEn: field("wardEn"),
+    nameZh: field("nameZh"),
+    nameEn: field("nameEn"),
+    photoPath: field("photoPath"),
+    photoFocus: field("photoFocus"),
+    linkLabelZh: field("linkLabelZh"),
+    linkLabelEn: field("linkLabelEn"),
+    linkUrl: field("linkUrl"),
+  });
+  done(result, "personSaved");
+}
+
+export async function deleteHighlightPersonAction(formData: FormData) {
+  const result = await deleteHighlightPerson(await createClient(), fieldsOf(formData)("id"));
+  done(result, "deleted");
+}
+
+export async function moveHighlightPersonAction(formData: FormData) {
+  const field = fieldsOf(formData);
+  const result = await moveHighlightPerson(await createClient(), field("id"), field("direction") === "up" ? "up" : "down");
+  done(result, "moved");
 }
 
 /**

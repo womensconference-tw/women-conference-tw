@@ -246,6 +246,116 @@ describe("介紹頁的教堂分頁", () => {
   });
 });
 
+describe("介紹頁的人物版型", () => {
+  // 在 2099 目前年度加一項人物版型的大會特色與它的人物（照順序）。
+  async function templatePage(row: Record<string, unknown>, people: Record<string, unknown>[]) {
+    const id = must(
+      await admin
+        .from("highlights")
+        .insert({ conference_id: fixtureId, position: 3, ...row })
+        .select("id")
+        .single(),
+    ).id as string;
+    // 一次一筆：一次寫好幾筆時，有的人沒給的欄位會被當成空值，不是預設值。
+    for (const [index, person] of people.entries()) {
+      must(await admin.from("highlight_people").insert({ conference_id: fixtureId, highlight_id: id, position: index + 1, ...person }));
+    }
+    return id;
+  }
+
+  it("向貴賓致敬：麵包屑、標題區、引言與介紹內容、人物卡片；有連結的人物有按鈕，照片對準設定的高度", async () => {
+    await arrange(true);
+    const photo = `${fixtureId}/${crypto.randomUUID()}.jpg`;
+    const id = await templatePage(
+      {
+        name_zh: "向貴賓致敬",
+        page_template: "honor",
+        subtitle_zh: "80 歲長輩，持守到底的美好榜樣。",
+        lead_quote_zh: "在我們當中，有一群特別值得尊敬的姐妹。",
+        description_zh: "她們走過歲月的風雨。\n\n<script>alert(1)</script>",
+      },
+      [
+        { stake_zh: "中台北支聯會", ward_zh: "蘆洲支會", name_zh: "沈亦斌 姐妹", photo_path: photo, photo_focus: 20, link_url: "/story/1" },
+        { name_zh: "黃蘋 姐妹" },
+      ],
+    );
+
+    await renderPage(HighlightPage({ id, preview: false }));
+
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("向貴賓致敬");
+    const crumbs = within(screen.getByRole("navigation", { name: messages.zh.activity.breadcrumbLabel }));
+    expect(crumbs.getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["首頁", "/"],
+      ["大會有什麼", "/#about"],
+    ]);
+    expect(crumbs.getByText("向貴賓致敬").getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: messages.zh.site.title }).getAttribute("href")).toBe("/");
+    expect(screen.getByText("80 歲長輩，持守到底的美好榜樣。")).toBeTruthy();
+    expect(screen.getByText("在我們當中，有一群特別值得尊敬的姐妹。").tagName).toBe("BLOCKQUOTE");
+    expect(screen.getByText("她們走過歲月的風雨。")).toBeTruthy();
+    expect(document.querySelector("main script")).toBeNull();
+
+    expect(screen.getByRole("heading", { level: 2, name: "貴賓介紹" })).toBeTruthy();
+    expect(screen.getByText("共 2 位貴賓。點按鈕，閱讀每一位貴賓的故事。")).toBeTruthy();
+    const cards = screen.getAllByRole("listitem").filter((item) => item.closest("main") && item.querySelector(".rounded-full"));
+    expect(cards.map((card) => card.textContent)).toEqual([
+      "中台北支聯會・蘆洲支會沈亦斌 姐妹閱讀她的故事",
+      "黃蘋 姐妹",
+    ]);
+    const image = within(cards[0]).getByRole("img", { name: "沈亦斌 姐妹" });
+    expect(image.getAttribute("src")).toMatch(new RegExp(`/highlight-images/${photo}$`));
+    expect((image as HTMLImageElement).style.objectPosition).toBe("50% 20%");
+    expect(within(cards[0]).getByRole("link", { name: "閱讀她的故事" }).getAttribute("href")).toBe("/story/1");
+    expect(within(cards[1]).queryByRole("link")).toBeNull();
+    // 刻意不放報名按鈕與教堂分頁。
+    expect(screen.queryByRole("link", { name: messages.zh.home.registerButton })).toBeNull();
+    expect(screen.queryByRole("group", { name: messages.zh.highlight.venuePickerLabel })).toBeNull();
+  });
+
+  it("靜態展示：按鈕是作品名稱；沒有連結時只顯示作品名稱；英文版缺漏顯示中文", async () => {
+    await arrange(true);
+    locale = "en";
+    const id = await templatePage({ name_zh: "靜態展示", name_en: "Exhibition", page_template: "exhibit" }, [
+      { name_zh: "王真真", ward_zh: "沙鹿支會", ward_en: "Shalu Ward", link_label_zh: "溫柔的心", link_url: "https://example.com/work" },
+      { name_zh: "廖秀珠", link_label_zh: "油畫靜態展", link_label_en: "Oil paintings" },
+    ]);
+
+    await renderPage(HighlightPage({ id, preview: false }));
+
+    expect(screen.getByRole("heading", { level: 2, name: messages.en.activity.exhibit.peopleHeading })).toBeTruthy();
+    expect(screen.getByText("2 sisters are exhibiting. Tap a title to read about the work.")).toBeTruthy();
+    const work = screen.getByRole("link", { name: /溫柔的心/ });
+    expect(work.getAttribute("href")).toBe("https://example.com/work");
+    expect(screen.getByText("Shalu Ward")).toBeTruthy();
+    expect(screen.getByText("Oil paintings").closest("a")).toBeNull();
+    // 只寫了人物、沒有引言與介紹內容時，沒有介紹區。
+    expect(document.querySelector("blockquote")).toBeNull();
+  });
+
+  it("傳教士：沒填按鈕文字用預設文字；預覽版的連結回到預覽首頁", async () => {
+    await arrange(false);
+    const id = await templatePage({ name_zh: "與年長夫婦傳教士有約", page_template: "missionary" }, [
+      { name_zh: "宋長老及宋馬彩鳳姊妹", link_url: "/couple" },
+    ]);
+
+    await expect(renderPage(HighlightPage({ id, preview: false }))).rejects.toThrow("not found");
+    await renderPage(HighlightPage({ id, preview: true }));
+
+    expect(screen.getByRole("status").textContent).toBe(messages.zh.preview.highlight);
+    expect(screen.getByRole("link", { name: "認識這對傳教士" }).getAttribute("href")).toBe("/couple");
+    expect(screen.getByRole("link", { name: "首頁" }).getAttribute("href")).toBe("/preview");
+  });
+
+  it("選了版型、沒有人物也沒有介紹內容時找不到，首頁卡片不能點", async () => {
+    await arrange(true);
+    const id = await templatePage({ name_zh: "向貴賓致敬", page_template: "honor", subtitle_zh: "只有副標" }, []);
+
+    await expect(renderPage(HighlightPage({ id, preview: false }))).rejects.toThrow("not found");
+    await renderPage(HomePage({ preview: false }));
+    expect(screen.queryByRole("link", { name: /向貴賓致敬/ })).toBeNull();
+  });
+});
+
 describe("首頁的大會有什麼", () => {
   it("寫了介紹內容的卡片連到介紹頁，沒寫的不能點", async () => {
     await arrange(true);

@@ -42,6 +42,9 @@ describe("介面文字對照檔", () => {
     "register.stepProgress": [2, 3, "SAMPLE_STEP"],
     "register.wardsOf": ["SAMPLE_STAKE"],
     "register.wardWithStake": ["SAMPLE_WARD", "SAMPLE_STAKE"],
+    "activity.honor.peopleCount": [8],
+    "activity.missionary.peopleCount": [3],
+    "activity.exhibit.peopleCount": [10],
   };
 
   it.each(locales)("%s 帶入資料的文字不空白，且有放進帶入的資料", (locale) => {
