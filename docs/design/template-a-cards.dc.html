@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>介紹頁・人物卡片型</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&amp;family=Noto+Serif+TC:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#FBFAF6}
+a{color:#355227}a:hover{color:#26401b}
+@media (max-width: 640px){.nav-more{display:none !important}}
+</style>
+</helmet>
+<div id="top" style="background: #FBFAF6; color: #1E2420; font-family: 'Noto Sans TC', sans-serif; font-size: 19px; line-height: 1.7;">
+
+<header style="border-bottom: 1px solid #E4E1D6; background: #FBFAF6;">
+<div style="max-width: 1120px; margin: 0 auto; padding: 12px 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 48px; font-family: 'Noto Serif TC', serif; font-weight: 700; font-size: 21px; color: #1E2420; text-decoration: none;">台灣姐妹大會</a>
+<nav aria-label="主選單" style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px;">
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">認識大會</a>
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">大會程序</a>
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">大會場地</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">報名與查詢</a>
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">致謝</a>
+<a href="#" lang="en" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 18px; margin-left: 8px; border: 2px solid #C9C5B6; border-radius: 12px; font-size: 17px; font-weight: 500; color: #1E2420; text-decoration: none;">English</a>
+</nav>
+</div>
+</header>
+
+<main>
+<section style="max-width: 1120px; margin: 0 auto; padding: 20px 20px 36px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px;">
+<nav aria-label="目前位置" style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 16px; color: #4A524C;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; color: #355227;">首頁</a>
+<span aria-hidden="true">›</span>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; color: #355227;">大會有什麼</a>
+<span aria-hidden="true">›</span>
+<span aria-current="page">{{a.title}}</span>
+</nav>
+<div style="display: flex; flex-direction: column; gap: 12px; max-width: 760px;">
+<div style="font-size: 16px; font-weight: 700; color: #355227; letter-spacing: 0.08em;">大會有什麼</div>
+<h1 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 40px; font-weight: 700; line-height: 1.35;">{{a.title}}</h1>
+<p style="margin: 0; font-size: 20px; color: #4A524C;">{{a.subtitle}}</p>
+</div>
+</section>
+
+<section aria-label="前言" style="background: #F2F0E8;">
+<div style="max-width: 1120px; margin: 0 auto; padding: 40px 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px;">
+<div style="max-width: 760px; display: flex; flex-direction: column; gap: 16px;">
+<sc-for list="{{a.intro}}" as="para" hint-placeholder-count="3">
+<p style="margin: 0;">{{para}}</p>
+</sc-for>
+</div>
+</div>
+</section>
+
+<section style="max-width: 1120px; margin: 0 auto; padding: 40px 20px 56px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px;">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h2 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 30px; line-height: 1.4;">{{a.peopleHeading}}</h2>
+<p style="margin: 0; color: #4A524C;">先選教堂，再點卡片看介紹。</p>
+<div role="group" aria-label="選擇教堂" style="display: flex; flex-wrap: wrap; gap: 10px;">
+<sc-for list="{{venueButtons}}" as="vb" hint-placeholder-count="4">
+<sc-if value="{{vb.selected}}" hint-placeholder-val="{{false}}">
+<button type="button" aria-pressed="true" onClick="{{vb.pick}}" style="min-height: 56px; padding: 0 22px; border-radius: 12px; border: 2px solid #355227; background: #355227; color: #FFFFFF; font-family: 'Noto Sans TC', sans-serif; font-size: 18px; font-weight: 700; cursor: pointer;">{{vb.label}}</button>
+</sc-if>
+<sc-if value="{{vb.unselected}}" hint-placeholder-val="{{true}}">
+<button type="button" aria-pressed="false" onClick="{{vb.pick}}" style="min-height: 56px; padding: 0 22px; border-radius: 12px; border: 2px solid #C9C5B6; background: #FFFFFF; color: #1E2420; font-family: 'Noto Sans TC', sans-serif; font-size: 18px; font-weight: 500; cursor: pointer;">{{vb.label}}</button>
+</sc-if>
+</sc-for>
+</div>
+</div>
+
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 18px; padding-top: 8px; border-top: 1px solid #E4E1D6;">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding-top: 16px;">
+<h3 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 26px; line-height: 1.4;">{{g.name}}</h3>
+<span style="font-size: 17px; color: #4A524C;">{{g.countLabel}}</span>
+</div>
+<ul style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px;">
+<sc-for list="{{g.people}}" as="p" hint-placeholder-count="4">
+<li style="display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 18px; overflow: hidden;">
+<div role="img" aria-label="{{p.name}} 的照片" style="width: 168px; height: 168px; margin: 24px auto 0; border-radius: 50%; background: #E3EED8; color: #2C4620; display: flex; align-items: center; justify-content: center; font-family: 'Noto Serif TC', serif; font-size: 56px; font-weight: 700;">{{p.initial}}</div>
+<div style="padding: 16px 20px 20px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; flex: 1 1 auto;">
+<span style="font-size: 16px; color: #4A524C;">{{p.stake}}</span>
+<span style="font-size: 17px; color: #4A524C;">{{p.ward}}</span>
+<span style="font-family: 'Noto Serif TC', serif; font-size: 24px; font-weight: 700; line-height: 1.45; margin-top: 4px;">{{p.name}}</span>
+<sc-if value="{{p.hasCourse}}" hint-placeholder-val="{{true}}">
+<a href="Person.dc.html" style="margin-top: auto; align-self: stretch; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 56px; padding: 10px 16px; box-sizing: border-box; border-radius: 12px; background: #F2F0E8; color: #1E2420; font-size: 18px; font-weight: 700; line-height: 1.45; text-align: left; text-decoration: none;"><span>{{p.course}}</span><span aria-hidden="true" style="color: #355227; font-size: 24px;">›</span></a>
+</sc-if>
+<sc-if value="{{p.noCourse}}" hint-placeholder-val="{{false}}">
+<a href="Person.dc.html" style="margin-top: auto; align-self: stretch; display: flex; align-items: center; justify-content: center; min-height: 52px; border-radius: 12px; border: 2px solid #355227; color: #355227; font-size: 18px; font-weight: 700; text-decoration: none;">{{a.linkLabel}}</a>
+</sc-if>
+</div>
+</li>
+</sc-for>
+</ul>
+</div>
+</sc-for>
+</section>
+</main>
+
+<footer style="background: #1E2420; color: #E9E7DF;">
+<div style="max-width: 1120px; margin: 0 auto; padding: 28px 20px 40px; box-sizing: border-box; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 24px; font-size: 16px;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 18px; font-weight: 700;">台灣姐妹大會</span><span>耶穌基督後期聖徒教會</span></div>
+<nav aria-label="頁尾選單" style="display: flex; flex-wrap: wrap; gap: 0 4px;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">認識大會</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">大會程序</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">大會場地</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">報名與查詢</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">致謝</a>
+</nav>
+<a href="#top" style="display: inline-flex; align-items: center; min-height: 44px; color: #E9E7DF; font-size: 17px;">回到最上面</a>
+</div>
+</footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"activity":{"editor":"enum","options":["corner","spiritual","honor","missionary","exhibit"],"default":"corner"},"$preview":{"width":1280,"height":3200}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { venue: 'all' }; }
+  renderVals() {
+    var VENUES = [
+      { id: 'jinhua', name: '金華教堂' },
+      { id: 'daya', name: '大雅教堂' },
+      { id: 'niaosong', name: '鳥松教堂' }
+    ];
+    // 資料來源：activities（每個活動一筆）＋ activity_people（每人一筆，掛 venue）
+    var DATA = {
+      corner: {
+        title: '角落課程', subtitle: '手作的角落，只專屬於妳自己。', peopleHeading: '講師陣容', countUnit: '位講師', linkLabel: '看課程介紹', showCourse: true,
+        intro: [
+          '每一天，姐妹們總是把生活的每一個角落整理得井井有條：細心照料家人的需求、協助教會的事工、扶持身旁的人事物，在平凡的日常裡展現著不平凡的智慧與能力。',
+          '然而，生活中也有那麼一個角落，只專屬於我們自己，是創意、耐心、細膩、喜悅與欣賞美、執行美的堅持——姐妹們的手作。',
+          '手作課程，就像打開一個藏寶地圖，開啟的不單是授課者的專屬恩賜，更是參與者的自我探索與心靈療癒的旅程。歡迎加入我們的手作魔法課程。'
+        ],
+        people: [
+          { venue: 'jinhua', stake: '東台北支聯會', ward: '內湖支會', name: '王淑娟 姐妹', course: '免揉歐式麵包 × 日式焦糖布丁' },
+          { venue: 'jinhua', stake: '東台北支聯會', ward: '蘭陽支會', name: '黃冠茵 姐妹', course: '永生花相框 DIY' },
+          { venue: 'daya', stake: '中興支聯會', ward: '員林支會', name: '陳淑惠 姐妹', course: '溫暖療癒風・手作小天使' },
+          { venue: 'daya', stake: '西台中支聯會', ward: '西屯支會', name: '施秀春 姐妹', course: '創意音符花器' },
+          { venue: 'daya', stake: '南台中支聯會', ward: '忠明支會', name: '陳雅玲 姐妹', course: '皮編手環' },
+          { venue: 'daya', stake: '東台中支聯會', ward: '霧峰支會', name: '曾鈺芸 姐妹', course: '創作屬於妳的肩背包' },
+          { venue: 'daya', stake: '中興支聯會', ward: '溪湖支會', name: '張嶧寧 姐妹', course: '香薰沙畫蠟燭' },
+          { venue: 'niaosong', stake: '北高雄支聯會', ward: '鳥松支會', name: '廖如意 姐妹', course: '鹿角蕨上板' },
+          { venue: 'niaosong', stake: '台南支聯會', ward: '永康一支會', name: '曾鈺甯 姐妹', course: '螺旋手機掛繩｜Macrame 編織入門' },
+          { venue: 'niaosong', stake: '台南支聯會', ward: '永二支會', name: '黃珮辰 姐妹', course: '頭肩頸按摩舒眠' },
+          { venue: 'niaosong', stake: '花蓮支聯會', ward: '台東一支會', name: '周明瑜 姐妹', course: '浮游花瓶製作' }
+        ]
+      },
+      spiritual: {
+        title: '靈性課程', subtitle: '藉由她們的分享與帶領，體驗福音生活化的美好。', peopleHeading: '講師陣容', countUnit: '位講師', linkLabel: '看課程介紹', showCourse: false,
+        intro: [
+          '教義和聖約第 25 篇，主給愛瑪・斯密的啟示，也正是給所有神的女兒、教會姐妹們的啟示。這位蒙揀選、謙卑溫柔又溫順服從的姐妹，總用聖靈充滿的心去施助，去講解經文，去勸勉教會成員。',
+          '在她們身上，我們看到最溫柔卻又堅定的光照耀別人，同時也成為眾人學習效法的榜樣。讓我們藉由她們的分享與帶領，體驗福音生活化的美好與神的恩典和大能的潤澤。'
+        ],
+        people: [
+          { venue: 'jinhua', stake: '南台北支聯會', ward: '木柵支會', name: '蔡婷儀 姐妹' },
+          { venue: 'jinhua', stake: '新竹支聯會', ward: '竹南支會', name: '林蓁蓁 姐妹' },
+          { venue: 'jinhua', stake: '花蓮支聯會', ward: '花蓮第一支會', name: '魏范玉楨 姐妹' },
+          { venue: 'jinhua', stake: '中台北支聯會', ward: '信安支會', name: '錢如蘭 姐妹' },
+          { venue: 'jinhua', stake: '北台北支聯會', ward: '台北英文支會', name: '鄭文琪 姐妹' },
+          { venue: 'jinhua', stake: '中台北支聯會', ward: '信安支會', name: '黃鳳英 姐妹' },
+          { venue: 'daya', stake: '東台中支聯會', ward: '太平支會', name: '莊琬婷 姐妹' },
+          { venue: 'daya', stake: '西台中支聯會', ward: '大雅支會', name: '陳昱安 姐妹' },
+          { venue: 'daya', stake: '西台中支聯會', ward: '西屯支會', name: '劉家嘉 姐妹' },
+          { venue: 'daya', stake: '南台中支聯會', ward: '五權三支會', name: '張珮琳 姐妹' },
+          { venue: 'niaosong', stake: '北高雄支聯會', ward: '鳥松支會', name: '蔡淑敏 姐妹' },
+          { venue: 'niaosong', stake: '台南支聯會', ward: '台南二支會', name: '謝巧雲 姐妹' },
+          { venue: 'niaosong', stake: '嘉義支聯會', ward: '嘉義支會', name: '程嘉華 姐妹' },
+          { venue: 'niaosong', stake: '南高雄支聯會', ward: '大寮支會', name: '羅淑芳 姐妹' }
+        ]
+      },
+      honor: {
+        title: '向貴賓致敬', subtitle: '80 歲長輩，持守到底的美好榜樣。', peopleHeading: '貴賓介紹', countUnit: '位貴賓', linkLabel: '閱讀她的故事', showCourse: false,
+        intro: [
+          '在我們當中，有一群特別值得尊敬的姐妹。她們走過歲月的風雨，依然站立在信心之中；她們的年紀已超過八十，但她們努力持守，奉行福音、堅定跟隨神。',
+          '除了在開幕式中予以隆重的表揚，我們特地設計了一堂「向貴賓致敬」的課程，讓姐妹們能夠近距離與這些貴賓對話，聆聽她們的生命故事與沉著的智慧。'
+        ],
+        people: [
+          { venue: 'jinhua', stake: '中台北支聯會', ward: '蘆洲支會', name: '沈亦斌 姐妹' },
+          { venue: 'jinhua', stake: '北台北支聯會', ward: '北投支會', name: '黃蘋 姐妹' },
+          { venue: 'jinhua', stake: '南台北支聯會', ward: '永和支會', name: '紀春秀 姐妹' },
+          { venue: 'daya', stake: '西台中支聯會', ward: '西屯支會', name: '匡王春花 姐妹' },
+          { venue: 'daya', stake: '南台中支聯會', ward: '忠明支會', name: '陳貴惠 姐妹' },
+          { venue: 'daya', stake: '嘉義支聯會', ward: '斗六支會', name: '黃碧珠 姐妹' },
+          { venue: 'niaosong', stake: '南高雄支聯會', ward: '雙前支會', name: '鄭寶碧 姐妹' },
+          { venue: 'niaosong', stake: '南高雄支聯會', ward: '屏東支會', name: '黃周巧 姐妹' }
+        ]
+      },
+      missionary: {
+        title: '與年長夫婦傳教士有約', subtitle: '聆聽年長夫婦傳教士分享人生經歷與感人見證。', peopleHeading: '傳教士介紹', countUnit: '對傳教士', linkLabel: '認識這對傳教士', showCourse: false,
+        intro: [ '[前言：由當年策劃提供，在後台文字編輯區填寫]' ],
+        people: [
+          { venue: 'jinhua', stake: '新竹支聯會', ward: '竹東支會', name: '宋長老及宋馬彩鳳姊妹' },
+          { venue: 'daya', stake: '台中地帶', ward: '高雄傳道部', name: '曾其祥、曾李瑞馨 夫婦' },
+          { venue: 'niaosong', stake: '台南支聯會', ward: '台南第五分會', name: '劉錦祥長老及李小媚姊妹' }
+        ]
+      },
+      exhibit: {
+        title: '靜態展示', subtitle: '姐妹們的巧手與心意，一起慢慢欣賞。', peopleHeading: '展出作品', countUnit: '件作品', linkLabel: '看作品介紹', showCourse: true,
+        intro: [ '[前言：由當年策劃提供，在後台文字編輯區填寫]' ],
+        people: [
+          { venue: 'jinhua', stake: '桃園支聯會', ward: '八德支會', name: '嚴夢萍 姐妹', course: '人偶及玻璃線洗碗布鉤織作品展示' },
+          { venue: 'jinhua', stake: '中台北支聯會', ward: '信安支會', name: '蔡麗珍 姐妹', course: '十字繡畫作及布做、毛線鉤織物品展示' },
+          { venue: 'daya', stake: '西台中支聯會', ward: '沙鹿支會', name: '王真真 姐妹', course: '溫柔的心' },
+          { venue: 'daya', stake: '東台中支聯會', ward: '東英支會', name: '廖秀珠 姐妹', course: '油畫靜態展' },
+          { venue: 'daya', stake: '中興支聯會', ward: '員林支會', name: '陳淑惠 姐妹', course: '愛是永不止息' },
+          { venue: 'niaosong', stake: '北高雄支聯會', ward: '左營支會', name: '林月娥 姐妹', course: '燒刻心情：林月娥的烙燒畫藝術之旅' },
+          { venue: 'niaosong', stake: '北高雄支聯會', ward: '鳥松支會', name: '陳瑞琴 姐妹', course: '金屬拼圖藝術展示' },
+          { venue: 'niaosong', stake: '南高雄支聯會', ward: '大寮支會', name: '鄭玉秀 姐妹', course: '排灣族衣裳配飾不簡單' }
+        ]
+      }
+    };
+    var key = this.props.activity ?? 'corner';
+    var a = DATA[key] || DATA.corner;
+    var sel = this.state.venue;
+    var self = this;
+    var opts = [{ id: 'all', name: '全部教堂' }].concat(VENUES);
+    var venueButtons = opts.map(function (v) {
+      return { label: v.name, selected: sel === v.id, unselected: sel !== v.id, pick: function () { self.setState({ venue: v.id }); } };
+    });
+    var groups = VENUES.filter(function (v) { return sel === 'all' || sel === v.id; }).map(function (v) {
+      var ps = a.people.filter(function (p) { return p.venue === v.id; }).map(function (p) {
+        var has = a.showCourse && !!p.course;
+        return Object.assign({}, p, { initial: p.name.charAt(0), hasCourse: has, noCourse: !has });
+      });
+      return { name: v.name, countLabel: ps.length + ' ' + a.countUnit, people: ps };
+    }).filter(function (g) { return g.people.length > 0; });
+    return { a: a, venueButtons: venueButtons, groups: groups };
+  }
+}
+</script>
+</body>
+</html>
