@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>個人介紹頁</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&amp;family=Noto+Serif+TC:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#FBFAF6}
+a{color:#355227}a:hover{color:#26401b}
+@media (max-width: 640px){.nav-more{display:none !important}}
+</style>
+</helmet>
+<div id="top" style="background: #FBFAF6; color: #1E2420; font-family: 'Noto Sans TC', sans-serif; font-size: 19px; line-height: 1.7;">
+
+<header style="border-bottom: 1px solid #E4E1D6; background: #FBFAF6;">
+<div style="max-width: 1120px; margin: 0 auto; padding: 12px 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 48px; font-family: 'Noto Serif TC', serif; font-weight: 700; font-size: 21px; color: #1E2420; text-decoration: none;">台灣姐妹大會</a>
+<nav aria-label="主選單" style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px;">
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">認識大會</a>
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">大會程序</a>
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">大會場地</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">報名與查詢</a>
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">致謝</a>
+<a href="#" lang="en" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 18px; margin-left: 8px; border: 2px solid #C9C5B6; border-radius: 12px; font-size: 17px; font-weight: 500; color: #1E2420; text-decoration: none;">English</a>
+</nav>
+</div>
+</header>
+
+<main style="max-width: 1120px; margin: 0 auto; padding: 20px 20px 64px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px;">
+<nav aria-label="目前位置" style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 16px; color: #4A524C;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; color: #355227;">首頁</a>
+<span aria-hidden="true">›</span>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; color: #355227;">大會有什麼</a>
+<span aria-hidden="true">›</span>
+<a href="Main.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; color: #355227;">{{a.activity}}</a>
+<span aria-hidden="true">›</span>
+<span aria-current="page">{{a.name}}</span>
+</nav>
+
+<div style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px 56px;">
+<aside aria-label="人物" style="flex: 1 1 260px; max-width: 340px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 18px; padding: 28px 20px; box-sizing: border-box;">
+<div role="img" aria-label="{{a.name}} 的照片" style="width: 200px; height: 200px; margin-bottom: 16px; border-radius: 50%; background: #E3EED8; color: #2C4620; display: flex; align-items: center; justify-content: center; font-family: 'Noto Serif TC', serif; font-size: 64px; font-weight: 700;">{{initial}}</div>
+<span style="font-size: 16px; color: #4A524C;">{{a.stake}}</span>
+<span style="font-size: 17px; color: #4A524C;">{{a.ward}}</span>
+<span style="font-family: 'Noto Serif TC', serif; font-size: 26px; font-weight: 700; line-height: 1.45; margin-top: 4px;">{{a.name}}</span>
+<span style="margin-top: 12px; padding: 4px 14px; border-radius: 999px; background: #F2F0E8; color: #355227; font-size: 16px; font-weight: 700;">{{a.venue}}</span>
+</aside>
+
+<article style="flex: 999 1 480px; min-width: 0; max-width: 720px; display: flex; flex-direction: column; gap: 28px;">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="font-size: 16px; font-weight: 700; color: #355227; letter-spacing: 0.08em;">{{a.activity}}</div>
+<h1 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 36px; font-weight: 700; line-height: 1.4;">{{a.heading}}</h1>
+</div>
+<sc-for list="{{sections}}" as="s" hint-placeholder-count="3">
+<section style="display: flex; flex-direction: column; gap: 12px; padding-top: 20px; border-top: 1px solid #E4E1D6;">
+<h2 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 24px; line-height: 1.4; color: #355227;">{{s.label}}</h2>
+<sc-if value="{{s.isParas}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<sc-for list="{{s.items}}" as="para" hint-placeholder-count="2">
+<p style="margin: 0;">{{para}}</p>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{s.isList}}" hint-placeholder-val="{{false}}">
+<ol style="margin: 0; padding-left: 1.6em; display: flex; flex-direction: column; gap: 8px;">
+<sc-for list="{{s.items}}" as="li" hint-placeholder-count="4">
+<li>{{li}}</li>
+</sc-for>
+</ol>
+</sc-if>
+</section>
+</sc-for>
+<a href="Main.dc.html" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; min-height: 52px; padding: 0 20px; border-radius: 12px; border: 2px solid #355227; color: #355227; font-size: 18px; font-weight: 700; text-decoration: none;"><span aria-hidden="true">‹</span>回到{{a.activity}}</a>
+</article>
+</div>
+</main>
+
+<footer style="background: #1E2420; color: #E9E7DF;">
+<div style="max-width: 1120px; margin: 0 auto; padding: 28px 20px 40px; box-sizing: border-box; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 24px; font-size: 16px;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 18px; font-weight: 700;">台灣姐妹大會</span><span>耶穌基督後期聖徒教會</span></div>
+<nav aria-label="頁尾選單" style="display: flex; flex-wrap: wrap; gap: 0 4px;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">認識大會</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">大會程序</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">大會場地</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">報名與查詢</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">致謝</a>
+</nav>
+<a href="#top" style="display: inline-flex; align-items: center; min-height: 44px; color: #E9E7DF; font-size: 17px;">回到最上面</a>
+</div>
+</footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"activity":{"editor":"enum","options":["corner","spiritual","honor","missionary","exhibit"],"default":"corner"},"$preview":{"width":1280,"height":1700}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // 人物欄位沿用介紹頁的 activity_people；sections 依活動種類決定要顯示哪幾個文字編輯區
+    var DATA = {
+      corner: {
+        activity: '角落課程', venue: '鳥松教堂', stake: '花蓮支聯會', ward: '台東一支會', name: '周明瑜 姐妹', heading: '浮游花瓶製作',
+        sections: [
+          { label: '講師介紹', kind: 'paras', items: [
+            '周明瑜姐妹於 2004 年受洗，曾任支會傳教士，致力於福音事工與社群支援。她目前擔任支聯會慈助會第一諮理，並兼任主日學教師。',
+            '在過去的教會事工中，周明瑜姐妹深刻經歷了神的愛與祝福。特別是在情緒韌力課程中，她學會如何面對自己的情緒挑戰，並以此幫助更多人貼近神的心意。'
+          ] },
+          { label: '課程簡介', kind: 'paras', items: [
+            '浮游花瓶製作課程是一門融合創意與靈性成長的體驗式課程。課程將使用永生花、礦物油和玻璃瓶這三種精心挑選的材料，創作出獨具風格的浮游花瓶。',
+            '每一個浮游花瓶的製作，都是獨特的過程，就如每個人擁有不同的生命經歷與天賦。這不僅是一門藝術課程，也是一次心靈的旅程。'
+          ] },
+          { label: '課程大綱', kind: 'list', items: [
+            '課程介紹與材料說明：認識永生花、礦物油和玻璃瓶的特點與搭配技巧',
+            '創作流程指導：從選材、組合到裝瓶，逐步指導姐妹們完成浮游花瓶',
+            '靈性分享與反思：在創作過程中分享靈性心得，探討如何將藝術與靈性連結',
+            '作品展示與分享：姐妹們展示浮游花瓶並分享創作過程中的感受'
+          ] }
+        ]
+      },
+      spiritual: {
+        activity: '靈性課程', venue: '鳥松教堂', stake: '北高雄支聯會', ward: '鳥松支會', name: '蔡淑敏 姐妹', heading: '讓妳心中的愛永遠歸向主',
+        sections: [
+          { label: '講師介紹', kind: 'paras', items: [
+            '蔡淑敏姐妹為國立高雄師範大學教育學博士，曾榮獲教育部首屆家庭教育博士論文獎助，並為教育部家庭教育專業人員。她現任大學通識教育中心助理教授，服務福音研究所已有 35 年，長期陪伴青年在信仰中學習愛與成長。'
+          ] },
+          { label: '課程簡介', kind: 'paras', items: [
+            '「我怎樣愛你們，你們也要怎樣相愛。」（約翰福音 13：34）',
+            '我們都渴望深刻地去愛，也渴望被愛；然而，過去的傷痛與失望，常使我們難以信任、不敢敞開心扉。課程中將學習如何將心轉向基督——那真正的愛與盼望之源。'
+          ] },
+          { label: '課程大綱', kind: 'list', items: [
+            '基督的愛如何醫治扭曲與破碎的關係',
+            '如何在祂的光中學習溫柔、真誠、持久的愛',
+            '如何讓情感安歇在主裡，找到永不止息的愛'
+          ] }
+        ]
+      },
+      honor: {
+        activity: '向貴賓致敬', venue: '金華教堂', stake: '中台北支聯會', ward: '蘆洲支會', name: '沈亦斌 姐妹', heading: '沈亦斌 姐妹',
+        sections: [ { label: '貴賓介紹', kind: 'paras', items: [ '[貴賓介紹：後台文字編輯區]' ] } ]
+      },
+      missionary: {
+        activity: '與年長夫婦傳教士有約', venue: '鳥松教堂', stake: '台南支聯會', ward: '台南第五分會', name: '劉錦祥長老及李小媚姊妹', heading: '劉錦祥長老及李小媚姊妹',
+        sections: [
+          { label: '講師介紹', kind: 'paras', items: [ '[講師介紹：後台文字編輯區]' ] },
+          { label: '課程大綱', kind: 'list', items: [ '[大綱第一點]', '[大綱第二點]', '[大綱第三點]' ] }
+        ]
+      },
+      exhibit: {
+        activity: '靜態展示', venue: '大雅教堂', stake: '東台中支聯會', ward: '東英支會', name: '廖秀珠 姐妹', heading: '油畫靜態展',
+        sections: [ { label: '講師介紹', kind: 'paras', items: [ '[講師與作品介紹：後台文字編輯區]' ] } ]
+      }
+    };
+    var a = DATA[this.props.activity ?? 'corner'] || DATA.corner;
+    var sections = a.sections.map(function (s) { return Object.assign({}, s, { isParas: s.kind === 'paras', isList: s.kind === 'list' }); });
+    return { a: a, sections: sections, initial: a.name.charAt(0) };
+  }
+}
+</script>
+</body>
+</html>

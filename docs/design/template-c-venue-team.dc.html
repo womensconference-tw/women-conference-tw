@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>各教堂頁・團隊型</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&amp;family=Noto+Serif+TC:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#FBFAF6}
+a{color:#355227}a:hover{color:#26401b}
+@media (max-width: 640px){.nav-more{display:none !important}}
+</style>
+</helmet>
+<div id="top" style="background: #FBFAF6; color: #1E2420; font-family: 'Noto Sans TC', sans-serif; font-size: 19px; line-height: 1.7;">
+
+<header style="border-bottom: 1px solid #E4E1D6; background: #FBFAF6;">
+<div style="max-width: 1120px; margin: 0 auto; padding: 12px 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 48px; font-family: 'Noto Serif TC', serif; font-weight: 700; font-size: 21px; color: #1E2420; text-decoration: none;">台灣姐妹大會</a>
+<nav aria-label="主選單" style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px;">
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">認識大會</a>
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">大會程序</a>
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">大會場地</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">報名與查詢</a>
+<a href="#" class="nav-more" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 12px; font-size: 17px; color: #1E2420; text-decoration: none;">致謝</a>
+<a href="#" lang="en" style="display: inline-flex; align-items: center; min-height: 48px; padding: 0 18px; margin-left: 8px; border: 2px solid #C9C5B6; border-radius: 12px; font-size: 17px; font-weight: 500; color: #1E2420; text-decoration: none;">English</a>
+</nav>
+</div>
+</header>
+
+<main>
+<section style="max-width: 1120px; margin: 0 auto; padding: 20px 20px 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px;">
+<nav aria-label="目前位置" style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 16px; color: #4A524C;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; color: #355227;">首頁</a>
+<span aria-hidden="true">›</span>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; color: #355227;">大會有什麼</a>
+<span aria-hidden="true">›</span>
+<a href="IntroFeature.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; color: #355227;">{{a.title}}</a>
+<span aria-hidden="true">›</span>
+<span aria-current="page">{{a.venue}}</span>
+</nav>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="font-size: 16px; font-weight: 700; color: #355227; letter-spacing: 0.08em;">{{a.title}}</div>
+<h1 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 40px; font-weight: 700; line-height: 1.35;">{{a.venue}}</h1>
+<sc-if value="{{a.hasShowTitle}}" hint-placeholder-val="{{false}}">
+<p style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 24px; font-weight: 600; color: #4A524C;">{{a.showTitle}}</p>
+</sc-if>
+</div>
+<nav aria-label="其他教堂" style="display: flex; flex-wrap: wrap; gap: 10px;">
+<sc-for list="{{venueLinks}}" as="v" hint-placeholder-count="3">
+<sc-if value="{{v.current}}" hint-placeholder-val="{{false}}">
+<span aria-current="page" style="display: inline-flex; align-items: center; min-height: 52px; padding: 0 20px; border-radius: 12px; background: #355227; color: #FFFFFF; font-size: 18px; font-weight: 700;">{{v.name}}</span>
+</sc-if>
+<sc-if value="{{v.other}}" hint-placeholder-val="{{true}}">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 52px; padding: 0 20px; border-radius: 12px; border: 2px solid #C9C5B6; background: #FFFFFF; color: #1E2420; font-size: 18px; font-weight: 500; text-decoration: none;">{{v.name}}</a>
+</sc-if>
+</sc-for>
+</nav>
+</section>
+
+<sc-if value="{{a.hasPoster}}" hint-placeholder-val="{{false}}">
+<section aria-label="海報" style="max-width: 1120px; margin: 0 auto; padding: 0 20px 40px; box-sizing: border-box; display: flex; justify-content: center;">
+<div role="img" aria-label="{{a.posterAlt}}" style="width: 100%; max-width: 560px; aspect-ratio: 3 / 4; border-radius: 18px; background: #E4E1D6; display: flex; align-items: center; justify-content: center; text-align: center; color: #4A524C; font-size: 17px; padding: 24px; box-sizing: border-box;">海報（後台上傳，直式 3:4；點圖可放大看曲目）</div>
+</section>
+</sc-if>
+
+<sc-if value="{{a.hasInspiration}}" hint-placeholder-val="{{false}}">
+<section aria-label="製作靈感" style="background: #EAF1FA;">
+<div style="max-width: 1120px; margin: 0 auto; padding: 44px 20px; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 20px 56px;">
+<h2 style="flex: 1 1 260px; margin: 0; font-family: 'Noto Serif TC', serif; font-size: 30px; line-height: 1.4; color: #1F3F66;">製作靈感</h2>
+<div style="flex: 999 1 460px; min-width: 0; max-width: 680px; display: flex; flex-direction: column; gap: 16px;">
+<sc-for list="{{a.inspiration}}" as="para" hint-placeholder-count="3">
+<p style="margin: 0;">{{para}}</p>
+</sc-for>
+</div>
+</div>
+</section>
+</sc-if>
+
+<section style="max-width: 1120px; margin: 0 auto; padding: 48px 20px 64px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px;">
+<h2 style="margin: 0; font-family: 'Noto Serif TC', serif; font-size: 30px; line-height: 1.4;">{{a.teamHeading}}</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px;">
+<sc-for list="{{team}}" as="m" hint-placeholder-count="2">
+<article style="display: flex; flex-direction: column; gap: 16px; background: #FFFFFF; border: 1px solid #E4E1D6; border-radius: 18px; padding: 28px; box-sizing: border-box;">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px;">
+<div role="img" aria-label="{{m.name}} 的照片" style="width: 140px; height: 140px; flex: 0 0 auto; border-radius: 50%; background: #E3EED8; color: #2C4620; display: flex; align-items: center; justify-content: center; font-family: 'Noto Serif TC', serif; font-size: 48px; font-weight: 700;">{{m.initial}}</div>
+<div style="display: flex; flex-direction: column; gap: 2px;">
+<span style="align-self: flex-start; padding: 2px 12px; border-radius: 999px; background: #F2F0E8; color: #355227; font-size: 16px; font-weight: 700;">{{m.role}}</span>
+<h3 style="margin: 6px 0 0; font-family: 'Noto Serif TC', serif; font-size: 28px; line-height: 1.4;">{{m.name}}</h3>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<sc-for list="{{m.bio}}" as="para" hint-placeholder-count="3">
+<p style="margin: 0;">{{para}}</p>
+</sc-for>
+</div>
+</article>
+</sc-for>
+</div>
+<a href="IntroFeature.dc.html" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; min-height: 52px; padding: 0 20px; border-radius: 12px; border: 2px solid #355227; color: #355227; font-size: 18px; font-weight: 700; text-decoration: none;"><span aria-hidden="true">‹</span>回到{{a.title}}</a>
+</section>
+</main>
+
+<footer style="background: #1E2420; color: #E9E7DF;">
+<div style="max-width: 1120px; margin: 0 auto; padding: 28px 20px 40px; box-sizing: border-box; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 24px; font-size: 16px;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 18px; font-weight: 700;">台灣姐妹大會</span><span>耶穌基督後期聖徒教會</span></div>
+<nav aria-label="頁尾選單" style="display: flex; flex-wrap: wrap; gap: 0 4px;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">認識大會</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">大會程序</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">大會場地</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">報名與查詢</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: #E9E7DF; font-size: 17px;">致謝</a>
+</nav>
+<a href="#top" style="display: inline-flex; align-items: center; min-height: 44px; color: #E9E7DF; font-size: 17px;">回到最上面</a>
+</div>
+</footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"activity":{"editor":"enum","options":["concert","choir"],"default":"concert"},"$preview":{"width":1280,"height":3000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // 資料來源：activity_venue_pages（活動 × 教堂一筆）＋ activity_team（每人一筆：role、name、photo、bio）
+    var DATA = {
+      choir: {
+        title: '即席唱詩班', venue: '金華教堂', venueId: 'jinhua', hasShowTitle: false, showTitle: '',
+        hasPoster: false, hasInspiration: false, inspiration: [], teamHeading: '指揮與司琴',
+        team: [
+          { role: '指揮', name: '黃淑真', bio: [
+            '黃淑真姐妹畢業於中國文化大學音樂系國樂組，曾任教於桃園市山腳國中、建國國中、中興國中，擔任音樂教師。',
+            '感恩有機會在支會唱詩班及初級會學習及服務，目前事工召喚是慈助會教師。2018 年～擔任飛鳥百合合唱團指揮。',
+            '唱聖詩能帶來聖靈的力量，我在每次的獻唱時都能感受到神的愛。感謝我能參與本次的姐妹大會，與姐妹們一同表達對天父與救主的愛。'
+          ] },
+          { role: '司琴', name: '曾明潔', bio: [
+            '曾明潔姐妹是一位在挑戰中看見祝福、在生命裡尋得光亮的女孩。自小在教會成長，她嚮往音樂與舞台，也因著音樂逐漸找到自己的方向。',
+            '她在 7 歲時才正式開始學習鋼琴，卻絲毫不減她對音樂的熱愛。長大後，她就讀於臺北城市科技大學流行音樂學系，主修流行美聲。目前，她也在教會擔任唱詩班指揮。',
+            '明潔深深相信，自己是被神眷顧的孩子。她堅信，只要對神保持信心，將自己全然交託，祂必在我們生命中行奇蹟。'
+          ] }
+        ]
+      },
+      concert: {
+        title: '迷妳音樂會', venue: '大雅教堂', venueId: 'daya', hasShowTitle: true, showTitle: '〈妳是我的寶〉',
+        hasPoster: true, posterAlt: '大雅教堂迷妳音樂會〈妳是我的寶〉海報，含 7 首曲目與演出者', hasInspiration: true,
+        inspiration: [
+          '在這一場充滿音樂與愛的午後，我們邀請每一位姐妹，暫時放下生活的重擔，讓旋律輕輕擁抱妳的心。主說：「妳是我的寶。」不論經歷多少辛勞與挑戰，在祂眼中，妳永遠是珍貴、獨特、閃閃發光的女兒。',
+          '本場迷妳音樂會以 50、60 年代的中英民歌為主軸，那些陪伴青春的旋律，再次喚醒我們的童心與笑聲。吉他、鋼琴、薩克斯風、爵士鼓與豎琴交織成一場柔和的樂音之旅，邀請妳一起唱、一起笑、一起感受主愛的溫度。',
+          '願每一位姐妹在這個午後，都能重新看見自己的價值——妳不只是眾人眼中的溫柔女子，更是天父眼中最閃耀的寶貝。'
+        ],
+        teamHeading: '製作團隊',
+        team: [
+          { role: '製作人', name: '陳玉穎', bio: [ '[製作人介紹：後台文字編輯區]' ] },
+          { role: '主持', name: '王台君', bio: [
+            '王台君姐妹於 1998 年受洗加入教會，與張右昇弟兄於 2008 年在台北聖殿印證，育有 2 名女兒，從事翻譯員的工作至今。',
+            '曾在教會擔任過各種不同的事工，目前在教會擔任福音研究所教師、初級會音樂領袖。'
+          ] }
+        ]
+      }
+    };
+    var a = DATA[this.props.activity ?? 'concert'] || DATA.concert;
+    var venueLinks = [
+      { id: 'jinhua', name: '金華教堂' }, { id: 'daya', name: '大雅教堂' }, { id: 'niaosong', name: '鳥松教堂' }
+    ].map(function (v) { return { name: v.name, current: v.id === a.venueId, other: v.id !== a.venueId }; });
+    var team = a.team.map(function (m) { return Object.assign({}, m, { initial: m.name.charAt(0) }); });
+    return { a: a, venueLinks: venueLinks, team: team };
+  }
+}
+</script>
+</body>
+</html>
