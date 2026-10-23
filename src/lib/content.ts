@@ -379,10 +379,13 @@ export type HighlightPersonInput = {
   highlightId: string;
   /** 有就是修改，沒有就是新增（排在最後）。 */
   id?: string | null;
-  stakeZh: string;
-  stakeEn: string;
-  wardZh: string;
-  wardEn: string;
+  /** 支聯會名單的編號；空白是不寫支聯會。 */
+  stakeId: string;
+  /** 支會名單的編號；空白是只寫支聯會。選了支會時支聯會以支會所屬的為準。 */
+  wardId: string;
+  /** 傳教士的服務地區；其他版型不用。 */
+  serviceAreaZh: string;
+  serviceAreaEn: string;
   nameZh: string;
   nameEn: string;
   /** highlight-images 裡的路徑；空白是沒有照片。 */
@@ -407,7 +410,10 @@ export async function saveHighlightPerson(supabase: SupabaseClient, input: Highl
   if (photoPath && !isHighlightImagePath(photoPath)) return { ok: false, error: "not_found" };
   const focus = Number(input.photoFocus);
 
-  if (!validIds(input.highlightId, input.id) || !input.highlightId) return { ok: false, error: "not_found" };
+  const stakeId = text(input.stakeId);
+  const wardId = text(input.wardId);
+
+  if (!validIds(input.highlightId, input.id, stakeId, wardId) || !input.highlightId) return { ok: false, error: "not_found" };
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
@@ -415,10 +421,10 @@ export async function saveHighlightPerson(supabase: SupabaseClient, input: Highl
     p_highlight_id: input.highlightId,
     p_id: input.id || null,
     p_values: {
-      stake_zh: text(input.stakeZh),
-      stake_en: text(input.stakeEn),
-      ward_zh: text(input.wardZh),
-      ward_en: text(input.wardEn),
+      stake_id: stakeId || null,
+      ward_id: wardId || null,
+      service_area_zh: text(input.serviceAreaZh),
+      service_area_en: text(input.serviceAreaEn),
       name_zh: nameZh,
       name_en: text(input.nameEn),
       photo_path: photoPath || null,
@@ -498,6 +504,8 @@ function failure(error: PostgrestError): { ok: false; error: ContentError } {
     case violates("conferences_end_needs_start"):
       return { ok: false, error: "time_invalid" };
     case error.message === "not_found":
+    // 人物選的支聯會不存在（被刪了，或網頁被改過）。
+    case error.code === "23503" && error.message.includes("highlight_people"):
       return { ok: false, error: "not_found" };
     case error.message === "not_admin":
     case error.code === "42501":
@@ -578,10 +586,14 @@ export type HighlightItem = HomeItem & {
 /** 後台的一位人物，中英兩欄都在。 */
 export type HighlightPersonItem = {
   id: string;
-  stakeZh: string;
-  stakeEn: string;
-  wardZh: string;
-  wardEn: string;
+  /** 沒選是空字串。 */
+  stakeId: string;
+  wardId: string;
+  /** 所選支聯會、支會的中文名稱（後台列表顯示）；沒選是空字串。 */
+  stakeName: string;
+  wardName: string;
+  serviceAreaZh: string;
+  serviceAreaEn: string;
   nameZh: string;
   nameEn: string;
   /** 照片的路徑與公開網址；沒有照片是 null。 */
@@ -612,8 +624,8 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en, page_template,
         subtitle_zh, subtitle_en, lead_quote_zh, lead_quote_en, lead_quote_source_zh, lead_quote_source_en,
         courses(count), highlight_venues(venue_id, body_zh, body_en),
-        highlight_people(id, stake_zh, stake_en, ward_zh, ward_en, name_zh, name_en, photo_path, photo_focus,
-          link_label_zh, link_label_en, link_url))`,
+        highlight_people(id, stake_id, ward_id, service_area_zh, service_area_en, name_zh, name_en, photo_path,
+          photo_focus, link_label_zh, link_label_en, link_url, stakes(name_zh), wards(name_zh)))`,
     )
     .eq("is_current", true)
     .order("position", { referencedTable: "faqs" })
@@ -699,10 +711,13 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       leadQuoteSourceEn: highlight.lead_quote_source_en,
       people: highlight.highlight_people.map((person) => ({
         id: person.id,
-        stakeZh: person.stake_zh,
-        stakeEn: person.stake_en,
-        wardZh: person.ward_zh,
-        wardEn: person.ward_en,
+        stakeId: person.stake_id ?? "",
+        wardId: person.ward_id ?? "",
+        // 一位人物只對到一個支聯會、一個支會，讀出來是物件不是陣列。
+        stakeName: (person.stakes as unknown as { name_zh: string } | null)?.name_zh ?? "",
+        wardName: (person.wards as unknown as { name_zh: string } | null)?.name_zh ?? "",
+        serviceAreaZh: person.service_area_zh,
+        serviceAreaEn: person.service_area_en,
         nameZh: person.name_zh,
         nameEn: person.name_en,
         photo: person.photo_path ? { path: person.photo_path, url: highlightImageUrl(supabase, person.photo_path) } : null,

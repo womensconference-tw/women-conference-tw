@@ -7,6 +7,7 @@ import type { Locale } from "@/lib/i18n/locale";
 import type { Messages } from "@/lib/i18n/messages";
 import { cn } from "@/lib/utils";
 import { PreviewBanner } from "./preview/preview-banner";
+import { RegionFilter } from "./region-filter";
 import { SiteFooter, SiteHeader } from "./site-chrome";
 
 // 版面寬度和首頁一樣：手機左右留白，電腦上內容不拉得太寬。
@@ -18,7 +19,7 @@ const BIG_CARDS: Record<PageTemplate, boolean> = { honor: false, missionary: tru
 /**
  * 大會特色介紹頁的人物版型（設計稿 docs/design/activity-*.dc.html）：向貴賓致敬、與年長夫婦傳教士有約、靜態展示
  * 三頁共用，只差資料與人物卡片的按鈕。由上到下：Header → 麵包屑 → 標題區（小標、名稱、副標）
- * → 介紹區（引言與介紹內容，寬度不夠時上下排）→ 人物卡片 → Footer。
+ * → 介紹區（引言與介紹內容，寬度不夠時上下排）→ 北／中／南區按鈕與人物卡片 → Footer。
  * 刻意不放時間、地點、怎麼參加、報名按鈕（設計交接說明），也不分教堂。
  * 顏色、字型、字級和首頁一樣用 globals.css 的主視覺設定，首頁視覺定稿（#86）時一起換。
  */
@@ -114,19 +115,21 @@ export function ActivityPage({
                 {hasLinks && (locale === "en" ? " " : "") + copy.linkHint}
               </p>
             </div>
-            <ul
-              className={cn(
+            <RegionFilter
+              locale={locale}
+              listClass={cn(
                 "grid gap-5",
                 // 手機寬度不到一張卡片時一欄，不會撐出左右捲動。
                 BIG_CARDS[template]
                   ? "grid-cols-[repeat(auto-fill,minmax(min(100%,18.75rem),1fr))]"
                   : "grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))]",
               )}
-            >
-              {highlight.people.map((person) => (
-                <PersonCard key={person.id} person={person} template={template} t={t} />
-              ))}
-            </ul>
+              items={highlight.people.map((person) => ({
+                id: person.id,
+                region: person.region,
+                card: <PersonCard person={person} template={template} t={t} />,
+              }))}
+            />
           </section>
         )}
       </main>
@@ -173,10 +176,12 @@ function PersonCard({ person, template, t }: { person: HighlightPerson; template
       )}
       <div className="flex flex-auto flex-col items-center gap-1 px-5 pt-4 pb-5 text-center">
         {template === "missionary" ? (
-          // 傳教士寫的是家鄉的支聯會與服務地區，分兩行，不會被看成同一個單位。
+          // 傳教士寫的是在台灣服務的支聯會與服務地區，分兩行，不會被看成同一個單位。
           <>
             {person.stake && <span className="text-muted-foreground">{person.stake}</span>}
-            {person.ward && <span className="text-muted-foreground">{t.activity.missionary.serviceArea(person.ward)}</span>}
+            {person.serviceArea && (
+              <span className="text-muted-foreground">{t.activity.missionary.serviceArea(person.serviceArea)}</span>
+            )}
           </>
         ) : (
           (person.stake || person.ward) && (

@@ -208,8 +208,8 @@ async function ensureAdmin(supabase: SupabaseClient): Promise<{ ok: false; error
 // 資料庫丟出的代碼轉成結果；其他錯誤記下來，畫面上顯示系統暫時出了問題。
 function failure(error: PostgrestError): { ok: false; error: StakeError } {
   switch (true) {
-    // 有報名（包括已取消的）或籌備委員會名單（#45）指向它，外鍵擋下刪除。
-    case error.code === "23503" && /registrations|committee_/.test(error.message):
+    // 有報名（包括已取消的）、籌備委員會名單（#45）或大會特色介紹頁的人物指向它，外鍵擋下刪除。
+    case error.code === "23503" && /registrations|committee_|highlight_people/.test(error.message):
       return { ok: false, error: "in_use" };
     // 新增支會時，支聯會不存在。
     case error.code === "23503":

@@ -247,6 +247,26 @@ describe("介紹頁的教堂分頁", () => {
 });
 
 describe("介紹頁的人物版型", () => {
+  let taipeiStakeId: string;
+  let luzhouWardId: string;
+  let shaluWardId: string;
+  let taichungStakeId: string;
+
+  beforeEach(async () => {
+    const stake = async (row: Record<string, unknown>) => must(await admin.from("stakes").insert(row).select("id").single()).id as string;
+    const ward = async (row: Record<string, unknown>) => must(await admin.from("wards").insert(row).select("id").single()).id as string;
+    taipeiStakeId = await stake({ region: "north", name_zh: "測試中台北支聯會" });
+    luzhouWardId = await ward({ stake_id: taipeiStakeId, name_zh: "測試蘆洲支會" });
+    taichungStakeId = await stake({ region: "central", name_zh: "測試西台中支聯會" });
+    shaluWardId = await ward({ stake_id: taichungStakeId, name_zh: "測試沙鹿支會", name_en: "Test Shalu Ward" });
+  });
+
+  afterEach(async () => {
+    // 人物指向測試的支聯會，先刪人物（年度大會在最外層才刪）。
+    if (fixtureId) must(await admin.from("highlight_people").delete().eq("conference_id", fixtureId));
+    must(await admin.from("stakes").delete().in("id", [taipeiStakeId, taichungStakeId]));
+  });
+
   // 在 2099 目前年度加一項人物版型的大會特色與它的人物（照順序）。
   async function templatePage(row: Record<string, unknown>, people: Record<string, unknown>[]) {
     const id = must(
@@ -275,7 +295,14 @@ describe("介紹頁的人物版型", () => {
         description_zh: "她們走過歲月的風雨。\n\n<script>alert(1)</script>",
       },
       [
-        { stake_zh: "中台北支聯會", ward_zh: "蘆洲支會", name_zh: "沈亦斌 姐妹", photo_path: photo, photo_focus: 20, link_url: "/story/1" },
+        {
+          stake_id: taipeiStakeId,
+          ward_id: luzhouWardId,
+          name_zh: "沈亦斌 姐妹",
+          photo_path: photo,
+          photo_focus: 20,
+          link_url: "/story/1",
+        },
         { name_zh: "黃蘋 姐妹" },
       ],
     );
@@ -299,7 +326,7 @@ describe("介紹頁的人物版型", () => {
     expect(screen.getByText("共 2 位貴賓。點按鈕，閱讀每一位貴賓的故事。")).toBeTruthy();
     const cards = screen.getAllByRole("listitem").filter((item) => item.closest("main") && item.querySelector(".rounded-full"));
     expect(cards.map((card) => card.textContent)).toEqual([
-      "中台北支聯會・蘆洲支會沈亦斌 姐妹閱讀她的故事",
+      "測試中台北支聯會・測試蘆洲支會沈亦斌 姐妹閱讀她的故事",
       "黃蘋 姐妹",
     ]);
     const image = within(cards[0]).getByRole("img", { name: "沈亦斌 姐妹" });
@@ -316,7 +343,13 @@ describe("介紹頁的人物版型", () => {
     await arrange(true);
     locale = "en";
     const id = await templatePage({ name_zh: "靜態展示", name_en: "Exhibition", page_template: "exhibit" }, [
-      { name_zh: "王真真", ward_zh: "沙鹿支會", ward_en: "Shalu Ward", link_label_zh: "溫柔的心", link_url: "https://example.com/work" },
+      {
+        name_zh: "王真真",
+        stake_id: taichungStakeId,
+        ward_id: shaluWardId,
+        link_label_zh: "溫柔的心",
+        link_url: "https://example.com/work",
+      },
       { name_zh: "廖秀珠", link_label_zh: "油畫靜態展", link_label_en: "Oil paintings" },
     ]);
 
@@ -326,7 +359,7 @@ describe("介紹頁的人物版型", () => {
     expect(screen.getByText("2 sisters are exhibiting. Tap a title to read about the work.")).toBeTruthy();
     const work = screen.getByRole("link", { name: /溫柔的心/ });
     expect(work.getAttribute("href")).toBe("https://example.com/work");
-    expect(screen.getByText("Shalu Ward")).toBeTruthy();
+    expect(screen.getByText("測試西台中支聯會 · Test Shalu Ward")).toBeTruthy();
     expect(screen.getByText("Oil paintings").closest("a")).toBeNull();
     // 只寫了人物、沒有引言與介紹內容時，沒有介紹區。
     expect(document.querySelector("blockquote")).toBeNull();
@@ -335,7 +368,7 @@ describe("介紹頁的人物版型", () => {
   it("傳教士：支聯會與服務地區分兩行；沒填按鈕文字用預設文字；預覽版的連結回到預覽首頁", async () => {
     await arrange(false);
     const id = await templatePage({ name_zh: "與年長夫婦傳教士有約", page_template: "missionary" }, [
-      { stake_zh: "台中地帶", ward_zh: "高雄傳道部", name_zh: "曾其祥、曾李瑞馨 夫婦", link_url: "/couple" },
+      { stake_id: taichungStakeId, service_area_zh: "台中傳道部", name_zh: "曾其祥、曾李瑞馨 夫婦", link_url: "/couple" },
     ]);
 
     await expect(renderPage(HighlightPage({ id, preview: false }))).rejects.toThrow("not found");
@@ -343,11 +376,69 @@ describe("介紹頁的人物版型", () => {
 
     expect(screen.getByRole("status").textContent).toBe(messages.zh.preview.highlight);
     expect(screen.getByRole("link", { name: "認識這對傳教士" }).getAttribute("href")).toBe("/couple");
-    // 支聯會與服務地區分兩行，不寫成「台中地帶・高雄傳道部」。
-    expect(screen.getByText("台中地帶")).toBeTruthy();
-    expect(screen.getByText("服務地區：高雄傳道部")).toBeTruthy();
-    expect(screen.queryByText(/台中地帶・/)).toBeNull();
+    // 支聯會與服務地區分兩行，不寫成「測試西台中支聯會・台中傳道部」。
+    expect(screen.getByText("測試西台中支聯會")).toBeTruthy();
+    expect(screen.getByText("服務地區：台中傳道部")).toBeTruthy();
+    expect(screen.queryByText(/測試西台中支聯會・/)).toBeNull();
     expect(screen.getByRole("link", { name: "首頁" }).getAttribute("href")).toBe("/preview");
+  });
+
+  it("北／中／南區按鈕：只顯示所選那一區的人；沒選支聯會的只在全部；沒有人的區顯示說明", async () => {
+    await arrange(true);
+    const id = await templatePage({ name_zh: "向貴賓致敬", page_template: "honor" }, [
+      { name_zh: "北一", stake_id: taipeiStakeId },
+      { name_zh: "中一", stake_id: taichungStakeId, ward_id: shaluWardId },
+      { name_zh: "北二", stake_id: taipeiStakeId, ward_id: luzhouWardId },
+      { name_zh: "沒選" },
+    ]);
+
+    await renderPage(HighlightPage({ id, preview: false }));
+
+    const names = () =>
+      screen
+        .queryAllByRole("listitem")
+        .filter((item) => item.querySelector(".rounded-full"))
+        .map((card) => card.querySelector(".font-bold")!.textContent);
+    const group = within(screen.getByRole("group", { name: messages.zh.activity.regionFilterLabel }));
+    expect(group.getAllByRole("button").map((button) => [button.textContent, button.getAttribute("aria-pressed")])).toEqual([
+      ["全部（4）", "true"],
+      ["北區（2）", "false"],
+      ["中區（1）", "false"],
+      ["南區（0）", "false"],
+    ]);
+    expect(names()).toEqual(["北一", "中一", "北二", "沒選"]);
+
+    fireEvent.click(group.getByRole("button", { name: "北區（2）" }));
+    expect(names()).toEqual(["北一", "北二"]);
+    expect(group.getByRole("button", { name: "北區（2）" }).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(group.getByRole("button", { name: "南區（0）" }));
+    expect(names()).toEqual([]);
+    expect(screen.getByText(messages.zh.activity.regionEmpty)).toBeTruthy();
+
+    fireEvent.click(group.getByRole("button", { name: "全部（4）" }));
+    expect(names()).toEqual(["北一", "中一", "北二", "沒選"]);
+  });
+
+  it("北／中／南區按鈕：沒有人選支聯會時不放；伺服器畫的頁面也沒有按鈕、全部的人都在", async () => {
+    await arrange(true);
+    const plain = await templatePage({ name_zh: "靜態展示", page_template: "exhibit" }, [{ name_zh: "甲" }]);
+    await renderPage(HighlightPage({ id: plain, preview: false }));
+    expect(screen.queryByRole("group", { name: messages.zh.activity.regionFilterLabel })).toBeNull();
+    cleanup();
+
+    const id = await templatePage({ name_zh: "向貴賓致敬", page_template: "honor" }, [
+      { name_zh: "北一", stake_id: taipeiStakeId },
+      { name_zh: "中一", stake_id: taichungStakeId },
+    ]);
+    let element = await HighlightPage({ id, preview: false });
+    while (typeof element.type === "function") {
+      element = await (element.type as (props: unknown) => ReactElement | Promise<ReactElement>)(element.props);
+    }
+    const html = renderToString(element);
+    expect(html).not.toContain(messages.zh.activity.regionFilterLabel);
+    expect(html).toContain("北一");
+    expect(html).toContain("中一");
   });
 
   it("選了版型、沒有人物也沒有介紹內容時找不到，首頁卡片不能點", async () => {

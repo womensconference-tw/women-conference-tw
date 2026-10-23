@@ -12,6 +12,7 @@ import {
   type HomeItem,
   type HomeItemKind,
 } from "@/lib/content";
+import { getStakeDirectory } from "@/lib/stakes";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { getCurrentStaff } from "../../current-staff";
@@ -39,6 +40,7 @@ import {
 } from "./actions";
 import { HeroUpload } from "./hero-upload";
 import { PersonPhotoField } from "./person-photo-field";
+import { UnitFields, type UnitStake } from "./unit-fields";
 
 export const metadata: Metadata = { title: "首頁內容" };
 
@@ -122,7 +124,8 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
   if (!me) redirect("/staff/login");
   if (me.role !== "admin") notFound();
 
-  const content = await getContentEditor(await createClient());
+  const supabase = await createClient();
+  const [content, directory] = await Promise.all([getContentEditor(supabase), getStakeDirectory(supabase)]);
   if (!content) {
     return (
       <main className="flex flex-col gap-8">
@@ -168,8 +171,7 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
         [item.leadQuoteZh, item.leadQuoteEn],
         [item.leadQuoteSourceZh, item.leadQuoteSourceEn],
         ...item.people.flatMap((person) => [
-          [person.stakeZh, person.stakeEn],
-          [person.wardZh, person.wardEn],
+          [person.serviceAreaZh, person.serviceAreaEn],
           [person.nameZh, person.nameEn],
           [person.linkLabelZh, person.linkLabelEn],
         ]),
@@ -273,6 +275,18 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
         noun="大會特色"
         items={content.highlights}
         conferenceId={conferenceId}
+        stakes={directory.stakes.map((stake) => ({
+          id: stake.id,
+          // 停用的仍列出（人物原本選的要能留著），標示出來免得新選到。
+          name: stake.isActive ? stake.nameZh : `${stake.nameZh}（已停用）`,
+          active: stake.isActive,
+          region: stake.region,
+          wards: stake.wards.map((ward) => ({
+            id: ward.id,
+            name: ward.isActive ? ward.nameZh : `${ward.nameZh}（已停用）`,
+            active: ward.isActive,
+          })),
+        }))}
         description="首頁「大會有什麼」的卡片，依這裡的順序。介紹頁有內容（介紹內容、教堂分頁或有課程分在這一類）的卡片可以點進介紹頁；都沒有的只顯示名稱和一句話，不能點。向貴賓致敬、與年長夫婦傳教士有約、靜態展示請選對應的介紹頁版型，介紹頁會改成人物卡片的樣子（介紹內容或人物有一個就能點）。"
       />
       <ItemList
@@ -373,6 +387,7 @@ function ItemList({
   items,
   conferenceId,
   description,
+  stakes = [],
 }: {
   kind: HomeItemKind;
   heading: string;
@@ -380,6 +395,8 @@ function ItemList({
   items: (HomeItem | HighlightItem)[];
   conferenceId: string;
   description: string;
+  /** 大會特色的人物可選的支聯會與支會（含停用的）。 */
+  stakes?: DirectoryUnit[];
 }) {
   return (
     <section className="flex flex-col gap-4">
@@ -423,7 +440,7 @@ function ItemList({
             </details>
             {"venues" in item &&
               (item.pageTemplate ? (
-                <HighlightPeopleForms item={item} template={item.pageTemplate} conferenceId={conferenceId} />
+                <HighlightPeopleForms item={item} template={item.pageTemplate} conferenceId={conferenceId} stakes={stakes} />
               ) : (
                 <HighlightVenueForms item={item} conferenceId={conferenceId} />
               ))}
@@ -521,10 +538,12 @@ function HighlightPeopleForms({
   item,
   template,
   conferenceId,
+  stakes,
 }: {
   item: HighlightItem;
   template: PageTemplate;
   conferenceId: string;
+  stakes: DirectoryUnit[];
 }) {
   return (
     <details>
@@ -547,8 +566,8 @@ function HighlightPeopleForms({
                 <span className="font-semibold">
                   {index + 1}. {person.nameZh}
                 </span>
-                {(person.stakeZh || person.wardZh) && (
-                  <span className="text-muted-foreground">{[person.stakeZh, person.wardZh].filter(Boolean).join("・")}</span>
+                {(person.stakeName || person.wardName) && (
+                  <span className="text-muted-foreground">{[person.stakeName, person.wardName].filter(Boolean).join("・")}</span>
                 )}
               </div>
               <div className="flex flex-wrap gap-3">
@@ -558,7 +577,7 @@ function HighlightPeopleForms({
               <details>
                 <summary className="cursor-pointer font-semibold">編輯「{person.nameZh}」</summary>
                 <div className="mt-3">
-                  <PersonForm item={item} template={template} conferenceId={conferenceId} person={person} />
+                  <PersonForm item={item} template={template} conferenceId={conferenceId} stakes={stakes} person={person} />
                 </div>
               </details>
               <details>
@@ -579,7 +598,7 @@ function HighlightPeopleForms({
         <details className="rounded-lg border p-3">
           <summary className="cursor-pointer font-semibold">新增人物</summary>
           <div className="mt-3">
-            <PersonForm item={item} template={template} conferenceId={conferenceId} />
+            <PersonForm item={item} template={template} conferenceId={conferenceId} stakes={stakes} />
           </div>
         </details>
       </div>
@@ -591,31 +610,37 @@ function PersonForm({
   item,
   template,
   conferenceId,
+  stakes,
   person,
 }: {
   item: HighlightItem;
   template: PageTemplate;
   conferenceId: string;
+  stakes: DirectoryUnit[];
   person?: HighlightPersonItem;
 }) {
   const link = PERSON_LINK_LABELS[template];
+  const stakeId = person?.stakeId ?? "";
+  const wardId = person?.wardId ?? "";
   return (
     <form action={saveHighlightPersonAction} className="flex flex-col gap-3">
       <input type="hidden" name="highlightId" value={item.id} />
       {person && <input type="hidden" name="id" value={person.id} />}
       <TextPair name="name" label="姓名" zh={person?.nameZh} en={person?.nameEn} required />
       <span className="text-sm text-muted-foreground">照卡片上要顯示的寫，例如「沈亦斌 姐妹」「宋長老及宋馬彩鳳姊妹」。</span>
-      <TextPair name="stake" label="支聯會" zh={person?.stakeZh} en={person?.stakeEn} />
-      <TextPair
-        name="ward"
-        label={template === "missionary" ? "服務地區" : "支會（或分會）"}
-        zh={person?.wardZh}
-        en={person?.wardEn}
+      <UnitFields
+        stakes={unitChoices(stakes, stakeId, wardId)}
+        stakeId={stakeId}
+        wardId={wardId}
+        withWard={template !== "missionary"}
       />
       {template === "missionary" && (
-        <span className="text-sm text-muted-foreground">
-          支聯會寫傳教士家鄉的支聯會；服務地區寫他們服務的地方，例如「高雄傳道部」。卡片上分兩行顯示。
-        </span>
+        <>
+          <TextPair name="serviceArea" label="服務地區" zh={person?.serviceAreaZh} en={person?.serviceAreaEn} />
+          <span className="text-sm text-muted-foreground">
+            服務地區寫他們服務的地方，例如「高雄傳道部」。卡片上和支聯會分兩行顯示。
+          </span>
+        </>
       )}
       <PersonPhotoField conferenceId={conferenceId} photo={person?.photo ?? null} focus={person?.photoFocus ?? 50} />
       <TextPair name="linkLabel" label={link.label} zh={person?.linkLabelZh} en={person?.linkLabelEn} />
@@ -629,6 +654,23 @@ function PersonForm({
       <SubmitButton className={submitClass}>{person ? `儲存「${person.nameZh}」` : "新增人物"}</SubmitButton>
     </form>
   );
+}
+
+/** 支聯會名單的一個支聯會與底下的支會，含停用的（名稱已經標示）。 */
+type DirectoryUnit = Omit<UnitStake, "wards"> & { active: boolean; wards: (UnitStake["wards"][number] & { active: boolean })[] };
+
+/** 選單只列出啟用中的支聯會與支會，加上這位人物原本選的（停用了也留著，存檔時才不會被清掉）。 */
+function unitChoices(stakes: DirectoryUnit[], stakeId: string, wardId: string): UnitStake[] {
+  return stakes
+    .filter((stake) => stake.active || stake.id === stakeId)
+    .map((stake) => ({
+      id: stake.id,
+      name: stake.name,
+      region: stake.region,
+      wards: stake.wards
+        .filter((ward) => ward.active || ward.id === wardId)
+        .map((ward) => ({ id: ward.id, name: ward.name })),
+    }));
 }
 
 function MovePersonButton({ id, direction }: { id: string; direction: "up" | "down" }) {

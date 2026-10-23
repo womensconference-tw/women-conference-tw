@@ -97,6 +97,11 @@ const zh = {
     breadcrumbLabel: "目前位置",
     home: "首頁",
     unitSeparator: "・",
+    regionFilterLabel: "依區篩選",
+    regionAll: "全部",
+    regions: { north: "北區", central: "中區", south: "南區" },
+    regionButton: (label: string, count: number) => `${label}（${count}）`,
+    regionEmpty: "這一區還沒有人。",
     honor: {
       peopleHeading: "貴賓介紹",
       peopleCount: (count: number) => `共 ${count} 位貴賓。`,
@@ -407,6 +412,11 @@ const en = {
     breadcrumbLabel: "You are here",
     home: "Home",
     unitSeparator: " · ",
+    regionFilterLabel: "Filter by region",
+    regionAll: "All",
+    regions: { north: "North", central: "Central", south: "South" },
+    regionButton: (label: string, count: number) => `${label} (${count})`,
+    regionEmpty: "No one from this region yet.",
     honor: {
       peopleHeading: "Our honoured guests",
       peopleCount: (count: number) => `${count} ${count === 1 ? "guest" : "guests"}.`,

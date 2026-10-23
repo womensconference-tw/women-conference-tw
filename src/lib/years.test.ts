@@ -97,6 +97,11 @@ async function switchedTo(conferenceId: string) {
  * 2099 年的完整安排：一個場地、兩個場次、三門課（其中兩門成對、一門有教室與講師）、限量午餐、午后動態（第三個場次，裡面一門不限量的課）、
  * 首頁內容、常見問題、自訂區塊、兩項大會特色，以及一筆報名。建好後把時程移到過去（已截止），像去年一樣。
  */
+/** 支聯會、支會名單不分年度，人物用 seed 的第一個支會。 */
+async function seedWard() {
+  return must(await admin.from("wards").select("id, stake_id").order("id").limit(1).single());
+}
+
 async function lastYear() {
   must(
     await admin
@@ -136,11 +141,13 @@ async function lastYear() {
     link_label_zh: "她的故事",
     link_url: "/story",
   });
+  const ward = await seedWard();
   await insert("highlight_people", {
     highlight_id: honor,
     position: 1,
-    stake_zh: "中台北支聯會",
-    ward_en: "Luzhou Ward",
+    stake_id: ward.stake_id,
+    ward_id: ward.id,
+    service_area_en: "Taipei Mission",
     name_zh: "沈亦斌 姐妹",
     photo_path: `${sourceId}/00000000-0000-4000-8000-000000000000.jpg`,
     photo_focus: 20,
@@ -434,6 +441,7 @@ describe("複製去年建立新年度", () => {
 
   it("介紹頁的版型、副標、引言與人物一起帶過去，照片用同一個檔案", async () => {
     await lastYear();
+    const ward = await seedWard();
 
     await switchedTo(await copied());
 
@@ -446,10 +454,18 @@ describe("複製去年建立新年度", () => {
       linkable: true,
     });
     expect(
-      honor.people.map((person) => [person.nameZh, person.stakeZh, person.wardEn, person.photo?.path ?? null, person.photoFocus, person.linkUrl]),
+      honor.people.map((person) => [
+        person.nameZh,
+        person.stakeId,
+        person.wardId,
+        person.serviceAreaEn,
+        person.photo?.path ?? null,
+        person.photoFocus,
+        person.linkUrl,
+      ]),
     ).toEqual([
-      ["沈亦斌 姐妹", "中台北支聯會", "Luzhou Ward", `${sourceId}/00000000-0000-4000-8000-000000000000.jpg`, 20, ""],
-      ["黃蘋 姐妹", "", "", null, 50, "/story"],
+      ["沈亦斌 姐妹", ward.stake_id, ward.id, "Taipei Mission", `${sourceId}/00000000-0000-4000-8000-000000000000.jpg`, 20, ""],
+      ["黃蘋 姐妹", "", "", "", null, 50, "/story"],
     ]);
   });
 

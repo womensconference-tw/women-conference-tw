@@ -259,6 +259,22 @@ describe("有報名的單位", () => {
     expect((await getStakeDirectory(headAdmin)).stakes.find((stake) => stake.id === stakeId)).toMatchObject({ isActive: false });
   });
 
+  it("大會特色介紹頁的人物選了它時也不能刪除", async () => {
+    const stakeId = await addedStake("測試竹東支聯會");
+    const wardId = await addedWard(stakeId, "測試竹東支會");
+    const highlightId = must(
+      await admin.from("highlights").insert({ conference_id: conferenceId, name_zh: "向貴賓致敬", page_template: "honor" }).select("id").single(),
+    ).id;
+    must(
+      await admin
+        .from("highlight_people")
+        .insert({ conference_id: conferenceId, highlight_id: highlightId, stake_id: stakeId, ward_id: wardId, name_zh: "王小美" }),
+    );
+
+    expect(await deleteUnit(headAdmin, "ward", wardId)).toEqual({ ok: false, error: "in_use" });
+    expect(await deleteUnit(headAdmin, "stake", stakeId)).toEqual({ ok: false, error: "in_use" });
+  });
+
   it("重新劃分：停用舊支會、在新支聯會新增支會後，舊報名的支聯會與支會不變，原支聯會的報報組看得到、新支聯會的看不到", async () => {
     const oldStake = await addedStake("測試竹東支聯會", "north");
     const oldWard = await addedWard(oldStake, "測試峨眉支會");
