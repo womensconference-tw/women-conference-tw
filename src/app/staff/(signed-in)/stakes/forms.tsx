@@ -21,7 +21,8 @@ export const ERRORS: Record<StakeError, string> = {
   name_required: "請填中文名稱。",
   region_required: "請選支聯會在哪一區。",
   position_invalid: "排序要填整數。",
-  in_use: "已經有人報名時選了它（包括已取消的報名），或籌備委員會名單上有人屬於它，不能刪除，紀錄才不會少了它。可以改成停用。",
+  in_use:
+    "已經有人報名時選了它（包括已取消的報名），或籌備委員會名單、大會特色介紹頁的人物有人屬於它，不能刪除，紀錄才不會少了它。可以改成停用。",
   not_found: "找不到這一項，可能已經被刪除。",
   unavailable: "系統暫時出了問題，請稍後再試。",
 };

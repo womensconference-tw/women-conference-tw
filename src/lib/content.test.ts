@@ -761,12 +761,34 @@ describe("大會特色的教堂分頁", () => {
 });
 
 describe("介紹頁的人物版型", () => {
+  let northStakeId: string;
+  let northWardId: string;
+  let southStakeId: string;
+  let southWardId: string;
+
+  beforeEach(async () => {
+    northStakeId = must(
+      await admin.from("stakes").insert({ region: "north", name_zh: "測試中台北支聯會", name_en: "Test Taipei Central Stake" }).select("id").single(),
+    ).id;
+    northWardId = must(
+      await admin.from("wards").insert({ stake_id: northStakeId, name_zh: "測試蘆洲支會", name_en: "Test Luzhou Ward" }).select("id").single(),
+    ).id;
+    southStakeId = must(await admin.from("stakes").insert({ region: "south", name_zh: "測試台南支聯會" }).select("id").single()).id;
+    southWardId = must(await admin.from("wards").insert({ stake_id: southStakeId, name_zh: "測試安平支會" }).select("id").single()).id;
+  });
+
+  afterEach(async () => {
+    // 人物指向測試的支聯會，先刪人物（年度大會在最外層才刪）。
+    if (conferenceId) must(await admin.from("highlight_people").delete().eq("conference_id", conferenceId));
+    must(await admin.from("stakes").delete().in("id", [northStakeId, southStakeId]));
+  });
+
   const person = (highlightId: string, changes: Partial<HighlightPersonInput> = {}): HighlightPersonInput => ({
     highlightId,
-    stakeZh: "",
-    stakeEn: "",
-    wardZh: "",
-    wardEn: "",
+    stakeId: "",
+    wardId: "",
+    serviceAreaZh: "",
+    serviceAreaEn: "",
     nameZh: "",
     nameEn: "",
     photoPath: "",
@@ -804,9 +826,8 @@ describe("介紹頁的人物版型", () => {
       await saveHighlightPerson(
         headAdmin,
         person(id, {
-          stakeZh: "中台北支聯會",
-          wardZh: "蘆洲支會",
-          wardEn: "Luzhou Ward",
+          stakeId: northStakeId,
+          wardId: northWardId,
           nameZh: " 沈亦斌 姐妹 ",
           nameEn: "Sister Shen",
           photoPath: photo,
@@ -831,8 +852,10 @@ describe("介紹頁的人物版型", () => {
     });
     expect(page.people.map(({ photoUrl, ...rest }) => ({ ...rest, photo: photoUrl?.endsWith(photo) ?? null }))).toMatchObject([
       {
-        stake: "中台北支聯會",
-        ward: "Luzhou Ward",
+        stake: "Test Taipei Central Stake",
+        ward: "Test Luzhou Ward",
+        serviceArea: "",
+        region: "north",
         name: "Sister Shen",
         photo: true,
         photoFocus: 25,
@@ -840,15 +863,56 @@ describe("介紹頁的人物版型", () => {
         linkUrl: "/highlights/story",
       },
       // 對準位置超出範圍時當成中間。
-      { stake: "", ward: "", name: "黃蘋 姐妹", photo: null, photoFocus: 50, linkLabel: "", linkUrl: null },
+      { stake: "", ward: "", region: null, name: "黃蘋 姐妹", photo: null, photoFocus: 50, linkLabel: "", linkUrl: null },
     ]);
 
     const editor = (await getContentEditor(headAdmin))!.highlights[0];
     expect(editor).toMatchObject({ pageTemplate: "honor", subtitleZh: "80 歲長輩，持守到底的美好榜樣。", linkable: true });
-    expect(editor.people.map((p) => [p.nameZh, p.photo?.path ?? null])).toEqual([
-      ["沈亦斌 姐妹", photo],
-      ["黃蘋 姐妹", null],
+    expect(editor.people.map((p) => [p.nameZh, p.photo?.path ?? null, p.stakeId, p.wardId, p.stakeName, p.wardName])).toEqual([
+      ["沈亦斌 姐妹", photo, northStakeId, northWardId, "測試中台北支聯會", "測試蘆洲支會"],
+      ["黃蘋 姐妹", null, "", "", "", ""],
     ]);
+  });
+
+  it("只選支聯會也可以；選了支會時支聯會以支會所屬的為準；支聯會停用後介紹頁照樣顯示名稱與區", async () => {
+    const id = await honor();
+    expect(await saveHighlightPerson(headAdmin, person(id, { nameZh: "甲", stakeId: southStakeId }))).toEqual({ ok: true });
+    // 表單上換了支聯會卻沒重選支會：存成支會所屬的支聯會，不會對不上。
+    expect(await saveHighlightPerson(headAdmin, person(id, { nameZh: "乙", stakeId: northStakeId, wardId: southWardId }))).toEqual({
+      ok: true,
+    });
+    must(await admin.from("stakes").update({ is_active: false }).eq("id", southStakeId));
+
+    const page = (await getHighlight(anonClient(), id, "zh"))!;
+    expect(page.people.map(({ name, stake, ward, region }) => ({ name, stake, ward, region }))).toEqual([
+      { name: "甲", stake: "測試台南支聯會", ward: "", region: "south" },
+      { name: "乙", stake: "測試台南支聯會", ward: "測試安平支會", region: "south" },
+    ]);
+  });
+
+  it("傳教士只選支聯會，服務地區照舊打字", async () => {
+    const id = await savedItem({ kind: "highlight", titleZh: "與年長夫婦傳教士有約", pageTemplate: "missionary" });
+    expect(
+      await saveHighlightPerson(
+        headAdmin,
+        person(id, { nameZh: "曾長老夫婦", stakeId: northStakeId, serviceAreaZh: " 台北傳道部 ", serviceAreaEn: "Taiwan Taipei Mission" }),
+      ),
+    ).toEqual({ ok: true });
+    expect((await getHighlight(anonClient(), id, "en"))!.people).toMatchObject([
+      { stake: "Test Taipei Central Stake", ward: "", serviceArea: "Taiwan Taipei Mission", region: "north" },
+    ]);
+    expect((await getContentEditor(headAdmin))!.highlights[0].people[0]).toMatchObject({
+      serviceAreaZh: "台北傳道部",
+      serviceAreaEn: "Taiwan Taipei Mission",
+    });
+  });
+
+  it("選的支聯會或支會不存在時當成找不到", async () => {
+    const id = await honor();
+    const missing = crypto.randomUUID();
+    expect(await saveHighlightPerson(headAdmin, person(id, { nameZh: "甲", stakeId: missing }))).toEqual({ ok: false, error: "not_found" });
+    expect(await saveHighlightPerson(headAdmin, person(id, { nameZh: "甲", wardId: missing }))).toEqual({ ok: false, error: "not_found" });
+    expect(await saveHighlightPerson(headAdmin, person(id, { nameZh: "甲", stakeId: "not-a-uuid" }))).toEqual({ ok: false, error: "not_found" });
   });
 
   it("人物可以修改、往前或往後移、刪除；刪光了又沒有介紹內容就不能點", async () => {

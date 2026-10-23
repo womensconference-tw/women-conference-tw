@@ -4,6 +4,7 @@ import { localized } from "./i18n/localized";
 import { heroImageUrl, heroPathsOf, pickHeroPaths } from "./hero";
 import { highlightImageUrl } from "./highlight-images";
 import { UUID_PATTERN } from "./registration";
+import type { Region } from "./staff";
 
 /** 首頁「大會程序」的一間教堂：名稱、地址、地圖連結與這間教堂的時間軸（#84）。 */
 export type Venue = {
@@ -233,10 +234,14 @@ export type PageTemplate = (typeof PAGE_TEMPLATES)[number];
 /** 人物版型介紹頁的一位人物，已依語言挑好（英文缺漏時是中文）。 */
 export type HighlightPerson = {
   id: string;
-  /** 沒填是空字串。 */
+  /** 從支聯會名單選的；沒選是空字串。 */
   stake: string;
-  /** 支會；傳教士是服務地區（例如高雄傳道部）。沒填是空字串。 */
+  /** 支會（傳教士不選支會）；沒選是空字串。 */
   ward: string;
+  /** 傳教士的服務地區（例如高雄傳道部）；沒填是空字串。 */
+  serviceArea: string;
+  /** 所選支聯會的區，介紹頁依這個篩選；沒選支聯會是 null。 */
+  region: Region | null;
   name: string;
   /** 照片的公開網址；沒有照片是 null。 */
   photoUrl: string | null;
@@ -246,6 +251,16 @@ export type HighlightPerson = {
   linkLabel: string;
   /** 個人或作品介紹頁；沒有是 null。 */
   linkUrl: string | null;
+};
+
+/** highlight_people_units 的一列：一位人物所選的支聯會、支會名稱與區（只選支聯會時支會是 null）。 */
+type PersonUnit = {
+  id: string;
+  stake_zh: string;
+  stake_en: string;
+  ward_zh: string | null;
+  ward_en: string | null;
+  region: Region;
 };
 
 /** 介紹頁要顯示的一項大會特色，已依語言挑好（英文缺漏時是中文）。 */
@@ -288,7 +303,7 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
       `id, conference_id, name_zh, name_en, description_zh, description_en, page_template,
       subtitle_zh, subtitle_en, lead_quote_zh, lead_quote_en, lead_quote_source_zh, lead_quote_source_en,
       highlight_venues(venue_id, body_zh, body_en),
-      highlight_people(id, stake_zh, stake_en, ward_zh, ward_en, name_zh, name_en, photo_path, photo_focus,
+      highlight_people(id, service_area_zh, service_area_en, name_zh, name_en, photo_path, photo_focus,
         link_label_zh, link_label_en, link_url),
       conferences!inner(is_current)`,
     )
@@ -303,6 +318,10 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
 
   if (data.page_template) {
     if (description === "" && data.highlight_people.length === 0) return null;
+    // 支聯會、支會可能已經停用，訪客直接讀名單讀不到，改用資料庫函式讀名稱與區。
+    const rows = await supabase.rpc("highlight_people_units", { p_highlight_id: id });
+    if (rows.error) throw rows.error;
+    const units = new Map((rows.data as PersonUnit[]).map((unit) => [unit.id, unit]));
     return {
       name: localized(data, "name", locale),
       description,
@@ -311,16 +330,21 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
       subtitle: localized(data, "subtitle", locale),
       leadQuote: localized(data, "lead_quote", locale),
       leadQuoteSource: localized(data, "lead_quote_source", locale),
-      people: data.highlight_people.map((person) => ({
-        id: person.id,
-        stake: localized(person, "stake", locale).trim(),
-        ward: localized(person, "ward", locale).trim(),
-        name: localized(person, "name", locale),
-        photoUrl: person.photo_path && highlightImageUrl(supabase, person.photo_path),
-        photoFocus: person.photo_focus,
-        linkLabel: localized(person, "link_label", locale),
-        linkUrl: person.link_url,
-      })),
+      people: data.highlight_people.map((person) => {
+        const unit = units.get(person.id);
+        return {
+          id: person.id,
+          stake: unit ? localized(unit, "stake", locale) : "",
+          ward: unit?.ward_zh ? localized(unit, "ward", locale) : "",
+          serviceArea: localized(person, "service_area", locale).trim(),
+          region: unit?.region ?? null,
+          name: localized(person, "name", locale),
+          photoUrl: person.photo_path && highlightImageUrl(supabase, person.photo_path),
+          photoFocus: person.photo_focus,
+          linkLabel: localized(person, "link_label", locale),
+          linkUrl: person.link_url,
+        };
+      }),
     };
   }
   const venueRows = await supabase

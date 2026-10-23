@@ -42,6 +42,7 @@ describe("介面文字對照檔", () => {
     "register.stepProgress": [2, 3, "SAMPLE_STEP"],
     "register.wardsOf": ["SAMPLE_STAKE"],
     "register.wardWithStake": ["SAMPLE_WARD", "SAMPLE_STAKE"],
+    "activity.regionButton": ["SAMPLE_REGION", 5],
     "activity.honor.peopleCount": [8],
     "activity.missionary.peopleCount": [3],
     "activity.missionary.serviceArea": ["SAMPLE_AREA"],
