@@ -1,15 +1,17 @@
 -- 介紹頁人物的支聯會與支會改成從支聯會名單選（#23 的 stakes、wards），不再自己打字；
 -- 介紹頁上面的北／中／南區按鈕照人物所屬支聯會的區篩選。
 -- 傳教士選的是在台灣服務的支聯會（區跟著它），服務地區照舊自己打字；其他版型選支聯會與支會。
-
--- 原本的支會欄位只剩傳教士的服務地區在用，改名。
-alter table public.highlight_people rename column ward_zh to service_area_zh;
-alter table public.highlight_people rename column ward_en to service_area_en;
+--
+-- 這張 migration 只新增、不改名也不刪除：上線順序是先推 migration 再合併，中間線上還是舊程式，
+-- 會讀寫 stake_zh/en、ward_zh/en。新程式不再用這四欄，等新程式上線後由下一張 migration 刪除。
 
 alter table public.highlight_people
   add column stake_id uuid references public.stakes (id),
   -- 支會一定屬於所選的支聯會（和報名一樣用（支會, 支聯會）一起參照）；只選支聯會時是 null。
   add column ward_id uuid,
+  -- 傳教士的服務地區（例如高雄傳道部）；其他版型空白。
+  add column service_area_zh text not null default '',
+  add column service_area_en text not null default '',
   add constraint highlight_people_ward foreign key (ward_id, stake_id) references public.wards (id, stake_id),
   add constraint highlight_people_ward_needs_stake check (ward_id is null or stake_id is not null);
 
@@ -17,28 +19,25 @@ create index highlight_people_stake_id on public.highlight_people (stake_id);
 create index highlight_people_ward_id on public.highlight_people (ward_id);
 
 -- 已經打字的人物：名稱和名單完全一樣的才對得上，對不上的要在後台重選（正式資料庫這時只有測試資料）。
+-- 舊欄位原封不動，舊程式照樣顯示。
 update public.highlight_people p
 set stake_id = s.id
 from public.stakes s
 where s.name_zh = p.stake_zh;
 
 update public.highlight_people p
-set ward_id = w.id, service_area_zh = '', service_area_en = ''
+set ward_id = w.id
 from public.wards w, public.highlights h
 where h.id = p.highlight_id
   and h.page_template is distinct from 'missionary'
   and w.stake_id = p.stake_id
-  and w.name_zh = p.service_area_zh;
+  and w.name_zh = p.ward_zh;
 
--- 不是傳教士的人物沒有服務地區，對不上的支會文字也不留。
+-- 傳教士原本的支會欄位寫的就是服務地區。
 update public.highlight_people p
-set service_area_zh = '', service_area_en = ''
+set service_area_zh = p.ward_zh, service_area_en = p.ward_en
 from public.highlights h
-where h.id = p.highlight_id and h.page_template is distinct from 'missionary';
-
-alter table public.highlight_people
-  drop column stake_zh,
-  drop column stake_en;
+where h.id = p.highlight_id and h.page_template = 'missionary';
 
 grant update (stake_id, ward_id, service_area_zh, service_area_en) on public.highlight_people to authenticated;
 
@@ -78,6 +77,7 @@ grant execute on function public.highlight_people_units to anon, authenticated;
 /*
  * 存人物時改存支聯會與支會的編號、傳教士的服務地區。選了支會時支聯會以支會所屬的為準
  * （表單上兩個選單不一致時，例如換了支聯會卻沒重選支會，資料庫也不會存成對不上的組合）。
+ * 舊欄位 stake_zh/en、ward_zh/en 照送來的寫：新程式上線前的舊後台存檔時才不會弄丟（新程式不送，存成空白）。
  * 其餘和 20261120000000_highlight_people.sql 相同。
  */
 create or replace function public.save_highlight_person(p_highlight_id uuid, p_id uuid, p_values jsonb)
@@ -111,13 +111,15 @@ begin
 
   if p_id is null then
     insert into public.highlight_people (
-      conference_id, highlight_id, position, stake_id, ward_id, service_area_zh, service_area_en, name_zh, name_en,
+      conference_id, highlight_id, position, stake_id, ward_id, service_area_zh, service_area_en,
+      stake_zh, stake_en, ward_zh, ward_en, name_zh, name_en,
       photo_path, photo_focus, link_label_zh, link_label_en, link_url
     )
     values (
       v_conference_id, p_highlight_id,
       coalesce((select max(position) from public.highlight_people where highlight_id = p_highlight_id), 0) + 1,
       v_stake_id, v.ward_id, coalesce(v.service_area_zh, ''), coalesce(v.service_area_en, ''),
+      coalesce(v.stake_zh, ''), coalesce(v.stake_en, ''), coalesce(v.ward_zh, ''), coalesce(v.ward_en, ''),
       v.name_zh, coalesce(v.name_en, ''), v.photo_path, coalesce(v.photo_focus, 50),
       coalesce(v.link_label_zh, ''), coalesce(v.link_label_en, ''), v.link_url
     )
@@ -126,6 +128,8 @@ begin
     update public.highlight_people
     set stake_id = v_stake_id, ward_id = v.ward_id,
       service_area_zh = coalesce(v.service_area_zh, ''), service_area_en = coalesce(v.service_area_en, ''),
+      stake_zh = coalesce(v.stake_zh, ''), stake_en = coalesce(v.stake_en, ''),
+      ward_zh = coalesce(v.ward_zh, ''), ward_en = coalesce(v.ward_en, ''),
       name_zh = v.name_zh, name_en = coalesce(v.name_en, ''),
       photo_path = v.photo_path, photo_focus = coalesce(v.photo_focus, 50),
       link_label_zh = coalesce(v.link_label_zh, ''), link_label_en = coalesce(v.link_label_en, ''),
@@ -142,7 +146,7 @@ end;
 $$;
 
 /*
- * 複製建立新年度時，人物的支聯會、支會照舊（名單不分年度）。
+ * 複製建立新年度時，人物的支聯會、支會照舊（名單不分年度），舊欄位也一起帶（下一張 migration 刪除前還在）。
  * 其餘和 20261120000000_highlight_people.sql 相同。
  */
 create or replace function public.copy_conference(p_source_id uuid, p_year integer, p_conference_date date)
@@ -304,11 +308,13 @@ begin
     ),
     highlight_people as (
       insert into public.highlight_people (
-        conference_id, highlight_id, position, stake_id, ward_id, service_area_zh, service_area_en, name_zh, name_en,
+        conference_id, highlight_id, position, stake_id, ward_id, service_area_zh, service_area_en,
+        stake_zh, stake_en, ward_zh, ward_en, name_zh, name_en,
         photo_path, photo_focus, link_label_zh, link_label_en, link_url
       )
       select v_id, extensions.uuid_generate_v5(v_id, highlight_id::text),
         row_number() over (partition by highlight_id order by position, id), stake_id, ward_id, service_area_zh, service_area_en,
+        stake_zh, stake_en, ward_zh, ward_en,
         name_zh, name_en, photo_path, photo_focus, link_label_zh, link_label_en, link_url
       from public.highlight_people
       where conference_id = p_source_id
