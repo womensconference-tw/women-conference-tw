@@ -78,6 +78,8 @@ grant execute on function public.highlight_people_units to anon, authenticated;
  * 存人物時改存支聯會與支會的編號、傳教士的服務地區。選了支會時支聯會以支會所屬的為準
  * （表單上兩個選單不一致時，例如換了支聯會卻沒重選支會，資料庫也不會存成對不上的組合）。
  * 舊欄位 stake_zh/en、ward_zh/en 照送來的寫：新程式上線前的舊後台存檔時才不會弄丟（新程式不送，存成空白）。
+ * 舊後台送來的（有 stake_zh 這個鍵，新程式不送）沒有新欄位，和上面的資料轉換一樣從文字換算，
+ * 免得過渡期間用舊後台存檔或新增的人物，到新程式上線後支聯會、支會與服務地區不見。
  * 其餘和 20261120000000_highlight_people.sql 相同。
  */
 create or replace function public.save_highlight_person(p_highlight_id uuid, p_id uuid, p_values jsonb)
@@ -88,7 +90,7 @@ as $$
 declare
   v_conference_id uuid;
   v_id uuid;
-  v record;
+  v public.highlight_people%rowtype;
   v_stake_id uuid;
 begin
   if not public.is_staff_admin() then
@@ -101,6 +103,18 @@ begin
   perform public.lock_current_conference(v_conference_id);
 
   select * into v from jsonb_populate_record(null::public.highlight_people, p_values);
+  if p_values ? 'stake_zh' then
+    select id into v.stake_id from public.stakes where name_zh = v.stake_zh order by id limit 1;
+    if exists (select 1 from public.highlights where id = p_highlight_id and page_template = 'missionary') then
+      v.ward_id := null;
+      v.service_area_zh := v.ward_zh;
+      v.service_area_en := v.ward_en;
+    else
+      select id into v.ward_id from public.wards where stake_id = v.stake_id and name_zh = v.ward_zh order by id limit 1;
+      v.service_area_zh := '';
+      v.service_area_en := '';
+    end if;
+  end if;
   v_stake_id := v.stake_id;
   if v.ward_id is not null then
     select stake_id into v_stake_id from public.wards where id = v.ward_id;

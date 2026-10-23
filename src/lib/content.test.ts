@@ -907,6 +907,43 @@ describe("介紹頁的人物版型", () => {
     });
   });
 
+  it("新程式上線前，舊後台存的人物（只送文字欄位）由資料庫換算成支聯會、支會與服務地區", async () => {
+    // 舊版 saveHighlightPerson 送的格式（PR #107）。
+    const legacy = (stake: string, ward: string, wardEn = "") => ({
+      stake_zh: stake,
+      stake_en: "",
+      ward_zh: ward,
+      ward_en: wardEn,
+      name_zh: "舊後台",
+      name_en: "",
+      photo_path: null,
+      photo_focus: 50,
+      link_label_zh: "",
+      link_label_en: "",
+      link_url: null,
+    });
+    const id = await honor();
+    must(await headAdmin.rpc("save_highlight_person", { p_highlight_id: id, p_id: null, p_values: legacy("測試中台北支聯會", "測試蘆洲支會") }));
+    const [saved] = (await getContentEditor(headAdmin))!.highlights[0].people;
+    expect(saved).toMatchObject({ stakeId: northStakeId, wardId: northWardId, serviceAreaZh: "" });
+
+    // 修改時也一樣，不會因為沒送新欄位就清空；對不上名單的文字不換算。
+    must(await headAdmin.rpc("save_highlight_person", { p_highlight_id: id, p_id: saved.id, p_values: legacy("測試台南支聯會", "不存在的支會") }));
+    expect((await getContentEditor(headAdmin))!.highlights[0].people[0]).toMatchObject({ stakeId: southStakeId, wardId: "" });
+
+    const missionary = await savedItem({ kind: "highlight", titleZh: "與年長夫婦傳教士有約", pageTemplate: "missionary" });
+    must(
+      await headAdmin.rpc("save_highlight_person", {
+        p_highlight_id: missionary,
+        p_id: null,
+        p_values: legacy("測試中台北支聯會", "台北傳道部", "Taipei Mission"),
+      }),
+    );
+    expect((await getHighlight(anonClient(), missionary, "en"))!.people).toMatchObject([
+      { stake: "Test Taipei Central Stake", ward: "", serviceArea: "Taipei Mission", region: "north" },
+    ]);
+  });
+
   it("選的支聯會或支會不存在時當成找不到", async () => {
     const id = await honor();
     const missing = crypto.randomUUID();
