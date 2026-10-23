@@ -332,10 +332,10 @@ describe("介紹頁的人物版型", () => {
     expect(document.querySelector("blockquote")).toBeNull();
   });
 
-  it("傳教士：沒填按鈕文字用預設文字；預覽版的連結回到預覽首頁", async () => {
+  it("傳教士：支聯會與服務地區分兩行；沒填按鈕文字用預設文字；預覽版的連結回到預覽首頁", async () => {
     await arrange(false);
     const id = await templatePage({ name_zh: "與年長夫婦傳教士有約", page_template: "missionary" }, [
-      { name_zh: "宋長老及宋馬彩鳳姊妹", link_url: "/couple" },
+      { stake_zh: "台中地帶", ward_zh: "高雄傳道部", name_zh: "曾其祥、曾李瑞馨 夫婦", link_url: "/couple" },
     ]);
 
     await expect(renderPage(HighlightPage({ id, preview: false }))).rejects.toThrow("not found");
@@ -343,6 +343,10 @@ describe("介紹頁的人物版型", () => {
 
     expect(screen.getByRole("status").textContent).toBe(messages.zh.preview.highlight);
     expect(screen.getByRole("link", { name: "認識這對傳教士" }).getAttribute("href")).toBe("/couple");
+    // 支聯會與服務地區分兩行，不寫成「台中地帶・高雄傳道部」。
+    expect(screen.getByText("台中地帶")).toBeTruthy();
+    expect(screen.getByText("服務地區：高雄傳道部")).toBeTruthy();
+    expect(screen.queryByText(/台中地帶・/)).toBeNull();
     expect(screen.getByRole("link", { name: "首頁" }).getAttribute("href")).toBe("/preview");
   });
 

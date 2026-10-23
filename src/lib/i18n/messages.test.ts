@@ -44,6 +44,7 @@ describe("介面文字對照檔", () => {
     "register.wardWithStake": ["SAMPLE_WARD", "SAMPLE_STAKE"],
     "activity.honor.peopleCount": [8],
     "activity.missionary.peopleCount": [3],
+    "activity.missionary.serviceArea": ["SAMPLE_AREA"],
     "activity.exhibit.peopleCount": [10],
   };
 

@@ -831,7 +831,8 @@ describe("介紹頁的人物版型", () => {
     });
     expect(page.people.map(({ photoUrl, ...rest }) => ({ ...rest, photo: photoUrl?.endsWith(photo) ?? null }))).toMatchObject([
       {
-        unit: ["中台北支聯會", "Luzhou Ward"],
+        stake: "中台北支聯會",
+        ward: "Luzhou Ward",
         name: "Sister Shen",
         photo: true,
         photoFocus: 25,
@@ -839,7 +840,7 @@ describe("介紹頁的人物版型", () => {
         linkUrl: "/highlights/story",
       },
       // 對準位置超出範圍時當成中間。
-      { unit: [], name: "黃蘋 姐妹", photo: null, photoFocus: 50, linkLabel: "", linkUrl: null },
+      { stake: "", ward: "", name: "黃蘋 姐妹", photo: null, photoFocus: 50, linkLabel: "", linkUrl: null },
     ]);
 
     const editor = (await getContentEditor(headAdmin))!.highlights[0];

@@ -233,8 +233,10 @@ export type PageTemplate = (typeof PAGE_TEMPLATES)[number];
 /** 人物版型介紹頁的一位人物，已依語言挑好（英文缺漏時是中文）。 */
 export type HighlightPerson = {
   id: string;
-  /** 支聯會與支會；都沒填是空陣列。 */
-  unit: string[];
+  /** 沒填是空字串。 */
+  stake: string;
+  /** 支會；傳教士是服務地區（例如高雄傳道部）。沒填是空字串。 */
+  ward: string;
   name: string;
   /** 照片的公開網址；沒有照片是 null。 */
   photoUrl: string | null;
@@ -311,7 +313,8 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
       leadQuoteSource: localized(data, "lead_quote_source", locale),
       people: data.highlight_people.map((person) => ({
         id: person.id,
-        unit: [localized(person, "stake", locale), localized(person, "ward", locale)].filter((part) => part.trim() !== ""),
+        stake: localized(person, "stake", locale).trim(),
+        ward: localized(person, "ward", locale).trim(),
         name: localized(person, "name", locale),
         photoUrl: person.photo_path && highlightImageUrl(supabase, person.photo_path),
         photoFocus: person.photo_focus,

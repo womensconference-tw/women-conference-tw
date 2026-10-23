@@ -105,6 +105,7 @@ const zh = {
     },
     missionary: {
       peopleHeading: "傳教士介紹",
+      serviceArea: (area: string) => `服務地區：${area}`,
       peopleCount: (count: number) => `共 ${count} 對傳教士。`,
       linkHint: "點按鈕，閱讀每一對傳教士的故事。",
       linkLabel: "認識這對傳教士",
@@ -414,6 +415,7 @@ const en = {
     },
     missionary: {
       peopleHeading: "Our missionary couples",
+      serviceArea: (area: string) => `Serving in ${area}`,
       peopleCount: (count: number) => `${count} missionary ${count === 1 ? "couple" : "couples"}.`,
       linkHint: "Tap a button to read each couple's story.",
       linkLabel: "Meet this couple",

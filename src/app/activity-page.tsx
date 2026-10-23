@@ -144,7 +144,7 @@ function CrumbLink({ href, children }: { href: string; children: ReactNode }) {
 }
 
 /**
- * 一位人物：圓形照片、支聯會與支會、姓名、靠卡片底部的連結按鈕。
+ * 一位人物：圓形照片、支聯會與支會（傳教士是支聯會與服務地區）、姓名、靠卡片底部的連結按鈕。
  * 照片存的是原始的長方形照片，裁成圓形時對準後台設定的高度（臉不會被切掉）。
  * 向貴賓致敬、傳教士是外框按鈕（沒填按鈕文字用預設文字）；靜態展示的按鈕是作品名稱，沒有連結時只顯示作品名稱。
  */
@@ -172,8 +172,18 @@ function PersonCard({ person, template, t }: { person: HighlightPerson; template
         <div aria-hidden className={cn(photoClass, "bg-muted")} />
       )}
       <div className="flex flex-auto flex-col items-center gap-1 px-5 pt-4 pb-5 text-center">
-        {person.unit.length > 0 && (
-          <span className="text-muted-foreground">{person.unit.join(t.activity.unitSeparator)}</span>
+        {template === "missionary" ? (
+          // 傳教士寫的是家鄉的支聯會與服務地區，分兩行，不會被看成同一個單位。
+          <>
+            {person.stake && <span className="text-muted-foreground">{person.stake}</span>}
+            {person.ward && <span className="text-muted-foreground">{t.activity.missionary.serviceArea(person.ward)}</span>}
+          </>
+        ) : (
+          (person.stake || person.ward) && (
+            <span className="text-muted-foreground">
+              {[person.stake, person.ward].filter(Boolean).join(t.activity.unitSeparator)}
+            </span>
+          )
         )}
         <span className="mb-2 text-lead leading-snug font-bold">{person.name}</span>
         {person.linkUrl ? (
