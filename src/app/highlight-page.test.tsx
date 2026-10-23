@@ -9,6 +9,7 @@ import { adminClient, anonClient, must } from "../../test/supabase";
 import { HighlightPage } from "./highlight-page";
 import { HighlightVenues } from "./highlight-venues";
 import { HomePage } from "./home-page";
+import { PersonPage } from "./person-page";
 
 // 頁面在伺服器上讀 cookie 的部分換掉：用訪客的連線讀資料、語言由測試決定、語言切換按鈕不畫。
 let locale: Locale = "zh";
@@ -283,8 +284,31 @@ describe("介紹頁的人物版型", () => {
     return id;
   }
 
-  it("向貴賓致敬：麵包屑、標題區、引言與介紹內容、人物卡片；有連結的人物有按鈕，照片對準設定的高度", async () => {
+  async function venue(position: number, nameZh: string, nameEn = "") {
+    return must(
+      await admin
+        .from("venues")
+        .insert({ conference_id: fixtureId, position, region: "north", name_zh: nameZh, name_en: nameEn })
+        .select("id")
+        .single(),
+    ).id as string;
+  }
+
+  async function personIds(highlightId: string) {
+    const rows = must(await admin.from("highlight_people").select("id").eq("highlight_id", highlightId).order("position"));
+    return rows.map((row) => row.id as string);
+  }
+
+  // 卡片：main 裡有圓形照片的清單項目。
+  const cards = () => screen.queryAllByRole("listitem").filter((item) => item.closest("main") && item.querySelector(".rounded-full"));
+  const visibleNames = () =>
+    cards()
+      .filter((card) => !card.closest("[hidden]"))
+      .map((card) => card.querySelector(".text-lead")!.textContent);
+
+  it("向貴賓致敬：麵包屑、標題區、引言與介紹內容、依教堂分組的人物卡片；有介紹的人物有按鈕連到個人介紹頁", async () => {
     await arrange(true);
+    const jinhua = await venue(1, "台北金華教堂");
     const photo = `${fixtureId}/${crypto.randomUUID()}.jpg`;
     const id = await templatePage(
       {
@@ -298,14 +322,17 @@ describe("介紹頁的人物版型", () => {
         {
           stake_id: taipeiStakeId,
           ward_id: luzhouWardId,
+          venue_id: jinhua,
           name_zh: "沈亦斌 姐妹",
           photo_path: photo,
           photo_focus: 20,
-          link_url: "/story/1",
+          bio_zh: "她的故事",
         },
-        { name_zh: "黃蘋 姐妹" },
+        // 沒有介紹的不放按鈕；向貴賓致敬沒有課程簡介，寫了也不算。
+        { name_zh: "黃蘋 姐妹", venue_id: jinhua, summary_zh: "不顯示" },
       ],
     );
+    const [shen] = await personIds(id);
 
     await renderPage(HighlightPage({ id, preview: false }));
 
@@ -323,122 +350,184 @@ describe("介紹頁的人物版型", () => {
     expect(document.querySelector("main script")).toBeNull();
 
     expect(screen.getByRole("heading", { level: 2, name: "貴賓介紹" })).toBeTruthy();
-    expect(screen.getByText("共 2 位貴賓。點按鈕，閱讀每一位貴賓的故事。")).toBeTruthy();
-    const cards = screen.getAllByRole("listitem").filter((item) => item.closest("main") && item.querySelector(".rounded-full"));
-    expect(cards.map((card) => card.textContent)).toEqual([
-      "測試中台北支聯會・測試蘆洲支會沈亦斌 姐妹閱讀她的故事",
+    // 只有一間教堂：不放選教堂按鈕，說明也不叫人選教堂。
+    expect(screen.getByText(messages.zh.activity.pickCard)).toBeTruthy();
+    expect(screen.queryByRole("group", { name: messages.zh.activity.venuePickerLabel })).toBeNull();
+    expect(screen.getByRole("heading", { level: 3, name: "台北金華教堂" }).nextSibling!.textContent).toBe("2 位貴賓");
+    expect(cards().map((card) => card.textContent)).toEqual([
+      "測試中台北支聯會測試蘆洲支會沈亦斌 姐妹閱讀她的故事",
       "黃蘋 姐妹",
     ]);
-    const image = within(cards[0]).getByRole("img", { name: "沈亦斌 姐妹" });
+    const image = within(cards()[0]).getByRole("img", { name: "沈亦斌 姐妹" });
     expect(image.getAttribute("src")).toMatch(new RegExp(`/highlight-images/${photo}$`));
     expect((image as HTMLImageElement).style.objectPosition).toBe("50% 20%");
-    expect(within(cards[0]).getByRole("link", { name: "閱讀她的故事" }).getAttribute("href")).toBe("/story/1");
-    expect(within(cards[1]).queryByRole("link")).toBeNull();
-    // 刻意不放報名按鈕與教堂分頁。
+    expect(within(cards()[0]).getByRole("link", { name: "閱讀她的故事" }).getAttribute("href")).toBe(
+      `/highlights/${id}/people/${shen}`,
+    );
+    expect(within(cards()[1]).queryByRole("link")).toBeNull();
+    // 刻意不放報名按鈕。
     expect(screen.queryByRole("link", { name: messages.zh.home.registerButton })).toBeNull();
-    expect(screen.queryByRole("group", { name: messages.zh.highlight.venuePickerLabel })).toBeNull();
   });
 
-  it("靜態展示：按鈕是作品名稱；沒有連結時只顯示作品名稱；英文版缺漏顯示中文", async () => {
+  it("角落課程：按鈕是課程名稱（對應到課程時從課程帶）；沒有介紹時只顯示名稱；英文版缺漏顯示中文", async () => {
     await arrange(true);
     locale = "en";
-    const id = await templatePage({ name_zh: "靜態展示", name_en: "Exhibition", page_template: "exhibit" }, [
-      {
-        name_zh: "王真真",
-        stake_id: taichungStakeId,
-        ward_id: shaluWardId,
-        link_label_zh: "溫柔的心",
-        link_url: "https://example.com/work",
-      },
-      { name_zh: "廖秀珠", link_label_zh: "油畫靜態展", link_label_en: "Oil paintings" },
+    const daya = await venue(1, "台中大雅教堂", "Taichung Daya Chapel");
+    const sessionId = must(
+      await admin.from("sessions").insert({ conference_id: fixtureId, venue_id: daya, name_zh: "第一場次" }).select("id").single(),
+    ).id;
+    const courseId = must(
+      await admin
+        .from("courses")
+        .insert({ conference_id: fixtureId, session_id: sessionId, title_zh: "皮編手環", title_en: "Leather bracelets" })
+        .select("id")
+        .single(),
+    ).id;
+    const id = await templatePage({ name_zh: "角落課程", name_en: "Corner classes", page_template: "corner" }, [
+      // 教堂沒選，從課程帶。
+      { name_zh: "陳雅玲", stake_id: taichungStakeId, ward_id: shaluWardId, course_id: courseId, outline_zh: "一" },
+      { name_zh: "曾鈺芸", venue_id: daya, course_title_zh: "肩背包" },
     ]);
 
     await renderPage(HighlightPage({ id, preview: false }));
 
-    expect(screen.getByRole("heading", { level: 2, name: messages.en.activity.exhibit.peopleHeading })).toBeTruthy();
-    expect(screen.getByText("2 sisters are exhibiting. Tap a title to read about the work.")).toBeTruthy();
-    const work = screen.getByRole("link", { name: /溫柔的心/ });
-    expect(work.getAttribute("href")).toBe("https://example.com/work");
-    expect(screen.getByText("測試西台中支聯會 · Test Shalu Ward")).toBeTruthy();
-    expect(screen.getByText("Oil paintings").closest("a")).toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: messages.en.activity.corner.peopleHeading })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 3, name: "Taichung Daya Chapel" }).nextSibling!.textContent).toBe("2 teachers");
+    expect(screen.getByRole("link", { name: /Leather bracelets/ }).getAttribute("href")).toMatch(new RegExp(`^/highlights/${id}/people/`));
+    expect(screen.getByText("Test Shalu Ward")).toBeTruthy();
+    expect(screen.getByText("肩背包").closest("a")).toBeNull();
     // 只寫了人物、沒有引言與介紹內容時，沒有介紹區。
     expect(document.querySelector("blockquote")).toBeNull();
   });
 
-  it("傳教士：支聯會與服務地區分兩行；沒填按鈕文字用預設文字；預覽版的連結回到預覽首頁", async () => {
+  it("傳教士：支聯會與服務地區分兩行；預覽版的連結回到預覽首頁、連到預覽的個人介紹頁", async () => {
     await arrange(false);
     const id = await templatePage({ name_zh: "與年長夫婦傳教士有約", page_template: "missionary" }, [
-      { stake_id: taichungStakeId, service_area_zh: "台中傳道部", name_zh: "曾其祥、曾李瑞馨 夫婦", link_url: "/couple" },
+      { stake_id: taichungStakeId, service_area_zh: "台中傳道部", name_zh: "曾其祥、曾李瑞馨 夫婦", outline_zh: "見證" },
     ]);
+    const [couple] = await personIds(id);
 
     await expect(renderPage(HighlightPage({ id, preview: false }))).rejects.toThrow("not found");
     await renderPage(HighlightPage({ id, preview: true }));
 
     expect(screen.getByRole("status").textContent).toBe(messages.zh.preview.highlight);
-    expect(screen.getByRole("link", { name: "認識這對傳教士" }).getAttribute("href")).toBe("/couple");
-    // 支聯會與服務地區分兩行，不寫成「測試西台中支聯會・台中傳道部」。
+    expect(screen.getByRole("link", { name: "認識這對傳教士" }).getAttribute("href")).toBe(
+      `/preview/highlights/${id}/people/${couple}`,
+    );
     expect(screen.getByText("測試西台中支聯會")).toBeTruthy();
     expect(screen.getByText("服務地區：台中傳道部")).toBeTruthy();
-    expect(screen.queryByText(/測試西台中支聯會・/)).toBeNull();
+    // 沒選教堂的放在「其他」。
+    expect(screen.getByRole("heading", { level: 3, name: messages.zh.activity.otherVenue })).toBeTruthy();
     expect(screen.getByRole("link", { name: "首頁" }).getAttribute("href")).toBe("/preview");
   });
 
-  it("北／中／南區按鈕：只顯示所選那一區的人；沒選支聯會的只在全部；沒有人的區顯示說明", async () => {
+  it("選教堂按鈕：照場地的順序只列有人的教堂，沒選教堂的在最後；只顯示所選那一間", async () => {
     await arrange(true);
-    const id = await templatePage({ name_zh: "向貴賓致敬", page_template: "honor" }, [
-      { name_zh: "北一", stake_id: taipeiStakeId },
-      { name_zh: "中一", stake_id: taichungStakeId, ward_id: shaluWardId },
-      { name_zh: "北二", stake_id: taipeiStakeId, ward_id: luzhouWardId },
+    const niaosong = await venue(3, "高雄鳥松教堂");
+    const jinhua = await venue(1, "台北金華教堂");
+    await venue(2, "台中大雅教堂");
+    const id = await templatePage({ name_zh: "靈性課程", page_template: "spiritual" }, [
+      { name_zh: "南一", venue_id: niaosong },
+      { name_zh: "北一", venue_id: jinhua },
       { name_zh: "沒選" },
+      { name_zh: "北二", venue_id: jinhua },
     ]);
 
     await renderPage(HighlightPage({ id, preview: false }));
 
-    const names = () =>
-      screen
-        .queryAllByRole("listitem")
-        .filter((item) => item.querySelector(".rounded-full"))
-        .map((card) => card.querySelector(".font-bold")!.textContent);
-    const group = within(screen.getByRole("group", { name: messages.zh.activity.regionFilterLabel }));
-    expect(group.getAllByRole("button").map((button) => [button.textContent, button.getAttribute("aria-pressed")])).toEqual([
-      ["全部（4）", "true"],
-      ["北區（2）", "false"],
-      ["中區（1）", "false"],
-      ["南區（0）", "false"],
+    expect(screen.getByText(messages.zh.activity.pickVenue)).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      "台北金華教堂",
+      "高雄鳥松教堂",
+      "其他",
     ]);
-    expect(names()).toEqual(["北一", "中一", "北二", "沒選"]);
+    const group = within(screen.getByRole("group", { name: messages.zh.activity.venuePickerLabel }));
+    expect(group.getAllByRole("button").map((button) => [button.textContent, button.getAttribute("aria-pressed")])).toEqual([
+      ["全部教堂", "true"],
+      ["台北金華教堂", "false"],
+      ["高雄鳥松教堂", "false"],
+      ["其他", "false"],
+    ]);
+    expect(visibleNames()).toEqual(["北一", "北二", "南一", "沒選"]);
 
-    fireEvent.click(group.getByRole("button", { name: "北區（2）" }));
-    expect(names()).toEqual(["北一", "北二"]);
-    expect(group.getByRole("button", { name: "北區（2）" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(group.getByRole("button", { name: "高雄鳥松教堂" }));
+    expect(visibleNames()).toEqual(["南一"]);
+    expect(group.getByRole("button", { name: "高雄鳥松教堂" }).getAttribute("aria-pressed")).toBe("true");
 
-    fireEvent.click(group.getByRole("button", { name: "南區（0）" }));
-    expect(names()).toEqual([]);
-    expect(screen.getByText(messages.zh.activity.regionEmpty)).toBeTruthy();
-
-    fireEvent.click(group.getByRole("button", { name: "全部（4）" }));
-    expect(names()).toEqual(["北一", "中一", "北二", "沒選"]);
+    fireEvent.click(group.getByRole("button", { name: "全部教堂" }));
+    expect(visibleNames()).toEqual(["北一", "北二", "南一", "沒選"]);
   });
 
-  it("北／中／南區按鈕：沒有人選支聯會時不放；伺服器畫的頁面也沒有按鈕、全部的人都在", async () => {
+  it("選教堂按鈕：伺服器畫的頁面沒有按鈕、全部的人都在", async () => {
     await arrange(true);
-    const plain = await templatePage({ name_zh: "靜態展示", page_template: "exhibit" }, [{ name_zh: "甲" }]);
-    await renderPage(HighlightPage({ id: plain, preview: false }));
-    expect(screen.queryByRole("group", { name: messages.zh.activity.regionFilterLabel })).toBeNull();
-    cleanup();
-
+    const jinhua = await venue(1, "台北金華教堂");
+    const daya = await venue(2, "台中大雅教堂");
     const id = await templatePage({ name_zh: "向貴賓致敬", page_template: "honor" }, [
-      { name_zh: "北一", stake_id: taipeiStakeId },
-      { name_zh: "中一", stake_id: taichungStakeId },
+      { name_zh: "北一", venue_id: jinhua },
+      { name_zh: "中一", venue_id: daya },
     ]);
     let element = await HighlightPage({ id, preview: false });
     while (typeof element.type === "function") {
       element = await (element.type as (props: unknown) => ReactElement | Promise<ReactElement>)(element.props);
     }
     const html = renderToString(element);
-    expect(html).not.toContain(messages.zh.activity.regionFilterLabel);
+    expect(html).not.toContain(messages.zh.activity.venuePickerLabel);
     expect(html).toContain("北一");
     expect(html).toContain("中一");
+  });
+
+  it("個人介紹頁：人物卡與所屬教堂、標題是課程名稱、依版型顯示的段落、回到活動", async () => {
+    await arrange(true);
+    const daya = await venue(1, "台中大雅教堂");
+    const id = await templatePage({ name_zh: "角落課程", page_template: "corner" }, [
+      {
+        name_zh: "周明瑜 姐妹",
+        stake_id: taipeiStakeId,
+        ward_id: luzhouWardId,
+        venue_id: daya,
+        course_title_zh: "浮游花瓶製作",
+        bio_zh: "第一段\n第二段",
+        outline_zh: "1. 材料說明\n2. 創作",
+      },
+      { name_zh: "沒寫介紹", venue_id: daya },
+    ]);
+    const [zhou, empty] = await personIds(id);
+
+    await renderPage(PersonPage({ highlightId: id, personId: zhou.toUpperCase(), preview: false }));
+
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("浮游花瓶製作");
+    const crumbs = within(screen.getByRole("navigation", { name: messages.zh.activity.breadcrumbLabel }));
+    expect(crumbs.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/", "/#about", `/highlights/${id}`]);
+    expect(crumbs.getByText("周明瑜 姐妹").getAttribute("aria-current")).toBe("page");
+    const aside = within(screen.getByRole("complementary", { name: "周明瑜 姐妹" }));
+    expect(aside.getByText("測試中台北支聯會")).toBeTruthy();
+    expect(aside.getByText("台中大雅教堂")).toBeTruthy();
+    // 沒寫課程簡介，那一段不出現。
+    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual(["講師介紹", "課程大綱"]);
+    expect(screen.getByText("第二段").tagName).toBe("P");
+    expect(within(document.querySelector("main ol:not(nav ol)")!).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "材料說明",
+      "創作",
+    ]);
+    expect(screen.getByRole("link", { name: /回到角落課程/ }).getAttribute("href")).toBe(`/highlights/${id}`);
+    cleanup();
+
+    // 沒有介紹的人物、別的活動的人物、不存在的編號都找不到。
+    await expect(renderPage(PersonPage({ highlightId: id, personId: empty, preview: false }))).rejects.toThrow("not found");
+    await expect(renderPage(PersonPage({ highlightId: choirId, personId: zhou, preview: false }))).rejects.toThrow("not found");
+    await expect(renderPage(PersonPage({ highlightId: id, personId: "x", preview: false }))).rejects.toThrow("not found");
+  });
+
+  it("個人介紹頁：公告上線前只有預覽看得到；向貴賓致敬的標題是姓名", async () => {
+    await arrange(false);
+    const id = await templatePage({ name_zh: "向貴賓致敬", page_template: "honor" }, [{ name_zh: "沈亦斌 姐妹", bio_zh: "故事" }]);
+    const [shen] = await personIds(id);
+
+    await expect(renderPage(PersonPage({ highlightId: id, personId: shen, preview: false }))).rejects.toThrow("not found");
+    await renderPage(PersonPage({ highlightId: id, personId: shen, preview: true }));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("沈亦斌 姐妹");
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("貴賓介紹");
+    expect(screen.getByRole("link", { name: /回到向貴賓致敬/ }).getAttribute("href")).toBe(`/preview/highlights/${id}`);
   });
 
   it("選了版型、沒有人物也沒有介紹內容時找不到，首頁卡片不能點", async () => {

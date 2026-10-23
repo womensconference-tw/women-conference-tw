@@ -161,10 +161,14 @@ describe("首頁區塊", () => {
     const text = document.body.textContent!;
     expect(text.indexOf("你要把你的重擔卸給耶和華")).toBeLessThan(text.indexOf("開放報名"));
     expect(text.indexOf("開放報名")).toBeLessThan(text.indexOf("歡迎姐妹們"));
-    // 電腦版 Header 的頁內連結都跳得到。
-    const nav = screen.getByRole("navigation", { name: "頁面內容" });
+    // 表頭的選單都跳得到；「大會場地」還沒有自己的頁面，先跳到大會程序。頁尾有同樣的選單。
+    const nav = screen.getByRole("navigation", { name: "主選單" });
     const links = within(nav).getAllByRole("link");
-    expect(links.map((link) => link.textContent)).toEqual(["認識大會", "大會程序", "報名與查詢", "聯絡管理員"]);
+    expect(links.map((link) => link.textContent)).toEqual(["認識大會", "大會程序", "大會場地", "報名與查詢", "聯絡管理員"]);
+    expect(links[2].getAttribute("href")).toBe("#agenda");
+    expect(within(screen.getByRole("navigation", { name: "頁尾選單" })).getAllByRole("link").map((link) => link.textContent)).toEqual(
+      links.map((link) => link.textContent),
+    );
     for (const link of links) expect(document.querySelector(link.getAttribute("href")!), link.textContent!).not.toBeNull();
     expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "回到最上面" }).getAttribute("href")).toBe("#top");
     expect(document.getElementById("top")).not.toBeNull();
@@ -179,7 +183,7 @@ describe("首頁區塊", () => {
       "報名參加",
       "需要幫忙嗎？",
     ]);
-    const nav = screen.getByRole("navigation", { name: "頁面內容" });
+    const nav = screen.getByRole("navigation", { name: "主選單" });
     expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["#register", "#help"]);
   });
 });

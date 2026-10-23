@@ -1,24 +1,21 @@
 import Link from "next/link";
 import { LanguageSwitch } from "@/components/language-switch";
 import type { Messages } from "@/lib/i18n/messages";
+import { cn } from "@/lib/utils";
+
+/** 選單的一個連結。mobile 的連結手機寬度也留在表頭（其他的手機上只在頁尾）。 */
+export type SiteLink = { href: string; label: string; mobile?: boolean };
 
 /**
- * 網站名稱與語言切換；電腦寬度另有連結（手機上連結太多會擠掉第一屏）。首頁與大會特色介紹頁共用。
+ * 全站表頭（設計交接說明「全站表頭與頁尾」）：網站名稱、選單與 English。首頁與大會特色介紹頁共用。
+ * 手機寬度（≤640px）表頭只留標了 mobile 的連結與 English，其餘放頁尾，第一屏才不會被選單擠掉。
  * 首頁的網站名稱是頁面標題；其他頁有 home 時，網站名稱連回首頁，頁面標題由頁面自己放。
  */
-export function SiteHeader({
-  t,
-  links,
-  home,
-}: {
-  t: Messages;
-  links: { href: string; label: string }[];
-  home?: string;
-}) {
+export function SiteHeader({ t, links, home }: { t: Messages; links: SiteLink[]; home?: string }) {
   const titleClass = "text-lead leading-tight font-bold";
   return (
     <header id="top" className="border-b border-card-outline">
-      <div className="mx-auto flex w-full max-w-(--content-max-width) items-center justify-between gap-4 px-5 py-3 md:max-w-5xl">
+      <div className="mx-auto flex w-full max-w-(--content-max-width) flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3 md:max-w-5xl">
         {home ? (
           <Link href={home} className={`${titleClass} inline-flex min-h-11 items-center`}>
             {t.site.title}
@@ -26,12 +23,12 @@ export function SiteHeader({
         ) : (
           <h1 className={titleClass}>{t.site.title}</h1>
         )}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1">
           {links.length > 0 && (
-            <nav aria-label={t.home.navLabel} className="hidden md:block">
-              <ul className="flex items-center">
+            <nav aria-label={t.home.navLabel} className={cn(!links.some((link) => link.mobile) && "max-sm:hidden")}>
+              <ul className="flex flex-wrap items-center">
                 {links.map((link) => (
-                  <li key={link.href}>
+                  <li key={link.href + link.label} className={cn(!link.mobile && "max-sm:hidden")}>
                     <a href={link.href} className="inline-flex min-h-11 items-center px-3 font-semibold hover:underline">
                       {link.label}
                     </a>
@@ -47,13 +44,29 @@ export function SiteHeader({
   );
 }
 
-export function SiteFooter({ t }: { t: Messages }) {
+/** 全站頁尾：網站名稱、完整選單（手機兩欄，每個連結至少 44px 高）、回到最上面。 */
+export function SiteFooter({ t, links }: { t: Messages; links: SiteLink[] }) {
   return (
     <footer className="bg-foreground text-background">
-      <div className="mx-auto flex w-full max-w-(--content-max-width) flex-col gap-1 px-5 pt-7 pb-10 md:max-w-5xl">
-        <p className="font-bold">{t.site.title}</p>
-        <p>{t.home.church}</p>
-        <a href="#top" className="inline-flex min-h-11 items-center self-start underline">
+      <div className="mx-auto flex w-full max-w-(--content-max-width) flex-wrap items-center justify-between gap-x-6 gap-y-3 px-5 pt-7 pb-10 md:max-w-5xl">
+        <div className="flex flex-col">
+          <p className="font-bold">{t.site.title}</p>
+          <p>{t.home.church}</p>
+        </div>
+        {links.length > 0 && (
+          <nav aria-label={t.home.footerNavLabel} className="w-full sm:w-auto">
+            <ul className="grid grid-cols-2 sm:flex sm:flex-wrap">
+              {links.map((link) => (
+                <li key={link.href + link.label}>
+                  <a href={link.href} className="inline-flex min-h-11 items-center underline sm:px-3">
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
+        <a href="#top" className="inline-flex min-h-11 items-center underline">
           {t.home.backToTop}
         </a>
       </div>

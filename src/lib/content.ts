@@ -26,7 +26,6 @@ export type ContentError =
   | "button_label_required"
   | "button_url_invalid"
   | "person_name_required"
-  | "link_url_invalid"
   | "not_found"
   | "unavailable";
 
@@ -392,10 +391,20 @@ export type HighlightPersonInput = {
   photoPath: string;
   /** 0–100；看不懂的當成中間。 */
   photoFocus: string;
-  linkLabelZh: string;
-  linkLabelEn: string;
-  /** 空白是沒有連結。 */
-  linkUrl: string;
+  /** 教堂（場地）的編號；空白是不選。選了課程時以課程的教堂為準。 */
+  venueId: string;
+  /** 對應課程的編號；空白是沒有對應，課程名稱自己打。 */
+  courseId: string;
+  /** 沒有對應課程時的課程名稱；靜態展示是作品名稱。 */
+  courseTitleZh: string;
+  courseTitleEn: string;
+  /** 個人介紹頁的文字：講師介紹、課程簡介（一行一段）、課程大綱（一行一點）。 */
+  bioZh: string;
+  bioEn: string;
+  summaryZh: string;
+  summaryEn: string;
+  outlineZh: string;
+  outlineEn: string;
 };
 
 /** 新增或修改大會特色介紹頁的一位人物。只能改目前年度的。 */
@@ -403,8 +412,6 @@ export async function saveHighlightPerson(supabase: SupabaseClient, input: Highl
   const text = (value: string) => trimBlank(value);
   const nameZh = text(input.nameZh);
   if (!nameZh) return { ok: false, error: "person_name_required" };
-  const linkUrl = text(input.linkUrl);
-  if (linkUrl && !isSafeButtonUrl(linkUrl)) return { ok: false, error: "link_url_invalid" };
   const photoPath = text(input.photoPath);
   // 照片是後台上傳後自動填的，格式不對只可能是有人改了網頁。
   if (photoPath && !isHighlightImagePath(photoPath)) return { ok: false, error: "not_found" };
@@ -412,8 +419,12 @@ export async function saveHighlightPerson(supabase: SupabaseClient, input: Highl
 
   const stakeId = text(input.stakeId);
   const wardId = text(input.wardId);
+  const venueId = text(input.venueId);
+  const courseId = text(input.courseId);
 
-  if (!validIds(input.highlightId, input.id, stakeId, wardId) || !input.highlightId) return { ok: false, error: "not_found" };
+  if (!validIds(input.highlightId, input.id, stakeId, wardId, venueId, courseId) || !input.highlightId) {
+    return { ok: false, error: "not_found" };
+  }
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
@@ -429,9 +440,17 @@ export async function saveHighlightPerson(supabase: SupabaseClient, input: Highl
       name_en: text(input.nameEn),
       photo_path: photoPath || null,
       photo_focus: Number.isInteger(focus) && focus >= 0 && focus <= 100 ? focus : 50,
-      link_label_zh: text(input.linkLabelZh),
-      link_label_en: text(input.linkLabelEn),
-      link_url: linkUrl || null,
+      venue_id: venueId || null,
+      course_id: courseId || null,
+      // 對應到課程時課名從課程帶，自己打的不留（免得課程拿掉對應後跑出舊的名稱）。
+      course_title_zh: courseId ? "" : text(input.courseTitleZh),
+      course_title_en: courseId ? "" : text(input.courseTitleEn),
+      bio_zh: text(input.bioZh),
+      bio_en: text(input.bioEn),
+      summary_zh: text(input.summaryZh),
+      summary_en: text(input.summaryEn),
+      outline_zh: text(input.outlineZh),
+      outline_en: text(input.outlineEn),
     },
   });
   return error ? failure(error) : { ok: true };
@@ -488,8 +507,6 @@ function failure(error: PostgrestError): { ok: false; error: ContentError } {
       return { ok: false, error: "schedule_order" };
     case violates("custom_blocks_button_url_safe"):
       return { ok: false, error: "button_url_invalid" };
-    case violates("highlight_people_link_url_safe"):
-      return { ok: false, error: "link_url_invalid" };
     case violates("highlight_people_name_not_blank"):
       return { ok: false, error: "person_name_required" };
     case violates("custom_blocks_button_has_label"):
@@ -563,6 +580,10 @@ export type ContentEditor = {
   faqs: HomeItem[];
   customBlocks: HomeItem[];
   highlights: HighlightItem[];
+  /** 目前年度的教堂（人物選教堂用），照場地的順序。 */
+  venues: { id: string; name: string }[];
+  /** 目前年度的每門課（人物對應課程用），照教堂、場次、課程的順序。 */
+  courses: { id: string; label: string; highlightId: string | null }[];
 };
 
 /** 後台的一項大會特色：除了首頁項目的欄位，還有各教堂分頁（#100）、人物版型與介紹頁有沒有內容。 */
@@ -599,10 +620,17 @@ export type HighlightPersonItem = {
   /** 照片的路徑與公開網址；沒有照片是 null。 */
   photo: { path: string; url: string } | null;
   photoFocus: number;
-  linkLabelZh: string;
-  linkLabelEn: string;
-  /** 沒有是空字串。 */
-  linkUrl: string;
+  /** 沒選是空字串。 */
+  venueId: string;
+  courseId: string;
+  courseTitleZh: string;
+  courseTitleEn: string;
+  bioZh: string;
+  bioEn: string;
+  summaryZh: string;
+  summaryEn: string;
+  outlineZh: string;
+  outlineEn: string;
 };
 
 const noButton = { buttonLabelZh: "", buttonLabelEn: "", buttonUrl: "" };
@@ -620,12 +648,13 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       hero_mobile_zh_path, hero_mobile_en_path, hero_desktop_zh_path, hero_desktop_en_path,
       faqs(id, question_zh, question_en, answer_zh, answer_en),
       custom_blocks(id, title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
-      venues(id, name_zh, sessions(courses(highlight_id))),
+      venues(id, name_zh, sessions(name_zh, courses(id, title_zh, highlight_id))),
       highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en, page_template,
         subtitle_zh, subtitle_en, lead_quote_zh, lead_quote_en, lead_quote_source_zh, lead_quote_source_en,
         courses(count), highlight_venues(venue_id, body_zh, body_en),
         highlight_people(id, stake_id, ward_id, service_area_zh, service_area_en, name_zh, name_en, photo_path,
-          photo_focus, link_label_zh, link_label_en, link_url, stakes(name_zh), wards(name_zh)))`,
+          photo_focus, venue_id, course_id, course_title_zh, course_title_en, bio_zh, bio_en, summary_zh, summary_en,
+          outline_zh, outline_en, stakes(name_zh), wards(name_zh)))`,
     )
     .eq("is_current", true)
     .order("position", { referencedTable: "faqs" })
@@ -634,6 +663,10 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
     .order("id", { referencedTable: "custom_blocks" })
     .order("position", { referencedTable: "venues" })
     .order("id", { referencedTable: "venues" })
+    .order("position", { referencedTable: "venues.sessions" })
+    .order("id", { referencedTable: "venues.sessions" })
+    .order("position", { referencedTable: "venues.sessions.courses" })
+    .order("id", { referencedTable: "venues.sessions.courses" })
     .order("position", { referencedTable: "highlights" })
     .order("id", { referencedTable: "highlights" })
     .order("position", { referencedTable: "highlights.highlight_people" })
@@ -722,9 +755,16 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
         nameEn: person.name_en,
         photo: person.photo_path ? { path: person.photo_path, url: highlightImageUrl(supabase, person.photo_path) } : null,
         photoFocus: person.photo_focus,
-        linkLabelZh: person.link_label_zh,
-        linkLabelEn: person.link_label_en,
-        linkUrl: person.link_url ?? "",
+        venueId: person.venue_id ?? "",
+        courseId: person.course_id ?? "",
+        courseTitleZh: person.course_title_zh,
+        courseTitleEn: person.course_title_en,
+        bioZh: person.bio_zh,
+        bioEn: person.bio_en,
+        summaryZh: person.summary_zh,
+        summaryEn: person.summary_en,
+        outlineZh: person.outline_zh,
+        outlineEn: person.outline_en,
       })),
       venues: data.venues.map((venue) => {
         const text = highlight.highlight_venues.find((row) => row.venue_id === venue.id);
@@ -738,5 +778,15 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
         };
       }),
     })),
+    venues: data.venues.map((venue) => ({ id: venue.id, name: venue.name_zh })),
+    courses: data.venues.flatMap((venue) =>
+      venue.sessions.flatMap((session) =>
+        session.courses.map((course) => ({
+          id: course.id,
+          label: `${venue.name_zh}・${session.name_zh}・${course.title_zh}`,
+          highlightId: course.highlight_id,
+        })),
+      ),
+    ),
   };
 }

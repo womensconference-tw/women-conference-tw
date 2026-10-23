@@ -167,6 +167,21 @@ async function lastYear() {
     speaker_en: "Tsai Ting-yi",
   });
   await insert("courses", { session_id: first, position: 1, title_zh: "自由選課" });
+  // 貴賓對應到課程（教堂從課程帶）；另一位只選教堂。
+  must(
+    await admin
+      .from("highlight_people")
+      .update({ venue_id: venue, course_id: genealogy, bio_zh: "貴賓介紹", outline_en: "Point" })
+      .eq("highlight_id", honor)
+      .eq("name_zh", "沈亦斌 姐妹"),
+  );
+  must(
+    await admin
+      .from("highlight_people")
+      .update({ venue_id: venue, course_title_zh: "她的故事" })
+      .eq("highlight_id", honor)
+      .eq("name_zh", "黃蘋 姐妹"),
+  );
   const genealogyTwo = await insert("courses", { session_id: second, title_zh: "家譜進階", capacity: 20 });
   const afternoon = await insert("sessions", { venue_id: venue, position: 3, name_zh: "午后動態" });
   await insert("courses", { session_id: afternoon, title_zh: "手作花圈", speaker_zh: "余心愛", highlight_id: service });
@@ -439,13 +454,16 @@ describe("複製去年建立新年度", () => {
     ]);
   });
 
-  it("介紹頁的版型、副標、引言與人物一起帶過去，照片用同一個檔案", async () => {
+  it("介紹頁的版型、副標、引言與人物一起帶過去，照片用同一個檔案，教堂與課程換成新年度的", async () => {
     await lastYear();
     const ward = await seedWard();
 
     await switchedTo(await copied());
 
-    const honor = (await getContentEditor(headAdmin))!.highlights.find((highlight) => highlight.titleZh === "向貴賓致敬")!;
+    const editor = (await getContentEditor(headAdmin))!;
+    const honor = editor.highlights.find((highlight) => highlight.titleZh === "向貴賓致敬")!;
+    const [venue] = editor.venues;
+    const genealogy = editor.courses.find((course) => course.label.endsWith("家譜入門"))!;
     expect(honor).toMatchObject({
       pageTemplate: "honor",
       subtitleZh: "80 歲長輩",
@@ -461,11 +479,27 @@ describe("複製去年建立新年度", () => {
         person.serviceAreaEn,
         person.photo?.path ?? null,
         person.photoFocus,
-        person.linkUrl,
+        person.venueId,
+        person.courseId,
+        person.courseTitleZh,
+        person.bioZh,
+        person.outlineEn,
       ]),
     ).toEqual([
-      ["沈亦斌 姐妹", ward.stake_id, ward.id, "Taipei Mission", `${sourceId}/00000000-0000-4000-8000-000000000000.jpg`, 20, ""],
-      ["黃蘋 姐妹", "", "", "", null, 50, "/story"],
+      [
+        "沈亦斌 姐妹",
+        ward.stake_id,
+        ward.id,
+        "Taipei Mission",
+        `${sourceId}/00000000-0000-4000-8000-000000000000.jpg`,
+        20,
+        venue.id,
+        genealogy.id,
+        "",
+        "貴賓介紹",
+        "Point",
+      ],
+      ["黃蘋 姐妹", "", "", "", null, 50, venue.id, "", "她的故事", "", ""],
     ]);
   });
 

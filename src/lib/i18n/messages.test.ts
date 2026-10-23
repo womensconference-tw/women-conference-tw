@@ -42,11 +42,13 @@ describe("介面文字對照檔", () => {
     "register.stepProgress": [2, 3, "SAMPLE_STEP"],
     "register.wardsOf": ["SAMPLE_STAKE"],
     "register.wardWithStake": ["SAMPLE_WARD", "SAMPLE_STAKE"],
-    "activity.regionButton": ["SAMPLE_REGION", 5],
-    "activity.honor.peopleCount": [8],
-    "activity.missionary.peopleCount": [3],
+    "activity.backTo": ["SAMPLE_ACTIVITY"],
+    "activity.corner.count": [11],
+    "activity.spiritual.count": [14],
+    "activity.honor.count": [8],
+    "activity.missionary.count": [3],
     "activity.missionary.serviceArea": ["SAMPLE_AREA"],
-    "activity.exhibit.peopleCount": [10],
+    "activity.exhibit.count": [10],
   };
 
   it.each(locales)("%s 帶入資料的文字不空白，且有放進帶入的資料", (locale) => {
