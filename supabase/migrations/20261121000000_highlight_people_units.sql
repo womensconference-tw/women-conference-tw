@@ -18,20 +18,54 @@ alter table public.highlight_people
 create index highlight_people_stake_id on public.highlight_people (stake_id);
 create index highlight_people_ward_id on public.highlight_people (ward_id);
 
--- 已經打字的人物：名稱和名單完全一樣的才對得上，對不上的要在後台重選（正式資料庫這時只有測試資料）。
+/*
+ * 打字的支聯會、支會名稱換成名單上的編號（下面的資料轉換，與過渡期間舊後台存檔時共用同一套規則）：
+ * - 原本已經對到的（p_current），名稱還是一樣就保留，不重新判斷；
+ * - 否則名單上剛好只有一個名稱完全相同的才對得上（含停用的）；
+ * - 沒有或不只一個（例如停用與啟用的同名支聯會）時是 null，在後台人工選，不猜。
+ * 新程式上線、刪除舊欄位時一起刪除。
+ */
+create function public.legacy_stake_id(p_name text, p_current uuid)
+returns uuid
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce(
+    (select id from public.stakes where id = p_current and name_zh = p_name),
+    (select min(id::text)::uuid from public.stakes where name_zh = p_name having count(*) = 1)
+  );
+$$;
+
+create function public.legacy_ward_id(p_stake_id uuid, p_name text, p_current uuid)
+returns uuid
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce(
+    (select id from public.wards where id = p_current and stake_id = p_stake_id and name_zh = p_name),
+    (select min(id::text)::uuid from public.wards where stake_id = p_stake_id and name_zh = p_name having count(*) = 1)
+  );
+$$;
+
+revoke all on function public.legacy_stake_id from public, anon;
+revoke all on function public.legacy_ward_id from public, anon;
+-- save_highlight_person 以呼叫者（總管理員）的權限執行，要能呼叫。
+grant execute on function public.legacy_stake_id to authenticated;
+grant execute on function public.legacy_ward_id to authenticated;
+
+-- 已經打字的人物：名稱和名單對得上的才換算，對不上的要在後台重選（正式資料庫這時只有測試資料）。
 -- 舊欄位原封不動，舊程式照樣顯示。
-update public.highlight_people p
-set stake_id = s.id
-from public.stakes s
-where s.name_zh = p.stake_zh;
+update public.highlight_people
+set stake_id = public.legacy_stake_id(stake_zh, null);
 
 update public.highlight_people p
-set ward_id = w.id
-from public.wards w, public.highlights h
+set ward_id = public.legacy_ward_id(p.stake_id, p.ward_zh, null)
+from public.highlights h
 where h.id = p.highlight_id
   and h.page_template is distinct from 'missionary'
-  and w.stake_id = p.stake_id
-  and w.name_zh = p.ward_zh;
+  and p.stake_id is not null;
 
 -- 傳教士原本的支會欄位寫的就是服務地區。
 update public.highlight_people p
@@ -92,6 +126,8 @@ declare
   v_id uuid;
   v public.highlight_people%rowtype;
   v_stake_id uuid;
+  v_current_stake_id uuid;
+  v_current_ward_id uuid;
 begin
   if not public.is_staff_admin() then
     raise exception 'not_admin';
@@ -104,13 +140,17 @@ begin
 
   select * into v from jsonb_populate_record(null::public.highlight_people, p_values);
   if p_values ? 'stake_zh' then
-    select id into v.stake_id from public.stakes where name_zh = v.stake_zh order by id limit 1;
+    -- 修改時原本對到的單位，名稱沒變就保留。
+    select stake_id, ward_id into v_current_stake_id, v_current_ward_id
+    from public.highlight_people
+    where id = p_id and highlight_id = p_highlight_id;
+    v.stake_id := public.legacy_stake_id(v.stake_zh, v_current_stake_id);
     if exists (select 1 from public.highlights where id = p_highlight_id and page_template = 'missionary') then
       v.ward_id := null;
       v.service_area_zh := v.ward_zh;
       v.service_area_en := v.ward_en;
     else
-      select id into v.ward_id from public.wards where stake_id = v.stake_id and name_zh = v.ward_zh order by id limit 1;
+      v.ward_id := public.legacy_ward_id(v.stake_id, v.ward_zh, v_current_ward_id);
       v.service_area_zh := '';
       v.service_area_en := '';
     end if;

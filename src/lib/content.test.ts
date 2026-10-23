@@ -927,6 +927,22 @@ describe("介紹頁的人物版型", () => {
     const [saved] = (await getContentEditor(headAdmin))!.highlights[0].people;
     expect(saved).toMatchObject({ stakeId: northStakeId, wardId: northWardId, serviceAreaZh: "" });
 
+    // 名單上多了一個停用的同名支聯會：原本對到的名稱沒變就保留；新增的無法判定是哪一個，留空待人工選。
+    const twinId = must(
+      await admin.from("stakes").insert({ region: "south", name_zh: "測試中台北支聯會", is_active: false }).select("id").single(),
+    ).id;
+    try {
+      must(await headAdmin.rpc("save_highlight_person", { p_highlight_id: id, p_id: saved.id, p_values: legacy("測試中台北支聯會", "測試蘆洲支會") }));
+      must(await headAdmin.rpc("save_highlight_person", { p_highlight_id: id, p_id: null, p_values: legacy("測試中台北支聯會", "測試蘆洲支會") }));
+      expect((await getContentEditor(headAdmin))!.highlights[0].people.map((p) => [p.stakeId, p.wardId])).toEqual([
+        [northStakeId, northWardId],
+        ["", ""],
+      ]);
+    } finally {
+      must(await admin.from("highlight_people").delete().eq("conference_id", conferenceId!).neq("id", saved.id));
+      must(await admin.from("stakes").delete().eq("id", twinId));
+    }
+
     // 修改時也一樣，不會因為沒送新欄位就清空；對不上名單的文字不換算。
     must(await headAdmin.rpc("save_highlight_person", { p_highlight_id: id, p_id: saved.id, p_values: legacy("測試台南支聯會", "不存在的支會") }));
     expect((await getContentEditor(headAdmin))!.highlights[0].people[0]).toMatchObject({ stakeId: southStakeId, wardId: "" });
