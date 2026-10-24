@@ -105,8 +105,11 @@ begin
     end if;
   end if;
 
+  -- 中英分開判斷：只送了其中一個語言的按鈕文字時，另一個語言的作品名稱保留原本的值。
   if v_template = 'exhibit' and p_values ? 'link_label_zh' and not p_values ? 'course_title_zh' then
     v.course_title_zh := coalesce(v.link_label_zh, '');
+  end if;
+  if v_template = 'exhibit' and p_values ? 'link_label_en' and not p_values ? 'course_title_en' then
     v.course_title_en := coalesce(v.link_label_en, '');
   end if;
 

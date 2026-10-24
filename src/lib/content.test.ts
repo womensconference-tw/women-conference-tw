@@ -1137,6 +1137,13 @@ describe("介紹頁的人物版型", () => {
       courseTitleZh: "改名的作品",
       courseTitleEn: "",
     });
+    // 只送一個語言時，另一個語言的作品名稱不動。
+    must(await oldSave(work.id, { name_zh: "王真真", link_label_en: "Renamed" }));
+    must(await oldSave(work.id, { name_zh: "王真真", link_label_zh: "只改中文" }));
+    expect((await getContentEditor(headAdmin))!.highlights.find((h) => h.id === exhibit)!.people[0]).toMatchObject({
+      courseTitleZh: "只改中文",
+      courseTitleEn: "Renamed",
+    });
 
     // 新程式存檔不送舊欄位，舊欄位也照留。
     expect(await saveHighlightPerson(headAdmin, person(id, { id: existing.id, nameZh: "甲" }))).toEqual({ ok: true });
