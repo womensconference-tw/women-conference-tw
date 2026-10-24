@@ -14,7 +14,7 @@ export type SiteLink = { href: string; label: string; mobile?: boolean };
 export function SiteHeader({ t, links, home }: { t: Messages; links: SiteLink[]; home?: string }) {
   const titleClass = "text-lead leading-tight font-bold";
   return (
-    <header id="top" className="border-b border-card-outline">
+    <header id="top" data-smooth-scroll className="border-b border-card-outline">
       <div className="mx-auto flex w-full max-w-(--content-max-width) flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3 md:max-w-5xl">
         {home ? (
           <Link href={home} className={`${titleClass} inline-flex min-h-11 items-center`}>

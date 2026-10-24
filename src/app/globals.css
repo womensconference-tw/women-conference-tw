@@ -192,9 +192,10 @@
     @apply font-sans;
   }
   /* 按選單（#about、#agenda…）與「回到最上面」時平滑滑過去；設定「減少動態效果」的人維持直接跳。
+     只限有全站表頭（SiteHeader）的頁面：後台編輯器靠即時捲動讓游標留在畫面上，平滑捲動會追不上。
      layout.tsx 的 data-scroll-behavior="smooth" 讓換頁時仍直接跳到頂端。 */
   @media (prefers-reduced-motion: no-preference) {
-    html {
+    html:has(header[data-smooth-scroll]) {
       scroll-behavior: smooth;
     }
   }
