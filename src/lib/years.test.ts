@@ -138,8 +138,6 @@ async function lastYear() {
     highlight_id: honor,
     position: 2,
     name_zh: "黃蘋 姐妹",
-    link_label_zh: "她的故事",
-    link_url: "/story",
   });
   const ward = await seedWard();
   await insert("highlight_people", {
