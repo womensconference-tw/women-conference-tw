@@ -69,13 +69,23 @@ export async function VenuePage({ highlightId, venueId, preview }: { highlightId
 
       {page.poster && (
         <section aria-label={t.activity.poster} className={cn(wideClass, "flex flex-col items-center gap-2 pb-10")}>
-          {/* 點海報開原圖，看得清楚曲目與演出者。 */}
-          <a href={page.poster.url} target="_blank" rel="noopener" className="block w-full max-w-140">
-            {/* 存放空間的公開網址，不經過 Next.js 的圖片最佳化。 */}
+          {/* 點海報開原圖，看得清楚曲目與演出者。連結的名稱是海報的圖片說明，下面的提示說明點了會怎樣。 */}
+          <a
+            href={page.poster.url}
+            target="_blank"
+            rel="noopener"
+            aria-describedby="poster-hint"
+            className="block w-full max-w-140"
+          >
+            {/* 存放空間的公開網址，不經過 Next.js 的圖片最佳化。圖片說明沒填（舊資料）時至少說出這是哪間教堂的海報。 */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={page.poster.url} alt={page.poster.alt} className="h-auto w-full rounded-2xl" />
+            <img
+              src={page.poster.url}
+              alt={page.poster.alt || `${page.venue.name}${t.activity.posterOf}`}
+              className="h-auto w-full rounded-2xl"
+            />
           </a>
-          <p className="text-muted-foreground">
+          <p id="poster-hint" className="text-muted-foreground">
             {t.activity.posterEnlarge}
             {t.highlight.opensInNewTab}
           </p>

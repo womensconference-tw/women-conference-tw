@@ -88,6 +88,7 @@ const ERRORS: Record<ContentError | HeroError, string> = {
   button_label_required: "有按鈕網址時，請填中文按鈕文字。",
   button_url_invalid: "按鈕網址要是 https:// 開頭的完整網址，或 / 開頭的站內網址（例如 /lookup），不能有空白。",
   person_name_required: "請填中文姓名。",
+  poster_alt_required: "有海報時，中文的海報圖片說明一定要填。",
   file_type: "只收 JPG、PNG、WebP 格式的圖片。",
   file_too_large: "圖片超過 5 MB，請請美編組另存小一點的檔案（例如存成 JPG）。",
   alt_required: "有主視覺圖片時，中文圖片說明一定要填。",
@@ -641,7 +642,7 @@ function VenuePageForms({ item, template, conferenceId }: { item: HighlightItem;
                   />
                   <TextPair name="posterAlt" label="海報的圖片說明" zh={venue.posterAltZh} en={venue.posterAltEn} />
                   <span className="text-sm text-muted-foreground">
-                    給看不到圖的人聽的文字，例如「大雅教堂迷妳音樂會海報，含 7 首曲目與演出者」。
+                    有海報時一定要填中文。給看不到圖的人聽的文字，例如「大雅教堂迷妳音樂會海報，含 7 首曲目與演出者」。
                   </span>
                   <RichTextEditor
                     name="bodyZh"

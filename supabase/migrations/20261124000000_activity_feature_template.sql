@@ -156,6 +156,7 @@ $$;
  * 存一項大會特色在一間教堂的頁面：說明（範本 C 是製作靈感）、節目名稱、海報與圖片說明。
  * p_values 的鍵是欄位名稱，沒送的保留原值。說明、節目名稱、海報都沒有時刪掉這一列（團隊成員另外存，不受影響）。
  * 場地不是同一年度的當成找不到。只能動目前年度的；以呼叫者的權限執行。
+ * 有海報時要有圖片說明，由網站程式檢查（和主視覺一樣）。
  */
 create function public.save_highlight_venue_page(p_highlight_id uuid, p_venue_id uuid, p_values jsonb)
 returns void
@@ -179,7 +180,11 @@ begin
     raise exception 'not_found';
   end if;
 
-  select * into v_old from public.highlight_venues where highlight_id = p_highlight_id and venue_id = p_venue_id for update;
+  -- 同一項大會特色的教堂頁一次只存一個：這間教堂還沒有資料列時沒有東西可鎖，兩位管理員同時第一次存檔，
+  -- 後存的會照它讀到的（空的）原值把先存的節目名稱、海報蓋掉。鎖大會特色那一列，後存的等先存的做完再讀原值。
+  -- no key update 不擋其他表參照這一列的外鍵檢查。
+  perform 1 from public.highlights where id = p_highlight_id for no key update;
+  select * into v_old from public.highlight_venues where highlight_id = p_highlight_id and venue_id = p_venue_id;
   select * into v from jsonb_populate_record(null::public.highlight_venues, p_values);
   v.body_zh := case when p_values ? 'body_zh' then coalesce(v.body_zh, '') else coalesce(v_old.body_zh, '') end;
   v.body_en := case when p_values ? 'body_en' then coalesce(v.body_en, '') else coalesce(v_old.body_en, '') end;

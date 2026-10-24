@@ -26,6 +26,7 @@ export type ContentError =
   | "button_label_required"
   | "button_url_invalid"
   | "person_name_required"
+  | "poster_alt_required"
   | "not_found"
   | "unavailable";
 
@@ -388,6 +389,8 @@ export async function saveHighlightVenue(supabase: SupabaseClient, input: Highli
   const posterPath = trimBlank(input.posterPath ?? "");
   // 海報是後台上傳後自動填的，格式不對只可能是有人改了網頁。
   if (posterPath && !isHighlightImagePath(posterPath)) return { ok: false, error: "not_found" };
+  // 海報是一張可以點的圖，沒有圖片說明的話，看不到圖的人不知道這是什麼。
+  if (posterPath && !trimBlank(input.posterAltZh ?? "")) return { ok: false, error: "poster_alt_required" };
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 

@@ -628,7 +628,7 @@ export async function getVenuePage(
     venue,
     showTitle: row && row.show_title_zh.trim() !== "" ? localized(row, "show_title", locale).trim() : "",
     poster: row?.poster_path
-      ? { url: highlightImageUrl(supabase, row.poster_path), alt: localized(row, "poster_alt", locale) }
+      ? { url: highlightImageUrl(supabase, row.poster_path), alt: localized(row, "poster_alt", locale).trim() }
       : null,
     // 中文沒寫就當成沒有（和教堂說明一樣）。
     inspiration: row && row.body_zh.trim() !== "" ? localized(row, "body", locale) : "",

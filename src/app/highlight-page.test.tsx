@@ -621,7 +621,8 @@ describe("圖文型介紹頁與各教堂頁", () => {
       poster_alt_zh: "大雅教堂迷妳音樂會海報",
       body_zh: "在這一場充滿音樂與愛的午後。\n\n<script>alert(1)</script>",
     });
-    await venueRow(id, jinhua, { show_title_zh: "金華場" });
+    // 舊資料的海報沒有圖片說明：至少說出是哪間教堂的海報。
+    await venueRow(id, jinhua, { show_title_zh: "金華場", poster_path: `${fixtureId}/${crypto.randomUUID()}.jpg` });
     await teamMember(id, daya, 2, { role_zh: "主持", name_zh: "王台君", bio_zh: "第一段\n第二段" });
     await teamMember(id, daya, 1, { role_zh: "製作人", name_zh: "陳玉穎" });
 
@@ -639,8 +640,12 @@ describe("圖文型介紹頁與各教堂頁", () => {
     const others = within(screen.getByRole("navigation", { name: messages.zh.activity.otherVenues }));
     expect(others.getByRole("link", { name: "台北金華教堂" }).getAttribute("href")).toBe(`/preview/highlights/${id}/venues/${jinhua}`);
     expect(others.getByText("台中大雅教堂").getAttribute("aria-current")).toBe("page");
-    const posterImage = screen.getByRole("img", { name: "大雅教堂迷妳音樂會海報" });
-    expect(posterImage.closest("a")!.getAttribute("href")).toMatch(new RegExp(`/highlight-images/${poster}$`));
+    // 海報連結的名稱是圖片說明，點了會怎樣寫在提示裡。
+    const posterLink = screen.getByRole("link", { name: "大雅教堂迷妳音樂會海報" });
+    expect(posterLink.getAttribute("href")).toMatch(new RegExp(`/highlight-images/${poster}$`));
+    expect(document.getElementById(posterLink.getAttribute("aria-describedby")!)!.textContent).toContain(
+      messages.zh.activity.posterEnlarge,
+    );
     expect(screen.getByRole("heading", { level: 2, name: messages.zh.activity.inspiration })).toBeTruthy();
     expect(screen.getByText("在這一場充滿音樂與愛的午後。")).toBeTruthy();
     expect(document.querySelector("main script")).toBeNull();
@@ -649,6 +654,10 @@ describe("圖文型介紹頁與各教堂頁", () => {
     expect(screen.getByText("主持")).toBeTruthy();
     expect(screen.getByText("第二段").tagName).toBe("P");
     expect(screen.getByRole("link", { name: /回到迷妳音樂會/ }).getAttribute("href")).toBe(`/preview/highlights/${id}`);
+    cleanup();
+
+    await renderPage(VenuePage({ highlightId: id, venueId: jinhua, preview: true }));
+    expect(screen.getByRole("link", { name: "台北金華教堂的海報" })).toBeTruthy();
   });
 
   it("各教堂頁：只有一間教堂時不放切換；沒有內容的教堂、別的活動都找不到", async () => {

@@ -142,6 +142,7 @@ const zh = {
     // 圖文型（範本 B）與各教堂頁（範本 C），設計稿 docs/design/template-b-feature.dc.html、template-c-venue-team.dc.html。
     otherVenues: "其他教堂",
     poster: "海報",
+    posterOf: "的海報",
     posterEnlarge: "點圖可以放大看",
     inspiration: "製作靈感",
     choir: {
@@ -486,6 +487,7 @@ const en = {
     },
     otherVenues: "Other chapels",
     poster: "Poster",
+    posterOf: " poster",
     posterEnlarge: "Tap the poster to see it larger",
     inspiration: "The inspiration",
     choir: {

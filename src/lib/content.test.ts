@@ -27,6 +27,7 @@ import {
   type HomeItemInput,
   type ScheduleInput,
 } from "./content";
+import { submitWhileHolding } from "../../test/hold-transaction";
 import { getHighlight, getHomeContent, getVenuePage, hasPersonPage } from "./home-content";
 
 const admin = adminClient();
@@ -1356,6 +1357,37 @@ describe("圖文型介紹頁與各教堂頁", () => {
     // 舊後台用的函式也一樣。
     must(await headAdmin.rpc("save_highlight_venue", { p_highlight_id: id, p_venue_id: daya, p_body_zh: "", p_body_en: "" }));
     expect((await getVenuePage(anonClient(), id, daya, "zh"))!.poster).not.toBeNull();
+  });
+
+  it("有海報時中文圖片說明要填", async () => {
+    const id = await savedItem({ kind: "highlight", titleZh: "迷妳音樂會", pageTemplate: "concert" });
+    const jinhua = await venue(1, "台北金華教堂");
+    const values = { highlightId: id, venueId: jinhua, bodyZh: "", bodyEn: "", showTitleZh: "", posterPath: image() };
+    expect(await saveHighlightVenue(headAdmin, { ...values, posterAltZh: " ", posterAltEn: "Poster" })).toEqual({
+      ok: false,
+      error: "poster_alt_required",
+    });
+    expect(await saveHighlightVenue(headAdmin, { ...values, posterAltZh: "海報" })).toEqual({ ok: true });
+  });
+
+  it("兩位管理員同時第一次存同一間教堂頁：後存的只改自己送的說明，不會蓋掉先存的海報", async () => {
+    const id = await savedItem({ kind: "highlight", titleZh: "迷妳音樂會", pageTemplate: "concert" });
+    const jinhua = await venue(1, "台北金華教堂");
+    const poster = image();
+    const result = await submitWhileHolding(
+      // 先存的那一位：鎖住大會特色、還沒寫完。
+      (tx) => tx`select 1 from public.highlights where id = ${id} for no key update`,
+      // 後存的那一位用一般介紹頁的表單（只送說明）。
+      () => saveHighlightVenue(headAdmin, { highlightId: id, venueId: jinhua, bodyZh: "說明", bodyEn: "" }),
+      (tx) => tx`
+        insert into public.highlight_venues (conference_id, highlight_id, venue_id, show_title_zh, poster_path, poster_alt_zh)
+        values (${conferenceId!}, ${id}, ${jinhua}, '〈節目〉', ${poster}, '海報')`,
+      "save_highlight_venue_page",
+    );
+    expect(result).toEqual({ ok: true });
+    expect(must(await admin.from("highlight_venues").select("body_zh, show_title_zh, poster_path").eq("highlight_id", id))).toEqual([
+      { body_zh: "說明", show_title_zh: "〈節目〉", poster_path: poster },
+    ]);
   });
 
   it("各教堂頁找不到：沒有內容的教堂、不是圖文型、不是編號", async () => {
