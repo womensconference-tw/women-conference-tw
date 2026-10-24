@@ -191,6 +191,13 @@
   html {
     @apply font-sans;
   }
+  /* 按選單（#about、#agenda…）與「回到最上面」時平滑滑過去；設定「減少動態效果」的人維持直接跳。
+     layout.tsx 的 data-scroll-behavior="smooth" 讓換頁時仍直接跳到頂端。 */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
 }
 
 /* 籌備委員會備忘錄第四層編號：1) 2) 3)（#75） */
