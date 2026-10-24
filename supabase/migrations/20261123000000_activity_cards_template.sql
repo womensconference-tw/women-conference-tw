@@ -46,9 +46,11 @@ grant update (
 
 /*
  * 存人物：多了教堂、對應課程、課程（作品）名稱與個人介紹頁的文字。
- * 對應到課程時，教堂以課程所在的教堂為準（表單上兩個選單不一致時，資料庫也不會存成對不上的組合）。
+ * 有對應課程時（這次送來的，或沒送 course_id 時原本的），教堂一定以課程所在的教堂為準，不會存成對不上的組合。
  * 新欄位沒送來時保留原本的值：先推 migration 到合併之間，舊後台存檔不會把新欄位清掉；
  * 舊欄位 link_label、link_url 也一樣（新程式不送）。
+ * 舊後台存靜態展示的人物時（送了 link_label、沒送 course_title），作品名稱照舊從按鈕文字換算，
+ * 和上面的資料轉換一樣，免得新程式上線後作品名稱是舊的或空白。
  * 其餘和 20261122000000_drop_legacy_person_units.sql 相同。
  */
 create or replace function public.save_highlight_person(p_highlight_id uuid, p_id uuid, p_values jsonb)
@@ -58,19 +60,29 @@ set search_path = ''
 as $$
 declare
   v_conference_id uuid;
+  v_template text;
   v_id uuid;
   v public.highlight_people%rowtype;
+  v_old public.highlight_people%rowtype;
   v_stake_id uuid;
+  v_course_id uuid;
   v_venue_id uuid;
 begin
   if not public.is_staff_admin() then
     raise exception 'not_admin';
   end if;
-  select conference_id into v_conference_id from public.highlights where id = p_highlight_id;
+  select conference_id, page_template into v_conference_id, v_template from public.highlights where id = p_highlight_id;
   if v_conference_id is null then
     raise exception 'not_found';
   end if;
   perform public.lock_current_conference(v_conference_id);
+
+  if p_id is not null then
+    select * into v_old from public.highlight_people where id = p_id and highlight_id = p_highlight_id for update;
+    if v_old.id is null then
+      raise exception 'not_found';
+    end if;
+  end if;
 
   select * into v from jsonb_populate_record(null::public.highlight_people, p_values);
   v_stake_id := v.stake_id;
@@ -80,15 +92,22 @@ begin
       raise exception 'not_found';
     end if;
   end if;
-  v_venue_id := v.venue_id;
-  if v.course_id is not null then
+
+  v_course_id := case when p_values ? 'course_id' then v.course_id else v_old.course_id end;
+  v_venue_id := case when p_values ? 'venue_id' then v.venue_id else v_old.venue_id end;
+  if v_course_id is not null then
     select s.venue_id into v_venue_id
     from public.courses c
     join public.sessions s on s.id = c.session_id
-    where c.id = v.course_id and c.conference_id = v_conference_id;
+    where c.id = v_course_id and c.conference_id = v_conference_id;
     if v_venue_id is null then
       raise exception 'not_found';
     end if;
+  end if;
+
+  if v_template = 'exhibit' and p_values ? 'link_label_zh' and not p_values ? 'course_title_zh' then
+    v.course_title_zh := coalesce(v.link_label_zh, '');
+    v.course_title_en := coalesce(v.link_label_en, '');
   end if;
 
   if p_id is null then
@@ -103,7 +122,7 @@ begin
       v_stake_id, v.ward_id, coalesce(v.service_area_zh, ''), coalesce(v.service_area_en, ''),
       v.name_zh, coalesce(v.name_en, ''), v.photo_path, coalesce(v.photo_focus, 50),
       coalesce(v.link_label_zh, ''), coalesce(v.link_label_en, ''), v.link_url,
-      v_venue_id, v.course_id, coalesce(v.course_title_zh, ''), coalesce(v.course_title_en, ''),
+      v_venue_id, v_course_id, coalesce(v.course_title_zh, ''), coalesce(v.course_title_en, ''),
       coalesce(v.bio_zh, ''), coalesce(v.bio_en, ''), coalesce(v.summary_zh, ''), coalesce(v.summary_en, ''),
       coalesce(v.outline_zh, ''), coalesce(v.outline_en, '')
     )
@@ -117,8 +136,8 @@ begin
       link_label_zh = case when p_values ? 'link_label_zh' then coalesce(v.link_label_zh, '') else p.link_label_zh end,
       link_label_en = case when p_values ? 'link_label_en' then coalesce(v.link_label_en, '') else p.link_label_en end,
       link_url = case when p_values ? 'link_url' then v.link_url else p.link_url end,
-      venue_id = case when p_values ? 'venue_id' or p_values ? 'course_id' then v_venue_id else p.venue_id end,
-      course_id = case when p_values ? 'course_id' then v.course_id else p.course_id end,
+      venue_id = v_venue_id,
+      course_id = v_course_id,
       course_title_zh = coalesce(v.course_title_zh, p.course_title_zh),
       course_title_en = coalesce(v.course_title_en, p.course_title_en),
       bio_zh = coalesce(v.bio_zh, p.bio_zh),
@@ -128,11 +147,8 @@ begin
       outline_zh = coalesce(v.outline_zh, p.outline_zh),
       outline_en = coalesce(v.outline_en, p.outline_en),
       updated_at = now()
-    where p.id = p_id and p.highlight_id = p_highlight_id
+    where p.id = p_id
     returning p.id into v_id;
-    if v_id is null then
-      raise exception 'not_found';
-    end if;
   end if;
 
   return v_id;

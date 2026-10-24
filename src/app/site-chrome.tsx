@@ -8,7 +8,7 @@ export type SiteLink = { href: string; label: string; mobile?: boolean };
 
 /**
  * 全站表頭（設計交接說明「全站表頭與頁尾」）：網站名稱、選單與 English。首頁與大會特色介紹頁共用。
- * 手機寬度（≤640px）表頭只留標了 mobile 的連結與 English，其餘放頁尾，第一屏才不會被選單擠掉。
+ * 手機寬度（≤640px，所以斷點寫 641px 而不是 Tailwind 的 sm）表頭只留標了 mobile 的連結與 English，其餘放頁尾，第一屏才不會被選單擠掉。
  * 首頁的網站名稱是頁面標題；其他頁有 home 時，網站名稱連回首頁，頁面標題由頁面自己放。
  */
 export function SiteHeader({ t, links, home }: { t: Messages; links: SiteLink[]; home?: string }) {
@@ -25,10 +25,10 @@ export function SiteHeader({ t, links, home }: { t: Messages; links: SiteLink[];
         )}
         <div className="flex flex-wrap items-center gap-1">
           {links.length > 0 && (
-            <nav aria-label={t.home.navLabel} className={cn(!links.some((link) => link.mobile) && "max-sm:hidden")}>
+            <nav aria-label={t.home.navLabel} className={cn(!links.some((link) => link.mobile) && "max-[40.0625rem]:hidden")}>
               <ul className="flex flex-wrap items-center">
                 {links.map((link) => (
-                  <li key={link.href + link.label} className={cn(!link.mobile && "max-sm:hidden")}>
+                  <li key={link.href + link.label} className={cn(!link.mobile && "max-[40.0625rem]:hidden")}>
                     <a href={link.href} className="inline-flex min-h-11 items-center px-3 font-semibold hover:underline">
                       {link.label}
                     </a>
@@ -54,11 +54,11 @@ export function SiteFooter({ t, links }: { t: Messages; links: SiteLink[] }) {
           <p>{t.home.church}</p>
         </div>
         {links.length > 0 && (
-          <nav aria-label={t.home.footerNavLabel} className="w-full sm:w-auto">
-            <ul className="grid grid-cols-2 sm:flex sm:flex-wrap">
+          <nav aria-label={t.home.footerNavLabel} className="w-full min-[40.0625rem]:w-auto">
+            <ul className="grid grid-cols-2 min-[40.0625rem]:flex min-[40.0625rem]:flex-wrap">
               {links.map((link) => (
                 <li key={link.href + link.label}>
-                  <a href={link.href} className="inline-flex min-h-11 items-center underline sm:px-3">
+                  <a href={link.href} className="inline-flex min-h-11 items-center underline min-[40.0625rem]:px-3">
                     {link.label}
                   </a>
                 </li>

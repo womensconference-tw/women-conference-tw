@@ -1031,7 +1031,13 @@ describe("介紹頁的人物版型", () => {
     expect(
       await saveHighlightPerson(
         headAdmin,
-        person(id, { nameZh: "陳雅玲 姐妹", venueId: jinhua, courseId, courseTitleZh: "打錯的", outlineZh: "1. 認識皮革\n- 編織" }),
+        person(id, {
+          nameZh: "陳雅玲 姐妹",
+          venueId: jinhua,
+          courseId,
+          courseTitleZh: "打錯的",
+          outlineZh: "1. 認識皮革\n- 編織\n2、上色\n3.5 公分裁切\n-5°C 保存\n•收邊",
+        }),
       ),
     ).toEqual({ ok: true });
     expect(await saveHighlightPerson(headAdmin, person(id, { nameZh: "王淑娟 姐妹", venueId: jinhua, courseTitleZh: " 免揉麵包 " }))).toEqual({
@@ -1045,7 +1051,13 @@ describe("介紹頁的人物版型", () => {
     ]);
     expect(page.people.map(({ name, venueId, courseTitle, sections }) => ({ name, venueId, courseTitle, outline: sections.outline }))).toEqual([
       // 大綱前面自己打的編號、項目符號拿掉，頁面會編號。
-      { name: "陳雅玲 姐妹", venueId: daya, courseTitle: "皮編手環", outline: ["認識皮革", "編織"] },
+      // 正文開頭的小數與負號不是編號，留著。
+      {
+        name: "陳雅玲 姐妹",
+        venueId: daya,
+        courseTitle: "皮編手環",
+        outline: ["認識皮革", "編織", "上色", "3.5 公分裁切", "-5°C 保存", "收邊"],
+      },
       { name: "王淑娟 姐妹", venueId: jinhua, courseTitle: "免揉麵包", outline: [] },
     ]);
     const [linked] = (await getContentEditor(headAdmin))!.highlights[0].people;
@@ -1053,6 +1065,10 @@ describe("介紹頁的人物版型", () => {
     expect((await getContentEditor(headAdmin))!.courses).toEqual([
       { id: courseId, label: "台中大雅教堂・第一場次・皮編手環", highlightId: id },
     ]);
+
+    // 只送教堂、沒送課程時，原本對應的課程留著，教堂仍以課程為準。
+    must(await headAdmin.rpc("save_highlight_person", { p_highlight_id: id, p_id: linked.id, p_values: { name_zh: "陳雅玲 姐妹", venue_id: jinhua } }));
+    expect((await getContentEditor(headAdmin))!.highlights[0].people[0]).toMatchObject({ venueId: daya, courseId });
 
     // 課程刪除時只拿掉對應，人物留著，教堂還是原本的。
     must(await admin.from("courses").delete().eq("id", courseId));
@@ -1109,6 +1125,19 @@ describe("介紹頁的人物版型", () => {
     expect(must(await admin.from("highlight_people").select("link_label_zh, link_url").eq("id", existing.id))).toEqual([
       { link_label_zh: "舊按鈕", link_url: "/old" },
     ]);
+    // 舊後台改靜態展示的作品名稱（按鈕文字）：新的作品名稱跟著換算，新增的也是。
+    const exhibit = await savedItem({ kind: "highlight", titleZh: "靜態展示", pageTemplate: "exhibit" });
+    const oldSave = (pId: string | null, values: Record<string, unknown>) =>
+      headAdmin.rpc("save_highlight_person", { p_highlight_id: exhibit, p_id: pId, p_values: values });
+    must(await oldSave(null, { name_zh: "王真真", link_label_zh: "溫柔的心", link_label_en: "A gentle heart" }));
+    const [work] = (await getContentEditor(headAdmin))!.highlights.find((h) => h.id === exhibit)!.people;
+    expect(work).toMatchObject({ courseTitleZh: "溫柔的心", courseTitleEn: "A gentle heart" });
+    must(await oldSave(work.id, { name_zh: "王真真", link_label_zh: "改名的作品", link_label_en: "" }));
+    expect((await getContentEditor(headAdmin))!.highlights.find((h) => h.id === exhibit)!.people[0]).toMatchObject({
+      courseTitleZh: "改名的作品",
+      courseTitleEn: "",
+    });
+
     // 新程式存檔不送舊欄位，舊欄位也照留。
     expect(await saveHighlightPerson(headAdmin, person(id, { id: existing.id, nameZh: "甲" }))).toEqual({ ok: true });
     expect(must(await admin.from("highlight_people").select("link_label_zh, link_url").eq("id", existing.id))).toEqual([

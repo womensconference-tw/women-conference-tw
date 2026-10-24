@@ -490,8 +490,9 @@ function textLines(text: string): string[] {
     .filter((line) => line !== "");
 }
 
-// 大綱前面自己打的編號或項目符號（「1.」「1、」「-」「•」），頁面已經會編號。
-const OUTLINE_MARKER = /^(\d+[.、．)）]|[-*•・])\s*/;
+// 大綱前面自己打的編號或項目符號（「1.」「1、」「1)」「•」「- 」），頁面已經會編號。
+// 正文開頭的小數（3.5 公分）、負號（-5°C）不算：點後面接數字的不是編號，- 與 * 後面要有空白。
+const OUTLINE_MARKER = /^(\d+(?:[.．](?!\d)|[、)）])|[•・]|[-*](?=\s))\s*/;
 
 // 資料庫的 time 欄位讀出來是 "09:00:00"。
 function hoursMinutes(time: string): string {
