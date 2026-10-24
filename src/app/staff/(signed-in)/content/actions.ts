@@ -121,9 +121,16 @@ export async function saveHighlightPersonAction(formData: FormData) {
     nameEn: field("nameEn"),
     photoPath: field("photoPath"),
     photoFocus: field("photoFocus"),
-    linkLabelZh: field("linkLabelZh"),
-    linkLabelEn: field("linkLabelEn"),
-    linkUrl: field("linkUrl"),
+    venueId: field("venueId"),
+    courseId: field("courseId"),
+    courseTitleZh: field("courseTitleZh"),
+    courseTitleEn: field("courseTitleEn"),
+    bioZh: field("bioZh"),
+    bioEn: field("bioEn"),
+    summaryZh: field("summaryZh"),
+    summaryEn: field("summaryEn"),
+    outlineZh: field("outlineZh"),
+    outlineEn: field("outlineEn"),
   });
   done(result, "personSaved");
 }

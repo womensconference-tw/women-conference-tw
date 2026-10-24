@@ -4,7 +4,6 @@ import { localized } from "./i18n/localized";
 import { heroImageUrl, heroPathsOf, pickHeroPaths } from "./hero";
 import { highlightImageUrl } from "./highlight-images";
 import { UUID_PATTERN } from "./registration";
-import type { Region } from "./staff";
 
 /** 首頁「大會程序」的一間教堂：名稱、地址、地圖連結與這間教堂的時間軸（#84）。 */
 export type Venue = {
@@ -225,13 +224,35 @@ export function hasHighlightPage(
 }
 
 /**
- * 介紹頁的人物版型（設計稿 docs/design/activity-*.dc.html）：三種共用一個版面，只差人物卡片的照片大小與按鈕。
+ * 介紹頁的人物卡片版型（範本 A，設計稿 docs/design/template-a-cards.dc.html）：五種共用一個版面，
+ * 只差卡片上要不要顯示課程（作品）名稱、按鈕文字與個人介紹頁有哪幾段（PERSON_SECTIONS）。
  * 沒選版型的大會特色是一般的介紹頁（簡介加教堂分頁）。
  */
-export const PAGE_TEMPLATES = ["honor", "missionary", "exhibit"] as const;
+export const PAGE_TEMPLATES = ["corner", "spiritual", "honor", "missionary", "exhibit"] as const;
 export type PageTemplate = (typeof PAGE_TEMPLATES)[number];
 
-/** 人物版型介紹頁的一位人物，已依語言挑好（英文缺漏時是中文）。 */
+/** 個人介紹頁（範本 D）的一段：講師（貴賓）介紹、課程簡介、課程大綱。 */
+export type PersonSection = "bio" | "summary" | "outline";
+
+/** 每種版型的個人介紹頁有哪幾段，依這個順序（設計交接說明）。 */
+export const PERSON_SECTIONS: Record<PageTemplate, PersonSection[]> = {
+  corner: ["bio", "summary", "outline"],
+  spiritual: ["bio", "summary", "outline"],
+  honor: ["bio"],
+  missionary: ["bio", "outline"],
+  exhibit: ["bio"],
+};
+
+/** 卡片上顯示課程（作品）名稱的版型：角落課程顯示課名、靜態展示顯示作品名稱。 */
+export const CARD_SHOWS_COURSE: Record<PageTemplate, boolean> = {
+  corner: true,
+  spiritual: false,
+  honor: false,
+  missionary: false,
+  exhibit: true,
+};
+
+/** 人物卡片介紹頁的一位人物，已依語言挑好（英文缺漏時是中文）。 */
 export type HighlightPerson = {
   id: string;
   /** 從支聯會名單選的；沒選是空字串。 */
@@ -240,45 +261,52 @@ export type HighlightPerson = {
   ward: string;
   /** 傳教士的服務地區（例如高雄傳道部）；沒填是空字串。 */
   serviceArea: string;
-  /** 所選支聯會的區，介紹頁依這個篩選；沒選支聯會是 null。 */
-  region: Region | null;
+  /** 所在的教堂（對應到課程時是課程的教堂）；沒選是 null，只在「全部」最後出現。 */
+  venueId: string | null;
   name: string;
   /** 照片的公開網址；沒有照片是 null。 */
   photoUrl: string | null;
   /** 照片裁成圓形時對準的高度，0 是最上面、100 是最下面。 */
   photoFocus: number;
-  /** 按鈕文字（靜態展示是作品名稱）；沒填是空字串，由頁面用預設文字。 */
-  linkLabel: string;
-  /** 個人或作品介紹頁；沒有是 null。 */
-  linkUrl: string | null;
+  /** 課程名稱（對應到課程時是課程的名稱）或作品名稱；沒有是空字串。 */
+  courseTitle: string;
+  /** 個人介紹頁的文字：介紹與簡介一段一個，大綱一行一點；沒寫是空陣列。 */
+  sections: Record<PersonSection, string[]>;
 };
 
-/** highlight_people_units 的一列：一位人物所選的支聯會、支會名稱與區（只選支聯會時支會是 null）。 */
+/** highlight_people_units 的一列：一位人物所選的支聯會、支會名稱（只選支聯會時支會是 null）。 */
 type PersonUnit = {
   id: string;
   stake_zh: string;
   stake_en: string;
   ward_zh: string | null;
   ward_en: string | null;
-  region: Region;
 };
 
 /** 介紹頁要顯示的一項大會特色，已依語言挑好（英文缺漏時是中文）。 */
 export type Highlight = {
+  id: string;
   name: string;
   /** 簡介；沒寫是空字串。 */
   description: string;
-  /** 教堂分頁，照場地的順序；只有有說明或有課程的教堂。人物版型不分教堂，是空陣列。 */
+  /** 教堂分頁，照場地的順序；只有有說明或有課程的教堂。人物卡片版型不用，是空陣列。 */
   venues: HighlightVenue[];
-  /** 人物版型；一般的介紹頁是 null。 */
+  /** 人物卡片版型；一般的介紹頁是 null。 */
   template: PageTemplate | null;
-  /** 以下只有人物版型用，沒填是空字串。 */
+  /** 以下只有人物卡片版型用，沒填是空字串。 */
   subtitle: string;
   leadQuote: string;
   leadQuoteSource: string;
   /** 人物，照排序。 */
   people: HighlightPerson[];
+  /** 人物卡片分組用的教堂，照場地的順序（含沒有人的教堂，由頁面決定顯示哪些）。 */
+  peopleVenues: { id: string; name: string }[];
 };
+
+/** 個人介紹頁有沒有東西可寫：這個版型要顯示的段落有一段有寫。卡片的按鈕只在有的時候出現。 */
+export function hasPersonPage(person: HighlightPerson, template: PageTemplate): boolean {
+  return PERSON_SECTIONS[template].some((section) => person.sections[section].length > 0);
+}
 
 /** 介紹頁的一個教堂分頁：這間教堂的說明，與分在這項大會特色底下的課程（照場次、課程的順序）。 */
 export type HighlightVenue = {
@@ -303,8 +331,9 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
       `id, conference_id, name_zh, name_en, description_zh, description_en, page_template,
       subtitle_zh, subtitle_en, lead_quote_zh, lead_quote_en, lead_quote_source_zh, lead_quote_source_en,
       highlight_venues(venue_id, body_zh, body_en),
-      highlight_people(id, service_area_zh, service_area_en, name_zh, name_en, photo_path, photo_focus,
-        link_label_zh, link_label_en, link_url),
+      highlight_people(id, service_area_zh, service_area_en, name_zh, name_en, photo_path, photo_focus, venue_id,
+        course_title_zh, course_title_en, bio_zh, bio_en, summary_zh, summary_en, outline_zh, outline_en,
+        courses(title_zh, title_en, sessions(venue_id))),
       conferences!inner(is_current)`,
     )
     .eq("id", id)
@@ -318,11 +347,16 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
 
   if (data.page_template) {
     if (description === "" && data.highlight_people.length === 0) return null;
-    // 支聯會、支會可能已經停用，訪客直接讀名單讀不到，改用資料庫函式讀名稱與區。
-    const rows = await supabase.rpc("highlight_people_units", { p_highlight_id: id });
+    // 支聯會、支會可能已經停用，訪客直接讀名單讀不到，改用資料庫函式讀名稱。
+    const [rows, venueRows] = await Promise.all([
+      supabase.rpc("highlight_people_units", { p_highlight_id: id }),
+      supabase.from("venues").select("id, name_zh, name_en").eq("conference_id", data.conference_id).order("position").order("id"),
+    ]);
     if (rows.error) throw rows.error;
+    if (venueRows.error) throw venueRows.error;
     const units = new Map((rows.data as PersonUnit[]).map((unit) => [unit.id, unit]));
     return {
+      id: data.id,
       name: localized(data, "name", locale),
       description,
       venues: [],
@@ -332,19 +366,28 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
       leadQuoteSource: localized(data, "lead_quote_source", locale),
       people: data.highlight_people.map((person) => {
         const unit = units.get(person.id);
+        // 一位人物只對到一門課，讀出來是物件不是陣列。
+        const course = person.courses as unknown as
+          | ({ sessions: { venue_id: string } | null } & LocalizedRow<"title">)
+          | null;
         return {
           id: person.id,
           stake: unit ? localized(unit, "stake", locale) : "",
           ward: unit?.ward_zh ? localized(unit, "ward", locale) : "",
           serviceArea: localized(person, "service_area", locale).trim(),
-          region: unit?.region ?? null,
+          venueId: course?.sessions?.venue_id ?? person.venue_id,
           name: localized(person, "name", locale),
           photoUrl: person.photo_path && highlightImageUrl(supabase, person.photo_path),
           photoFocus: person.photo_focus,
-          linkLabel: localized(person, "link_label", locale),
-          linkUrl: person.link_url,
+          courseTitle: (course ? localized(course, "title", locale) : localized(person, "course_title", locale)).trim(),
+          sections: {
+            bio: textLines(localized(person, "bio", locale)),
+            summary: textLines(localized(person, "summary", locale)),
+            outline: textLines(localized(person, "outline", locale)).map((line) => line.replace(OUTLINE_MARKER, "")),
+          },
         };
       }),
+      peopleVenues: venueRows.data.map((venue) => ({ id: venue.id, name: localized(venue, "name", locale) })),
     };
   }
   const venueRows = await supabase
@@ -384,6 +427,7 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
   // 只有教堂說明的就沒東西可看，要顯示找不到，不能是一頁空白。
   if (description === "" && venues.length === 0) return null;
   return {
+    id: data.id,
     name: localized(data, "name", locale),
     description,
     venues,
@@ -392,6 +436,7 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
     leadQuote: "",
     leadQuoteSource: "",
     people: [],
+    peopleVenues: [],
   };
 }
 
@@ -436,6 +481,18 @@ function groupCourses(
   const uncategorized = courses.filter((course) => !highlights.some((h) => h.id === course.highlight_id));
   return uncategorized.length > 0 ? [...groups, { category: null, courses: uncategorized.map(toCourse) }] : groups;
 }
+
+// 個人介紹頁的純文字一行一段（大綱一行一點），空行不算。
+function textLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+}
+
+// 大綱前面自己打的編號或項目符號（「1.」「1、」「1)」「•」「- 」），頁面已經會編號。
+// 正文開頭的小數（3.5 公分）、負號（-5°C）不算：點後面接數字的不是編號，- 與 * 後面要有空白。
+const OUTLINE_MARKER = /^(\d+(?:[.．](?!\d)|[、)）])|[•・]|[-*](?=\s))\s*/;
 
 // 資料庫的 time 欄位讀出來是 "09:00:00"。
 function hoursMinutes(time: string): string {

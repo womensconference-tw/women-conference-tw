@@ -14,7 +14,7 @@ import { PreviewBanner } from "./preview/preview-banner";
 
 /**
  * 大會特色的介紹頁（#82）：名稱、簡介（Markdown）、教堂分頁（#100）、回首頁。首頁「大會有什麼」的卡片連過來。
- * 選了人物版型的（向貴賓致敬、與年長夫婦傳教士有約、靜態展示）改用 ActivityPage。
+ * 選了人物卡片版型的（角落課程、靈性課程、向貴賓致敬、與年長夫婦傳教士有約、靜態展示）改用 ActivityPage。
  * 前台（/highlights/<編號>）與後台的預覽（/preview/highlights/<編號>）共用：和首頁一樣，
  * 前台公告上線前看不到，預覽一直看得到。只有目前年度的；過去年度、找不到、沒有內容的都顯示「找不到」。
  */
@@ -27,7 +27,7 @@ export async function HighlightPage({ id, preview }: { id: string; preview: bool
     getHighlight(supabase, id, locale),
   ]);
   if (!highlight || !homePhase(conference, { preview })) notFound();
-  if (highlight.template) return <ActivityPage highlight={highlight} template={highlight.template} preview={preview} t={t} locale={locale} />;
+  if (highlight.template) return <ActivityPage highlight={highlight} template={highlight.template} preview={preview} t={t} />;
 
   return (
     <main className="mx-auto flex w-full max-w-(--content-max-width) flex-1 flex-col gap-6 px-5 pt-3 pb-8 text-body leading-relaxed">

@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { HomeAgenda } from "./home-agenda";
 import { PreviewBanner } from "./preview/preview-banner";
-import { SiteFooter, SiteHeader } from "./site-chrome";
+import { SiteFooter, SiteHeader, type SiteLink } from "./site-chrome";
 
 // 預覽首頁的報名按鈕連到預覽報名表，工作人員點了不會真的報名。
 const registerPaths = { live: "/register", preview: "/preview/register" };
@@ -47,6 +47,16 @@ export async function HomePage({ preview }: { preview: boolean }) {
   const shown = conference && content && phase ? { conference, content, phase } : null;
   const hasAbout = !!shown && (!!shown.content.welcome || shown.content.highlights.length > 0);
   const hasAgenda = !!shown && shown.content.venues.length > 0;
+  // 「大會場地」還沒有自己的頁面，先連到大會程序（有地址與地圖）。手機上報名入口在狀態列，表頭只留 English。
+  const links: SiteLink[] = shown
+    ? [
+        hasAbout && { href: "#about", label: t.home.navAbout },
+        hasAgenda && { href: "#agenda", label: t.home.navAgenda },
+        hasAgenda && { href: "#agenda", label: t.home.navVenues },
+        { href: "#register", label: t.home.navRegister },
+        { href: "#help", label: t.home.navHelp },
+      ].filter((link) => !!link)
+    : [];
 
   return (
     <>
@@ -57,19 +67,7 @@ export async function HomePage({ preview }: { preview: boolean }) {
           </PreviewBanner>
         </div>
       )}
-      <SiteHeader
-        t={t}
-        links={
-          shown
-            ? [
-                hasAbout && { href: "#about", label: t.home.navAbout },
-                hasAgenda && { href: "#agenda", label: t.home.navAgenda },
-                { href: "#register", label: t.home.navRegister },
-                { href: "#help", label: t.home.navHelp },
-              ].filter((link) => !!link)
-            : []
-        }
-      />
+      <SiteHeader t={t} links={links} />
       <main className="mx-auto flex w-full max-w-(--content-max-width) flex-1 flex-col gap-12 px-5 pb-12 text-body leading-relaxed md:max-w-5xl">
         {!shown ? (
           <p className="pt-6">{t.home.comingSoon}</p>
@@ -103,7 +101,7 @@ export async function HomePage({ preview }: { preview: boolean }) {
           </>
         )}
       </main>
-      <SiteFooter t={t} />
+      <SiteFooter t={t} links={links} />
     </>
   );
 }

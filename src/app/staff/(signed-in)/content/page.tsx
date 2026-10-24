@@ -6,6 +6,7 @@ import { schedulePhase, type SchedulePhase } from "@/lib/conference";
 import {
   getContentEditor,
   missingEnglish,
+  type ContentEditor,
   type ContentError,
   type HighlightItem,
   type HighlightPersonItem,
@@ -24,7 +25,7 @@ import { SubmitButton } from "../../submit-button";
 import { TextPair } from "../../text-pair";
 import { buttonClass, formatTime, inputClass } from "../../ui";
 import { HERO_SLOTS, type HeroError, type HeroSlot } from "@/lib/hero";
-import type { PageTemplate } from "@/lib/home-content";
+import { PERSON_SECTIONS, type PageTemplate, type PersonSection } from "@/lib/home-content";
 import {
   deleteContentItem,
   deleteHighlightPersonAction,
@@ -72,7 +73,6 @@ const ERRORS: Record<ContentError | HeroError, string> = {
   button_label_required: "有按鈕網址時，請填中文按鈕文字。",
   button_url_invalid: "按鈕網址要是 https:// 開頭的完整網址，或 / 開頭的站內網址（例如 /lookup），不能有空白。",
   person_name_required: "請填中文姓名。",
-  link_url_invalid: "連結網址要是 https:// 開頭的完整網址，或 / 開頭的站內網址，不能有空白。",
   file_type: "只收 JPG、PNG、WebP 格式的圖片。",
   file_too_large: "圖片超過 5 MB，請請美編組另存小一點的檔案（例如存成 JPG）。",
   alt_required: "有主視覺圖片時，中文圖片說明一定要填。",
@@ -85,18 +85,32 @@ const ERRORS: Record<ContentError | HeroError, string> = {
 
 const TITLE_LABELS: Record<HomeItemKind, string> = { faq: "問題", block: "標題", highlight: "名稱" };
 
-/** 介紹頁的版型（設計稿 docs/design/activity-*.dc.html）。 */
+/** 介紹頁的人物卡片版型（範本 A，設計稿 docs/design/template-a-cards.dc.html）。 */
 const TEMPLATE_LABELS: Record<PageTemplate, string> = {
+  corner: "角落課程",
+  spiritual: "靈性課程",
   honor: "向貴賓致敬",
   missionary: "與年長夫婦傳教士有約",
   exhibit: "靜態展示",
 };
 
-/** 人物卡片按鈕的說明：靜態展示的按鈕是作品名稱，其他沒填用預設文字（和前台 messages 的 activity 一致）。 */
-const PERSON_LINK_LABELS: Record<PageTemplate, { label: string; hint: string }> = {
-  honor: { label: "按鈕文字", hint: "不填就用「閱讀她的故事」。" },
-  missionary: { label: "按鈕文字", hint: "不填就用「認識這對傳教士」。" },
-  exhibit: { label: "作品名稱", hint: "卡片上的按鈕就是作品名稱；沒有連結時只顯示作品名稱。" },
+/**
+ * 沒有對應課程時自己打的名稱：角落課程顯示在卡片上，靈性課程是個人介紹頁的標題，靜態展示是作品名稱。
+ * 向貴賓致敬、傳教士的個人介紹頁標題是姓名，不用填（null）。
+ */
+const PERSON_TITLE_LABELS: Record<PageTemplate, { label: string; hint: string } | null> = {
+  corner: { label: "課程名稱", hint: "沒有對應課程時才要填。卡片上的按鈕與個人介紹頁的標題就是課程名稱。" },
+  spiritual: { label: "課程名稱", hint: "沒有對應課程時才要填。個人介紹頁的標題就是課程名稱（卡片上不顯示）。" },
+  honor: null,
+  missionary: null,
+  exhibit: { label: "作品名稱", hint: "卡片上的按鈕與個人介紹頁的標題就是作品名稱。" },
+};
+
+/** 個人介紹頁各段在後台的名稱（和前台 messages 的 activity 一致）。 */
+const PERSON_SECTION_LABELS: Record<PersonSection, (template: PageTemplate) => string> = {
+  bio: (template) => (template === "honor" ? "貴賓介紹" : "講師介紹"),
+  summary: () => "課程簡介",
+  outline: () => "課程大綱",
 };
 
 const HERO_LABELS: Record<HeroSlot, { label: string; ratio: string }> = {
@@ -173,7 +187,10 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
         ...item.people.flatMap((person) => [
           [person.serviceAreaZh, person.serviceAreaEn],
           [person.nameZh, person.nameEn],
-          [person.linkLabelZh, person.linkLabelEn],
+          [person.courseTitleZh, person.courseTitleEn],
+          [person.bioZh, person.bioEn],
+          [person.summaryZh, person.summaryEn],
+          [person.outlineZh, person.outlineEn],
         ]),
       ]),
   ].filter(([zh, en]) => missingEnglish(zh, en)).length;
@@ -275,19 +292,23 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
         noun="大會特色"
         items={content.highlights}
         conferenceId={conferenceId}
-        stakes={directory.stakes.map((stake) => ({
-          id: stake.id,
-          // 停用的仍列出（人物原本選的要能留著），標示出來免得新選到。
-          name: stake.isActive ? stake.nameZh : `${stake.nameZh}（已停用）`,
-          active: stake.isActive,
-          region: stake.region,
-          wards: stake.wards.map((ward) => ({
-            id: ward.id,
-            name: ward.isActive ? ward.nameZh : `${ward.nameZh}（已停用）`,
-            active: ward.isActive,
+        choices={{
+          stakes: directory.stakes.map((stake) => ({
+            id: stake.id,
+            // 停用的仍列出（人物原本選的要能留著），標示出來免得新選到。
+            name: stake.isActive ? stake.nameZh : `${stake.nameZh}（已停用）`,
+            active: stake.isActive,
+            region: stake.region,
+            wards: stake.wards.map((ward) => ({
+              id: ward.id,
+              name: ward.isActive ? ward.nameZh : `${ward.nameZh}（已停用）`,
+              active: ward.isActive,
+            })),
           })),
-        }))}
-        description="首頁「大會有什麼」的卡片，依這裡的順序。介紹頁有內容（介紹內容、教堂分頁或有課程分在這一類）的卡片可以點進介紹頁；都沒有的只顯示名稱和一句話，不能點。向貴賓致敬、與年長夫婦傳教士有約、靜態展示請選對應的介紹頁版型，介紹頁會改成人物卡片的樣子（介紹內容或人物有一個就能點）。"
+          venues: content.venues,
+          courses: content.courses,
+        }}
+        description="首頁「大會有什麼」的卡片，依這裡的順序。介紹頁有內容（介紹內容、教堂分頁或有課程分在這一類）的卡片可以點進介紹頁；都沒有的只顯示名稱和一句話，不能點。角落課程、靈性課程、向貴賓致敬、與年長夫婦傳教士有約、靜態展示請選對應的介紹頁版型，介紹頁會改成依教堂分組的人物卡片（介紹內容或人物有一個就能點）。"
       />
       <ItemList
         kind="faq"
@@ -387,7 +408,7 @@ function ItemList({
   items,
   conferenceId,
   description,
-  stakes = [],
+  choices = { stakes: [], venues: [], courses: [] },
 }: {
   kind: HomeItemKind;
   heading: string;
@@ -395,8 +416,8 @@ function ItemList({
   items: (HomeItem | HighlightItem)[];
   conferenceId: string;
   description: string;
-  /** 大會特色的人物可選的支聯會與支會（含停用的）。 */
-  stakes?: DirectoryUnit[];
+  /** 大會特色的人物可選的支聯會與支會（含停用的）、教堂與課程。 */
+  choices?: PersonChoices;
 }) {
   return (
     <section className="flex flex-col gap-4">
@@ -440,7 +461,7 @@ function ItemList({
             </details>
             {"venues" in item &&
               (item.pageTemplate ? (
-                <HighlightPeopleForms item={item} template={item.pageTemplate} conferenceId={conferenceId} stakes={stakes} />
+                <HighlightPeopleForms item={item} template={item.pageTemplate} conferenceId={conferenceId} choices={choices} />
               ) : (
                 <HighlightVenueForms item={item} conferenceId={conferenceId} />
               ))}
@@ -530,26 +551,39 @@ function HighlightVenueForms({ item, conferenceId }: { item: HighlightItem; conf
   );
 }
 
+/** 人物表單可選的支聯會與支會（含停用的）、目前年度的教堂與課程。 */
+type PersonChoices = {
+  stakes: DirectoryUnit[];
+  venues: ContentEditor["venues"];
+  courses: ContentEditor["courses"];
+};
+
 /**
- * 人物版型介紹頁的人物：每一位可以編輯、往前或往後移、刪除，最下面新增。介紹頁照這裡的順序排卡片。
- * 選了版型時介紹頁不分教堂，所以不顯示各教堂分頁（已寫的說明還留著，改回一般介紹頁時會再出現）。
+ * 人物卡片版型介紹頁的人物：每一位可以編輯、往前或往後移、刪除，最下面新增。介紹頁依教堂分組，組內照這裡的順序。
+ * 選了版型時介紹頁不用各教堂分頁，所以不顯示（已寫的說明還留著，改回一般介紹頁時會再出現）。
  */
 function HighlightPeopleForms({
   item,
   template,
   conferenceId,
-  stakes,
+  choices,
 }: {
   item: HighlightItem;
   template: PageTemplate;
   conferenceId: string;
-  stakes: DirectoryUnit[];
+  choices: PersonChoices;
 }) {
+  const venueName = (person: HighlightPersonItem) => {
+    const courseVenue = choices.courses.find((course) => course.id === person.courseId)?.label.split("・")[0];
+    return courseVenue ?? choices.venues.find((venue) => venue.id === person.venueId)?.name ?? "";
+  };
   return (
     <details>
       <summary className="cursor-pointer font-semibold">人物（{item.people.length} 位）</summary>
       <div className="mt-3 flex flex-col gap-3">
-        <p>介紹頁下面的人物卡片：照片、支聯會與支會、姓名，和連到個人或作品介紹頁的按鈕。依這裡的順序。</p>
+        <p>
+          介紹頁下面的人物卡片：照片、支聯會與支會、姓名，依教堂分組，組內依這裡的順序。有寫個人介紹頁的文字，卡片才有按鈕連到個人介紹頁。
+        </p>
         <ol className="flex flex-col gap-3">
           {item.people.map((person, index) => (
             <li key={person.id} className="flex flex-col gap-3 rounded-lg border p-3">
@@ -566,8 +600,10 @@ function HighlightPeopleForms({
                 <span className="font-semibold">
                   {index + 1}. {person.nameZh}
                 </span>
-                {(person.stakeName || person.wardName) && (
-                  <span className="text-muted-foreground">{[person.stakeName, person.wardName].filter(Boolean).join("・")}</span>
+                {[venueName(person), person.stakeName, person.wardName].some(Boolean) && (
+                  <span className="text-muted-foreground">
+                    {[venueName(person), person.stakeName, person.wardName].filter(Boolean).join("・")}
+                  </span>
                 )}
               </div>
               <div className="flex flex-wrap gap-3">
@@ -577,7 +613,7 @@ function HighlightPeopleForms({
               <details>
                 <summary className="cursor-pointer font-semibold">編輯「{person.nameZh}」</summary>
                 <div className="mt-3">
-                  <PersonForm item={item} template={template} conferenceId={conferenceId} stakes={stakes} person={person} />
+                  <PersonForm item={item} template={template} conferenceId={conferenceId} choices={choices} person={person} />
                 </div>
               </details>
               <details>
@@ -598,7 +634,7 @@ function HighlightPeopleForms({
         <details className="rounded-lg border p-3">
           <summary className="cursor-pointer font-semibold">新增人物</summary>
           <div className="mt-3">
-            <PersonForm item={item} template={template} conferenceId={conferenceId} stakes={stakes} />
+            <PersonForm item={item} template={template} conferenceId={conferenceId} choices={choices} />
           </div>
         </details>
       </div>
@@ -610,18 +646,20 @@ function PersonForm({
   item,
   template,
   conferenceId,
-  stakes,
+  choices,
   person,
 }: {
   item: HighlightItem;
   template: PageTemplate;
   conferenceId: string;
-  stakes: DirectoryUnit[];
+  choices: PersonChoices;
   person?: HighlightPersonItem;
 }) {
-  const link = PERSON_LINK_LABELS[template];
+  const title = PERSON_TITLE_LABELS[template];
   const stakeId = person?.stakeId ?? "";
   const wardId = person?.wardId ?? "";
+  // 分在這一類的課程，加上這位人物原本對應的（分類改了也留著，存檔時才不會被清掉）。
+  const courses = choices.courses.filter((course) => course.highlightId === item.id || course.id === person?.courseId);
   return (
     <form action={saveHighlightPersonAction} className="flex flex-col gap-3">
       <input type="hidden" name="highlightId" value={item.id} />
@@ -629,7 +667,7 @@ function PersonForm({
       <TextPair name="name" label="姓名" zh={person?.nameZh} en={person?.nameEn} required />
       <span className="text-sm text-muted-foreground">照卡片上要顯示的寫，例如「沈亦斌 姐妹」「宋長老及宋馬彩鳳姊妹」。</span>
       <UnitFields
-        stakes={unitChoices(stakes, stakeId, wardId)}
+        stakes={unitChoices(choices.stakes, stakeId, wardId)}
         stakeId={stakeId}
         wardId={wardId}
         withWard={template !== "missionary"}
@@ -642,15 +680,58 @@ function PersonForm({
           </span>
         </>
       )}
-      <PersonPhotoField conferenceId={conferenceId} photo={person?.photo ?? null} focus={person?.photoFocus ?? 50} />
-      <TextPair name="linkLabel" label={link.label} zh={person?.linkLabelZh} en={person?.linkLabelEn} />
-      <span className="text-sm text-muted-foreground">{link.hint}</span>
-      <Field
-        label="連結網址"
-        hint="個人或作品的介紹頁。https:// 開頭的完整網址，或 / 開頭的站內網址。不填的話卡片沒有按鈕。"
-      >
-        <input name="linkUrl" defaultValue={person?.linkUrl} className={inputClass} />
+      {courses.length > 0 ? (
+        <Field
+          label="對應的課程"
+          hint={`從分在「${item.titleZh}」的課程挑，課程名稱與教堂會自動帶出，不用另外打。沒有對應的課程就選「沒有」。`}
+        >
+          <select name="courseId" defaultValue={person?.courseId ?? ""} className={cn(inputClass, "sm:max-w-xl")}>
+            <option value="">沒有</option>
+            {courses.map((course) => (
+              <option key={course.id} value={course.id}>
+                {course.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          沒有課程分在「{item.titleZh}」。要從課程帶出課程名稱與教堂，請先到「場次與課程」把課程的分類設成「{item.titleZh}」。
+        </p>
+      )}
+      <Field label="教堂" hint="卡片依教堂分組。選了對應的課程時，以課程的教堂為準，這裡不用選。">
+        <select name="venueId" defaultValue={person?.venueId ?? ""} className={cn(inputClass, "sm:max-w-md")}>
+          <option value="">不選</option>
+          {choices.venues.map((venue) => (
+            <option key={venue.id} value={venue.id}>
+              {venue.name}
+            </option>
+          ))}
+        </select>
       </Field>
+      {title && (
+        <>
+          <TextPair name="courseTitle" label={title.label} zh={person?.courseTitleZh} en={person?.courseTitleEn} />
+          <span className="text-sm text-muted-foreground">{title.hint}</span>
+        </>
+      )}
+      <PersonPhotoField conferenceId={conferenceId} photo={person?.photo ?? null} focus={person?.photoFocus ?? 50} />
+      <fieldset className="flex flex-col gap-3 rounded-lg border p-3">
+        <legend className="px-1 font-semibold">個人介紹頁</legend>
+        <p className="text-sm text-muted-foreground">
+          有寫其中一段，卡片才有按鈕連到個人介紹頁。一行一段；大綱一行一點，不用打編號。
+        </p>
+        {PERSON_SECTIONS[template].map((section) => (
+          <TextPair
+            key={section}
+            name={section}
+            label={PERSON_SECTION_LABELS[section](template)}
+            zh={person?.[`${section}Zh`]}
+            en={person?.[`${section}En`]}
+            multiline
+          />
+        ))}
+      </fieldset>
       <SubmitButton className={submitClass}>{person ? `儲存「${person.nameZh}」` : "新增人物"}</SubmitButton>
     </form>
   );
@@ -721,7 +802,7 @@ function ItemForm({
           <TextPair name="summary" label="卡片上的一句話" zh={item?.summaryZh} en={item?.summaryEn} />
           <Field
             label="介紹頁版型"
-            hint="向貴賓致敬、與年長夫婦傳教士有約、靜態展示選對應的版型：介紹頁上面是副標、引言與介紹內容，下面是人物卡片（存檔後在這一項下面新增人物），不分教堂。"
+            hint="角落課程、靈性課程、向貴賓致敬、與年長夫婦傳教士有約、靜態展示選對應的版型：介紹頁上面是副標與介紹內容，下面是依教堂分組的人物卡片（存檔後在這一項下面新增人物），每位人物有自己的個人介紹頁。"
           >
             <select name="pageTemplate" defaultValue={highlight?.pageTemplate ?? ""} className={cn(inputClass, "sm:max-w-md")}>
               <option value="">一般介紹頁（介紹內容加各教堂分頁）</option>
@@ -733,7 +814,7 @@ function ItemForm({
             </select>
           </Field>
           <fieldset className="flex flex-col gap-3 rounded-lg border p-3">
-            <legend className="px-1 font-semibold">人物版型的標題區與引言（一般介紹頁不顯示）</legend>
+            <legend className="px-1 font-semibold">人物卡片版型的標題區與引言（一般介紹頁不顯示）</legend>
             <TextPair name="subtitle" label="副標" zh={highlight?.subtitleZh} en={highlight?.subtitleEn} />
             <span className="text-sm text-muted-foreground">標題下面的一句話，例如「80 歲長輩，持守到底的美好榜樣。」</span>
             <TextPair name="leadQuote" label="引言" zh={highlight?.leadQuoteZh} en={highlight?.leadQuoteEn} multiline />
