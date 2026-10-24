@@ -152,12 +152,37 @@ async function lastYear() {
     photo_path: `${sourceId}/00000000-0000-4000-8000-000000000000.jpg`,
     photo_focus: 20,
   });
-  await insert("highlights", {
+  const choir = await insert("highlights", {
     position: 1,
     name_zh: "即席唱詩班",
     name_en: "Choir",
     summary_zh: "跟著影片練唱",
     description_zh: "[練唱影片](https://www.youtube.com/)",
+    page_template: "choir",
+    image_path: `${sourceId}/11111111-1111-4111-8111-111111111111.jpg`,
+    image_alt_zh: "唱詩的照片",
+    closing_en: "Come and join us!",
+  });
+  must(
+    await admin.from("highlight_venues").insert({
+      conference_id: sourceId,
+      highlight_id: choir,
+      venue_id: venue,
+      show_title_zh: "金華場",
+      poster_path: `${sourceId}/22222222-2222-4222-8222-222222222222.png`,
+      poster_alt_en: "Poster",
+    }),
+  );
+  await insert("highlight_venue_team", { highlight_id: choir, venue_id: venue, position: 2, role_zh: "司琴", name_zh: "曾明潔" });
+  await insert("highlight_venue_team", {
+    highlight_id: choir,
+    venue_id: venue,
+    position: 1,
+    role_zh: "指揮",
+    name_zh: "黃淑真",
+    photo_path: `${sourceId}/33333333-3333-4333-8333-333333333333.webp`,
+    photo_focus: 30,
+    bio_en: "Bio",
   });
   const genealogy = await insert("courses", {
     session_id: first,
@@ -444,7 +469,8 @@ describe("複製去年建立新年度", () => {
         .select("body_zh, body_en, highlights(conference_id, name_zh), venues(conference_id, name_zh)")
         .eq("conference_id", id),
     );
-    expect(rows).toEqual([
+    // 即席唱詩班的各教堂頁另外測（下面的圖文型）。
+    expect(rows.filter((row) => (row.highlights as unknown as { name_zh: string }).name_zh === "公益服務")).toEqual([
       {
         body_zh: "在一樓大廳",
         body_en: "In the 1F lobby",
@@ -500,6 +526,32 @@ describe("複製去年建立新年度", () => {
         "Point",
       ],
       ["黃蘋 姐妹", "", "", "", null, 50, venue.id, "", "她的故事", "", ""],
+    ]);
+  });
+
+  it("圖文型的活動圖片與結語、各教堂頁的節目名稱與海報、團隊成員一起帶過去，教堂換成新年度的", async () => {
+    await lastYear();
+
+    await switchedTo(await copied());
+
+    const editor = (await getContentEditor(headAdmin))!;
+    const choir = editor.highlights.find((highlight) => highlight.titleZh === "即席唱詩班")!;
+    expect(choir).toMatchObject({
+      pageTemplate: "choir",
+      image: { path: `${sourceId}/11111111-1111-4111-8111-111111111111.jpg` },
+      imageAltZh: "唱詩的照片",
+      closingEn: "Come and join us!",
+    });
+    const [page] = choir.venues;
+    expect(page).toMatchObject({
+      venueId: editor.venues[0].id,
+      showTitleZh: "金華場",
+      poster: { path: `${sourceId}/22222222-2222-4222-8222-222222222222.png` },
+      posterAltEn: "Poster",
+    });
+    expect(page.team.map((m) => [m.roleZh, m.nameZh, m.photo?.path ?? null, m.photoFocus, m.bioEn])).toEqual([
+      ["指揮", "黃淑真", `${sourceId}/33333333-3333-4333-8333-333333333333.webp`, 30, "Bio"],
+      ["司琴", "曾明潔", null, 50, ""],
     ]);
   });
 

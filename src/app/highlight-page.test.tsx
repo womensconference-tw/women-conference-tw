@@ -10,6 +10,7 @@ import { HighlightPage } from "./highlight-page";
 import { HighlightVenues } from "./highlight-venues";
 import { HomePage } from "./home-page";
 import { PersonPage } from "./person-page";
+import { VenuePage } from "./venue-page";
 
 // 頁面在伺服器上讀 cookie 的部分換掉：用訪客的連線讀資料、語言由測試決定、語言切換按鈕不畫。
 let locale: Locale = "zh";
@@ -537,6 +538,144 @@ describe("介紹頁的人物版型", () => {
     await expect(renderPage(HighlightPage({ id, preview: false }))).rejects.toThrow("not found");
     await renderPage(HomePage({ preview: false }));
     expect(screen.queryByRole("link", { name: /向貴賓致敬/ })).toBeNull();
+  });
+});
+
+describe("圖文型介紹頁與各教堂頁", () => {
+  async function venue(position: number, nameZh: string) {
+    return must(
+      await admin
+        .from("venues")
+        .insert({ conference_id: fixtureId, position, region: "north", name_zh: nameZh })
+        .select("id")
+        .single(),
+    ).id as string;
+  }
+
+  async function featurePage(row: Record<string, unknown>) {
+    return must(
+      await admin
+        .from("highlights")
+        .insert({ conference_id: fixtureId, position: 3, ...row })
+        .select("id")
+        .single(),
+    ).id as string;
+  }
+
+  async function venueRow(highlightId: string, venueId: string, row: Record<string, unknown>) {
+    must(await admin.from("highlight_venues").insert({ conference_id: fixtureId, highlight_id: highlightId, venue_id: venueId, ...row }));
+  }
+
+  async function teamMember(highlightId: string, venueId: string, position: number, row: Record<string, unknown>) {
+    must(
+      await admin
+        .from("highlight_venue_team")
+        .insert({ conference_id: fixtureId, highlight_id: highlightId, venue_id: venueId, position, ...row }),
+    );
+  }
+
+  it("即席唱詩班：標題區、只列有內容的教堂按鈕、活動圖片、介紹內容與結語", async () => {
+    await arrange(true);
+    const photo = `${fixtureId}/${crypto.randomUUID()}.jpg`;
+    const id = await featurePage({
+      name_zh: "即席唱詩班",
+      page_template: "choir",
+      subtitle_zh: "為了大會而相聚，齊聲歌唱。",
+      description_zh: "「即席」唱詩班，並不是一個固定的唱詩班。",
+      image_path: photo,
+      image_alt_zh: "姐妹們一起唱詩的照片",
+      closing_zh: "來吧！加入即席唱詩班吧！",
+    });
+    const niaosong = await venue(3, "高雄鳥松教堂");
+    const jinhua = await venue(1, "台北金華教堂");
+    await venue(2, "台中大雅教堂");
+    await teamMember(id, niaosong, 1, { name_zh: "司琴" });
+    await venueRow(id, jinhua, { body_zh: "說明" });
+
+    await renderPage(HighlightPage({ id, preview: false }));
+
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("即席唱詩班");
+    expect(screen.getByText("為了大會而相聚，齊聲歌唱。")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(messages.zh.activity.choir.venuePrompt);
+    const buttons = within(screen.getByRole("heading", { level: 2 }).parentElement!).getAllByRole("link");
+    expect(buttons.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["台北金華教堂›", `/highlights/${id}/venues/${jinhua}`],
+      ["高雄鳥松教堂›", `/highlights/${id}/venues/${niaosong}`],
+    ]);
+    const image = screen.getByRole("img", { name: "姐妹們一起唱詩的照片" });
+    expect(image.getAttribute("src")).toMatch(new RegExp(`/highlight-images/${photo}$`));
+    expect(screen.getByText("「即席」唱詩班，並不是一個固定的唱詩班。")).toBeTruthy();
+    expect(screen.getByText("來吧！加入即席唱詩班吧！")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: messages.zh.home.registerButton })).toBeNull();
+  });
+
+  it("各教堂頁：節目名稱、切換其他教堂、海報、製作靈感、團隊成員、回到活動；預覽版連到預覽", async () => {
+    await arrange(false);
+    const id = await featurePage({ name_zh: "迷妳音樂會", page_template: "concert" });
+    const jinhua = await venue(1, "台北金華教堂");
+    const daya = await venue(2, "台中大雅教堂");
+    const poster = `${fixtureId}/${crypto.randomUUID()}.png`;
+    await venueRow(id, daya, {
+      show_title_zh: "〈妳是我的寶〉",
+      poster_path: poster,
+      poster_alt_zh: "大雅教堂迷妳音樂會海報",
+      body_zh: "在這一場充滿音樂與愛的午後。\n\n<script>alert(1)</script>",
+    });
+    // 舊資料的海報沒有圖片說明：至少說出是哪間教堂的海報。
+    await venueRow(id, jinhua, { show_title_zh: "金華場", poster_path: `${fixtureId}/${crypto.randomUUID()}.jpg` });
+    await teamMember(id, daya, 2, { role_zh: "主持", name_zh: "王台君", bio_zh: "第一段\n第二段" });
+    await teamMember(id, daya, 1, { role_zh: "製作人", name_zh: "陳玉穎" });
+
+    await expect(renderPage(VenuePage({ highlightId: id, venueId: daya, preview: false }))).rejects.toThrow("not found");
+    await renderPage(VenuePage({ highlightId: id, venueId: daya, preview: true }));
+
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("台中大雅教堂");
+    expect(screen.getByText("〈妳是我的寶〉")).toBeTruthy();
+    const crumbs = within(screen.getByRole("navigation", { name: messages.zh.activity.breadcrumbLabel }));
+    expect(crumbs.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
+      "/preview",
+      "/preview#about",
+      `/preview/highlights/${id}`,
+    ]);
+    const others = within(screen.getByRole("navigation", { name: messages.zh.activity.otherVenues }));
+    expect(others.getByRole("link", { name: "台北金華教堂" }).getAttribute("href")).toBe(`/preview/highlights/${id}/venues/${jinhua}`);
+    expect(others.getByText("台中大雅教堂").getAttribute("aria-current")).toBe("page");
+    // 海報連結的名稱是圖片說明，點了會怎樣寫在提示裡。
+    const posterLink = screen.getByRole("link", { name: "大雅教堂迷妳音樂會海報" });
+    expect(posterLink.getAttribute("href")).toMatch(new RegExp(`/highlight-images/${poster}$`));
+    expect(document.getElementById(posterLink.getAttribute("aria-describedby")!)!.textContent).toContain(
+      messages.zh.activity.posterEnlarge,
+    );
+    expect(screen.getByRole("heading", { level: 2, name: messages.zh.activity.inspiration })).toBeTruthy();
+    expect(screen.getByText("在這一場充滿音樂與愛的午後。")).toBeTruthy();
+    expect(document.querySelector("main script")).toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: messages.zh.activity.concert.teamHeading })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["陳玉穎", "王台君"]);
+    expect(screen.getByText("主持")).toBeTruthy();
+    expect(screen.getByText("第二段").tagName).toBe("P");
+    expect(screen.getByRole("link", { name: /回到迷妳音樂會/ }).getAttribute("href")).toBe(`/preview/highlights/${id}`);
+    cleanup();
+
+    await renderPage(VenuePage({ highlightId: id, venueId: jinhua, preview: true }));
+    expect(screen.getByRole("link", { name: "台北金華教堂的海報" })).toBeTruthy();
+  });
+
+  it("各教堂頁：只有一間教堂時不放切換；沒有內容的教堂、別的活動都找不到", async () => {
+    await arrange(true);
+    const id = await featurePage({ name_zh: "即席唱詩班", page_template: "choir" });
+    const jinhua = await venue(1, "台北金華教堂");
+    const daya = await venue(2, "台中大雅教堂");
+    await teamMember(id, jinhua, 1, { role_zh: "指揮", name_zh: "黃淑真" });
+
+    await renderPage(VenuePage({ highlightId: id, venueId: jinhua, preview: false }));
+    expect(screen.queryByRole("navigation", { name: messages.zh.activity.otherVenues })).toBeNull();
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(messages.zh.activity.choir.teamHeading);
+    // 沒有海報、製作靈感時不出現。
+    expect(screen.queryByRole("heading", { name: messages.zh.activity.inspiration })).toBeNull();
+    cleanup();
+
+    await expect(renderPage(VenuePage({ highlightId: id, venueId: daya, preview: false }))).rejects.toThrow("not found");
+    await expect(renderPage(VenuePage({ highlightId: choirId, venueId: jinhua, preview: false }))).rejects.toThrow("not found");
   });
 });
 

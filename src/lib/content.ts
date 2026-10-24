@@ -26,6 +26,7 @@ export type ContentError =
   | "button_label_required"
   | "button_url_invalid"
   | "person_name_required"
+  | "poster_alt_required"
   | "not_found"
   | "unavailable";
 
@@ -256,6 +257,12 @@ export type HomeItemInput = {
   leadQuoteEn?: string;
   leadQuoteSourceZh?: string;
   leadQuoteSourceEn?: string;
+  /** 圖文型的活動圖片（highlight-images 裡的路徑；空白是沒有圖）、圖片說明與結語。 */
+  imagePath?: string;
+  imageAltZh?: string;
+  imageAltEn?: string;
+  closingZh?: string;
+  closingEn?: string;
 };
 
 /** 新增或修改一個常見問題、自訂區塊或大會特色。 */
@@ -290,8 +297,10 @@ export async function saveHomeItem(
   }
   if (input.kind === "highlight") {
     const pageTemplate = text(input.pageTemplate);
-    // 表單送來不認得的版型，只可能是有人改了網頁。
+    // 表單送來不認得的版型、不對的圖片路徑（後台上傳後自動填的），只可能是有人改了網頁。
     if (pageTemplate && !(PAGE_TEMPLATES as readonly string[]).includes(pageTemplate)) return { ok: false, error: "not_found" };
+    const imagePath = text(input.imagePath);
+    if (imagePath && !isHighlightImagePath(imagePath)) return { ok: false, error: "not_found" };
     Object.assign(values, {
       summary_zh: text(input.summaryZh),
       summary_en: text(input.summaryEn),
@@ -302,6 +311,11 @@ export async function saveHomeItem(
       lead_quote_en: text(input.leadQuoteEn),
       lead_quote_source_zh: text(input.leadQuoteSourceZh),
       lead_quote_source_en: text(input.leadQuoteSourceEn),
+      image_path: imagePath || null,
+      image_alt_zh: text(input.imageAltZh),
+      image_alt_en: text(input.imageAltEn),
+      closing_zh: text(input.closingZh),
+      closing_en: text(input.closingEn),
     });
   }
 
@@ -352,24 +366,118 @@ export async function moveHomeItem(
 export type HighlightVenueInput = {
   highlightId: string;
   venueId: string;
+  /** 教堂說明（#100）；圖文型是製作靈感。 */
   bodyZh: string;
   bodyEn: string;
+  /** 以下只有圖文型的各教堂頁有，一般介紹頁的表單不送（保留原值）。 */
+  showTitleZh?: string;
+  showTitleEn?: string;
+  /** highlight-images 裡的路徑；空白是沒有海報。 */
+  posterPath?: string;
+  posterAltZh?: string;
+  posterAltEn?: string;
 };
 
-/** 存一項大會特色在一間教堂的說明（#100）。中英都空白就拿掉這間教堂的說明。只能改目前年度的。 */
+/**
+ * 存一項大會特色在一間教堂的說明（#100），圖文型另有節目名稱與海報（範本 C）。
+ * 說明、節目名稱、海報都沒有時拿掉這間教堂的頁面（團隊成員另外存）。只能改目前年度的。
+ */
 export async function saveHighlightVenue(supabase: SupabaseClient, input: HighlightVenueInput): Promise<ContentResult> {
   if (!validIds(input.highlightId, input.venueId) || !input.highlightId || !input.venueId) {
+    return { ok: false, error: "not_found" };
+  }
+  const posterPath = trimBlank(input.posterPath ?? "");
+  // 海報是後台上傳後自動填的，格式不對只可能是有人改了網頁。
+  if (posterPath && !isHighlightImagePath(posterPath)) return { ok: false, error: "not_found" };
+  // 海報是一張可以點的圖，沒有圖片說明的話，看不到圖的人不知道這是什麼。
+  if (posterPath && !trimBlank(input.posterAltZh ?? "")) return { ok: false, error: "poster_alt_required" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+
+  const values: Record<string, unknown> = { body_zh: trimBlank(input.bodyZh), body_en: trimBlank(input.bodyEn) };
+  if (input.showTitleZh !== undefined) {
+    Object.assign(values, {
+      show_title_zh: trimBlank(input.showTitleZh),
+      show_title_en: trimBlank(input.showTitleEn ?? ""),
+      poster_path: posterPath || null,
+      poster_alt_zh: trimBlank(input.posterAltZh ?? ""),
+      poster_alt_en: trimBlank(input.posterAltEn ?? ""),
+    });
+  }
+  const { error } = await supabase.rpc("save_highlight_venue_page", {
+    p_highlight_id: input.highlightId,
+    p_venue_id: input.venueId,
+    p_values: values,
+  });
+  return error ? failure(error) : { ok: true };
+}
+
+/** 新增或修改各教堂頁的一位團隊成員時填的欄位，都是表單上的原始文字。 */
+export type TeamMemberInput = {
+  highlightId: string;
+  venueId: string;
+  /** 有就是修改，沒有就是新增（排在這間教堂的最後）。 */
+  id?: string | null;
+  roleZh: string;
+  roleEn: string;
+  nameZh: string;
+  nameEn: string;
+  photoPath: string;
+  photoFocus: string;
+  /** 人物介紹，一行一段。 */
+  bioZh: string;
+  bioEn: string;
+};
+
+/** 新增或修改各教堂頁（範本 C）的一位團隊成員。只能改目前年度的。 */
+export async function saveTeamMember(supabase: SupabaseClient, input: TeamMemberInput): Promise<ContentResult> {
+  const text = (value: string) => trimBlank(value);
+  const nameZh = text(input.nameZh);
+  if (!nameZh) return { ok: false, error: "person_name_required" };
+  const photoPath = text(input.photoPath);
+  if (photoPath && !isHighlightImagePath(photoPath)) return { ok: false, error: "not_found" };
+  const focus = Number(input.photoFocus);
+  if (!validIds(input.highlightId, input.venueId, input.id) || !input.highlightId || !input.venueId) {
     return { ok: false, error: "not_found" };
   }
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
-  const { error } = await supabase.rpc("save_highlight_venue", {
+  const { error } = await supabase.rpc("save_highlight_team_member", {
     p_highlight_id: input.highlightId,
     p_venue_id: input.venueId,
-    p_body_zh: trimBlank(input.bodyZh),
-    p_body_en: trimBlank(input.bodyEn),
+    p_id: input.id || null,
+    p_values: {
+      role_zh: text(input.roleZh),
+      role_en: text(input.roleEn),
+      name_zh: nameZh,
+      name_en: text(input.nameEn),
+      photo_path: photoPath || null,
+      photo_focus: Number.isInteger(focus) && focus >= 0 && focus <= 100 ? focus : 50,
+      bio_zh: text(input.bioZh),
+      bio_en: text(input.bioEn),
+    },
   });
+  return error ? failure(error) : { ok: true };
+}
+
+/** 刪除一位團隊成員。照片檔案不刪（複製的新年度可能也在用）。只能刪目前年度的。 */
+export async function deleteTeamMember(supabase: SupabaseClient, id: string): Promise<ContentResult> {
+  if (!validIds(id) || !id) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+
+  const { error } = await supabase.rpc("delete_highlight_team_member", { p_id: id });
+  return error ? failure(error) : { ok: true };
+}
+
+/** 把一位團隊成員往前或往後移一格；已經在最前或最後時不動。只能移目前年度的。 */
+export async function moveTeamMember(supabase: SupabaseClient, id: string, direction: "up" | "down"): Promise<ContentResult> {
+  if (!validIds(id) || !id) return { ok: false, error: "not_found" };
+  const admin = await ensureAdmin(supabase);
+  if (admin) return admin;
+
+  const { error } = await supabase.rpc("move_highlight_team_member", { p_id: id, p_up: direction === "up" });
   return error ? failure(error) : { ok: true };
 }
 
@@ -508,6 +616,7 @@ function failure(error: PostgrestError): { ok: false; error: ContentError } {
     case violates("custom_blocks_button_url_safe"):
       return { ok: false, error: "button_url_invalid" };
     case violates("highlight_people_name_not_blank"):
+    case violates("highlight_venue_team_name_not_blank"):
       return { ok: false, error: "person_name_required" };
     case violates("custom_blocks_button_has_label"):
       return { ok: false, error: "button_label_required" };
@@ -523,6 +632,7 @@ function failure(error: PostgrestError): { ok: false; error: ContentError } {
     case error.message === "not_found":
     // 人物選的支聯會不存在（被刪了，或網頁被改過）。
     case error.code === "23503" && error.message.includes("highlight_people"):
+    case error.code === "23503" && error.message.includes("highlight_venue"):
       return { ok: false, error: "not_found" };
     case error.message === "not_admin":
     case error.code === "42501":
@@ -600,8 +710,42 @@ export type HighlightItem = HomeItem & {
   leadQuoteSourceEn: string;
   /** 介紹頁的人物，照排序。沒選版型時也留著（改回版型時還在），只是介紹頁不顯示。 */
   people: HighlightPersonItem[];
-  /** 目前年度的每個場地，照場地的順序：這間教堂的說明，與這間教堂分在這一類的課程數（介紹頁自動列出）。 */
-  venues: { venueId: string; venueName: string; bodyZh: string; bodyEn: string; courseCount: number }[];
+  /** 圖文型的活動圖片（路徑與公開網址；沒有是 null）、圖片說明與結語。 */
+  image: { path: string; url: string } | null;
+  imageAltZh: string;
+  imageAltEn: string;
+  closingZh: string;
+  closingEn: string;
+  /**
+   * 目前年度的每個場地，照場地的順序：這間教堂的說明（圖文型是製作靈感）、這間教堂分在這一類的課程數（介紹頁自動列出），
+   * 圖文型另有節目名稱、海報與團隊成員。
+   */
+  venues: {
+    venueId: string;
+    venueName: string;
+    bodyZh: string;
+    bodyEn: string;
+    courseCount: number;
+    showTitleZh: string;
+    showTitleEn: string;
+    poster: { path: string; url: string } | null;
+    posterAltZh: string;
+    posterAltEn: string;
+    team: TeamMemberItem[];
+  }[];
+};
+
+/** 後台的一位團隊成員，中英兩欄都在。 */
+export type TeamMemberItem = {
+  id: string;
+  roleZh: string;
+  roleEn: string;
+  nameZh: string;
+  nameEn: string;
+  photo: { path: string; url: string } | null;
+  photoFocus: number;
+  bioZh: string;
+  bioEn: string;
 };
 
 /** 後台的一位人物，中英兩欄都在。 */
@@ -651,7 +795,10 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       venues(id, name_zh, sessions(name_zh, courses(id, title_zh, highlight_id))),
       highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, description_en, page_template,
         subtitle_zh, subtitle_en, lead_quote_zh, lead_quote_en, lead_quote_source_zh, lead_quote_source_en,
-        courses(count), highlight_venues(venue_id, body_zh, body_en),
+        image_path, image_alt_zh, image_alt_en, closing_zh, closing_en,
+        courses(count),
+        highlight_venues(venue_id, body_zh, body_en, show_title_zh, show_title_en, poster_path, poster_alt_zh, poster_alt_en),
+        highlight_venue_team(id, venue_id, role_zh, role_en, name_zh, name_en, photo_path, photo_focus, bio_zh, bio_en),
         highlight_people(id, stake_id, ward_id, service_area_zh, service_area_en, name_zh, name_en, photo_path,
           photo_focus, venue_id, course_id, course_title_zh, course_title_en, bio_zh, bio_en, summary_zh, summary_en,
           outline_zh, outline_en, stakes(name_zh), wards(name_zh)))`,
@@ -671,6 +818,8 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
     .order("id", { referencedTable: "highlights" })
     .order("position", { referencedTable: "highlights.highlight_people" })
     .order("id", { referencedTable: "highlights.highlight_people" })
+    .order("position", { referencedTable: "highlights.highlight_venue_team" })
+    .order("id", { referencedTable: "highlights.highlight_venue_team" })
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -735,6 +884,11 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
       summaryEn: highlight.summary_en,
       courseCount: highlight.courses[0]?.count ?? 0,
       linkable: hasHighlightPage(highlight, (highlight.courses[0]?.count ?? 0) > 0),
+      image: highlight.image_path ? { path: highlight.image_path, url: highlightImageUrl(supabase, highlight.image_path) } : null,
+      imageAltZh: highlight.image_alt_zh,
+      imageAltEn: highlight.image_alt_en,
+      closingZh: highlight.closing_zh,
+      closingEn: highlight.closing_en,
       pageTemplate: highlight.page_template as PageTemplate | null,
       subtitleZh: highlight.subtitle_zh,
       subtitleEn: highlight.subtitle_en,
@@ -775,6 +929,24 @@ export async function getContentEditor(supabase: SupabaseClient): Promise<Conten
           bodyEn: text?.body_en ?? "",
           courseCount: venue.sessions.flatMap((session) => session.courses).filter((c) => c.highlight_id === highlight.id)
             .length,
+          showTitleZh: text?.show_title_zh ?? "",
+          showTitleEn: text?.show_title_en ?? "",
+          poster: text?.poster_path ? { path: text.poster_path, url: highlightImageUrl(supabase, text.poster_path) } : null,
+          posterAltZh: text?.poster_alt_zh ?? "",
+          posterAltEn: text?.poster_alt_en ?? "",
+          team: highlight.highlight_venue_team
+            .filter((member) => member.venue_id === venue.id)
+            .map((member) => ({
+              id: member.id,
+              roleZh: member.role_zh,
+              roleEn: member.role_en,
+              nameZh: member.name_zh,
+              nameEn: member.name_en,
+              photo: member.photo_path ? { path: member.photo_path, url: highlightImageUrl(supabase, member.photo_path) } : null,
+              photoFocus: member.photo_focus,
+              bioZh: member.bio_zh,
+              bioEn: member.bio_en,
+            })),
         };
       }),
     })),

@@ -10,6 +10,7 @@ import {
   type ContentError,
   type HighlightItem,
   type HighlightPersonItem,
+  type TeamMemberItem,
   type HomeItem,
   type HomeItemKind,
 } from "@/lib/content";
@@ -25,11 +26,23 @@ import { SubmitButton } from "../../submit-button";
 import { TextPair } from "../../text-pair";
 import { buttonClass, formatTime, inputClass } from "../../ui";
 import { HERO_SLOTS, type HeroError, type HeroSlot } from "@/lib/hero";
-import { PERSON_SECTIONS, type PageTemplate, type PersonSection } from "@/lib/home-content";
+import {
+  CARD_TEMPLATES,
+  FEATURE_TEMPLATES,
+  isCardTemplate,
+  isFeatureTemplate,
+  PERSON_SECTIONS,
+  type CardTemplate,
+  type FeatureTemplate,
+  type PageTemplate,
+  type PersonSection,
+} from "@/lib/home-content";
 import {
   deleteContentItem,
   deleteHighlightPersonAction,
+  deleteTeamMemberAction,
   moveHighlightPersonAction,
+  moveTeamMemberAction,
   moveContentItem,
   removeHeroImageAction,
   saveContentDetails,
@@ -38,9 +51,10 @@ import {
   saveHeroAltAction,
   saveHighlightPersonAction,
   saveHighlightVenueAction,
+  saveTeamMemberAction,
 } from "./actions";
 import { HeroUpload } from "./hero-upload";
-import { PersonPhotoField } from "./person-photo-field";
+import { PersonPhotoField, WideImageField } from "./person-photo-field";
 import { UnitFields, type UnitStake } from "./unit-fields";
 
 export const metadata: Metadata = { title: "首頁內容" };
@@ -52,6 +66,7 @@ const DONE: Record<string, string> = {
   saved: "已儲存，首頁已經更新。",
   venueSaved: "已儲存教堂分頁，介紹頁已經更新。",
   personSaved: "已儲存人物，介紹頁已經更新。",
+  teamSaved: "已儲存團隊成員，教堂頁已經更新。",
   scheduled: "已儲存時程，首頁依新的時間切換狀態。",
   moved: "已調整順序。",
   deleted: "已刪除。",
@@ -73,6 +88,7 @@ const ERRORS: Record<ContentError | HeroError, string> = {
   button_label_required: "有按鈕網址時，請填中文按鈕文字。",
   button_url_invalid: "按鈕網址要是 https:// 開頭的完整網址，或 / 開頭的站內網址（例如 /lookup），不能有空白。",
   person_name_required: "請填中文姓名。",
+  poster_alt_required: "有海報時，中文的海報圖片說明一定要填。",
   file_type: "只收 JPG、PNG、WebP 格式的圖片。",
   file_too_large: "圖片超過 5 MB，請請美編組另存小一點的檔案（例如存成 JPG）。",
   alt_required: "有主視覺圖片時，中文圖片說明一定要填。",
@@ -85,20 +101,31 @@ const ERRORS: Record<ContentError | HeroError, string> = {
 
 const TITLE_LABELS: Record<HomeItemKind, string> = { faq: "問題", block: "標題", highlight: "名稱" };
 
-/** 介紹頁的人物卡片版型（範本 A，設計稿 docs/design/template-a-cards.dc.html）。 */
+/**
+ * 介紹頁的版型：人物卡片（範本 A，設計稿 docs/design/template-a-cards.dc.html）與
+ * 圖文型（範本 B、C，設計稿 docs/design/template-b-feature.dc.html、template-c-venue-team.dc.html）。
+ */
 const TEMPLATE_LABELS: Record<PageTemplate, string> = {
   corner: "角落課程",
   spiritual: "靈性課程",
   honor: "向貴賓致敬",
   missionary: "與年長夫婦傳教士有約",
   exhibit: "靜態展示",
+  choir: "即席唱詩班",
+  concert: "迷妳音樂會",
+};
+
+/** 各教堂頁團隊成員的稱呼（和前台 messages 的 activity 一致），表單說明用。 */
+const TEAM_EXAMPLES: Record<FeatureTemplate, string> = {
+  choir: "例如「指揮」「司琴」",
+  concert: "例如「製作人」「主持」",
 };
 
 /**
  * 沒有對應課程時自己打的名稱：角落課程顯示在卡片上，靈性課程是個人介紹頁的標題，靜態展示是作品名稱。
  * 向貴賓致敬、傳教士的個人介紹頁標題是姓名，不用填（null）。
  */
-const PERSON_TITLE_LABELS: Record<PageTemplate, { label: string; hint: string } | null> = {
+const PERSON_TITLE_LABELS: Record<CardTemplate, { label: string; hint: string } | null> = {
   corner: { label: "課程名稱", hint: "沒有對應課程時才要填。卡片上的按鈕與個人介紹頁的標題就是課程名稱。" },
   spiritual: { label: "課程名稱", hint: "沒有對應課程時才要填。個人介紹頁的標題就是課程名稱（卡片上不顯示）。" },
   honor: null,
@@ -107,7 +134,7 @@ const PERSON_TITLE_LABELS: Record<PageTemplate, { label: string; hint: string } 
 };
 
 /** 個人介紹頁各段在後台的名稱（和前台 messages 的 activity 一致）。 */
-const PERSON_SECTION_LABELS: Record<PersonSection, (template: PageTemplate) => string> = {
+const PERSON_SECTION_LABELS: Record<PersonSection, (template: CardTemplate) => string> = {
   bio: (template) => (template === "honor" ? "貴賓介紹" : "講師介紹"),
   summary: () => "課程簡介",
   outline: () => "課程大綱",
@@ -177,11 +204,27 @@ export default async function ContentPage({ searchParams }: PageProps<"/staff/co
       [item.summaryZh, item.summaryEn],
     ]),
     ...content.highlights.flatMap((item) => item.venues.map((venue) => [venue.bodyZh, venue.bodyEn])),
-    // 人物版型的欄位只在選了版型時顯示，沒選的不必提醒。
+    // 圖文型的欄位只在選了圖文型時顯示。
     ...content.highlights
-      .filter((item) => item.pageTemplate)
+      .filter((item) => isFeatureTemplate(item.pageTemplate))
       .flatMap((item) => [
-        [item.subtitleZh, item.subtitleEn],
+        [item.imageAltZh, item.imageAltEn],
+        [item.closingZh, item.closingEn],
+        ...item.venues.flatMap((venue) => [
+          [venue.showTitleZh, venue.showTitleEn],
+          [venue.posterAltZh, venue.posterAltEn],
+          ...venue.team.flatMap((member) => [
+            [member.roleZh, member.roleEn],
+            [member.nameZh, member.nameEn],
+            [member.bioZh, member.bioEn],
+          ]),
+        ]),
+      ]),
+    // 人物卡片版型的欄位只在選了版型時顯示，沒選的不必提醒。副標圖文型也有。
+    ...content.highlights.filter((item) => item.pageTemplate).map((item) => [item.subtitleZh, item.subtitleEn]),
+    ...content.highlights
+      .filter((item) => isCardTemplate(item.pageTemplate))
+      .flatMap((item) => [
         [item.leadQuoteZh, item.leadQuoteEn],
         [item.leadQuoteSourceZh, item.leadQuoteSourceEn],
         ...item.people.flatMap((person) => [
@@ -460,8 +503,10 @@ function ItemList({
               </div>
             </details>
             {"venues" in item &&
-              (item.pageTemplate ? (
+              (isCardTemplate(item.pageTemplate) ? (
                 <HighlightPeopleForms item={item} template={item.pageTemplate} conferenceId={conferenceId} choices={choices} />
+              ) : isFeatureTemplate(item.pageTemplate) ? (
+                <VenuePageForms item={item} template={item.pageTemplate} conferenceId={conferenceId} />
               ) : (
                 <HighlightVenueForms item={item} conferenceId={conferenceId} />
               ))}
@@ -551,6 +596,196 @@ function HighlightVenueForms({ item, conferenceId }: { item: HighlightItem; conf
   );
 }
 
+/**
+ * 圖文型的各教堂頁（範本 C）：每間教堂一個表單（節目名稱、海報、製作靈感），下面是團隊成員。
+ * 介紹頁只列出有內容的教堂（製作靈感、節目名稱、海報或團隊成員有一個）。
+ */
+function VenuePageForms({ item, template, conferenceId }: { item: HighlightItem; template: FeatureTemplate; conferenceId: string }) {
+  if (item.venues.length === 0) return null;
+  return (
+    <details>
+      <summary className="cursor-pointer font-semibold">各教堂頁</summary>
+      <div className="mt-3 flex flex-col gap-3">
+        <p>
+          介紹頁的教堂按鈕連到每間教堂的頁面：節目名稱、海報、製作靈感與團隊成員，都可以不填。有填其中一項的教堂才會出現按鈕。
+        </p>
+        {item.venues.map((venue) => {
+          const empty =
+            venue.bodyZh.trim() === "" && venue.showTitleZh.trim() === "" && !venue.poster && venue.team.length === 0;
+          return (
+            <details key={venue.venueId} className="rounded-lg border p-3">
+              <summary className="cursor-pointer font-semibold">
+                {venue.venueName}
+                {empty && "（沒有頁面）"}
+              </summary>
+              <div className="mt-3 flex flex-col gap-4">
+                {!empty && (
+                  <Link
+                    href={`/preview/highlights/${item.id}/venues/${venue.venueId}`}
+                    target="_blank"
+                    className="self-start font-semibold underline"
+                  >
+                    預覽{venue.venueName}的頁面
+                  </Link>
+                )}
+                <form action={saveHighlightVenueAction} className="flex flex-col gap-3">
+                  <input type="hidden" name="highlightId" value={item.id} />
+                  <input type="hidden" name="venueId" value={venue.venueId} />
+                  <TextPair name="showTitle" label="節目名稱" zh={venue.showTitleZh} en={venue.showTitleEn} />
+                  <span className="text-sm text-muted-foreground">例如「〈妳是我的寶〉」，顯示在教堂名稱下面。沒有就不填。</span>
+                  <WideImageField
+                    conferenceId={conferenceId}
+                    image={venue.poster}
+                    name="posterPath"
+                    legend="海報"
+                    hint="直式海報（建議 3:4），姐妹點圖可以放大看曲目。"
+                  />
+                  <TextPair name="posterAlt" label="海報的圖片說明" zh={venue.posterAltZh} en={venue.posterAltEn} />
+                  <span className="text-sm text-muted-foreground">
+                    有海報時一定要填中文。給看不到圖的人聽的文字，例如「大雅教堂迷妳音樂會海報，含 7 首曲目與演出者」。
+                  </span>
+                  <RichTextEditor
+                    name="bodyZh"
+                    label="製作靈感（中文）"
+                    hint="沒有就不寫。"
+                    defaultValue={venue.bodyZh}
+                    saveLabel={`儲存${venue.venueName}`}
+                    imageFolder={conferenceId}
+                  />
+                  <RichTextEditor
+                    name="bodyEn"
+                    label="製作靈感（英文）"
+                    hint="不寫的話英文版顯示中文。"
+                    defaultValue={venue.bodyEn}
+                    saveLabel={`儲存${venue.venueName}`}
+                    imageFolder={conferenceId}
+                  />
+                  {missingEnglish(venue.bodyZh, venue.bodyEn) && (
+                    <span className="text-sm font-semibold text-destructive">⚠ 製作靈感的英文還沒填，英文版會顯示中文。</span>
+                  )}
+                  <SubmitButton className={submitClass}>儲存{venue.venueName}</SubmitButton>
+                </form>
+                <TeamForms item={item} template={template} venue={venue} conferenceId={conferenceId} />
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
+/** 一間教堂頁的團隊成員：每一位可以編輯、往前或往後移、刪除，最下面新增。教堂頁照這裡的順序。 */
+function TeamForms({
+  item,
+  template,
+  venue,
+  conferenceId,
+}: {
+  item: HighlightItem;
+  template: FeatureTemplate;
+  venue: HighlightItem["venues"][number];
+  conferenceId: string;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <h4 className="font-bold">
+        團隊成員（{venue.team.length} 位）
+      </h4>
+      <ol className="flex flex-col gap-3">
+        {venue.team.map((member, index) => (
+          <li key={member.id} className="flex flex-col gap-3 rounded-lg border p-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {member.photo && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={member.photo.url}
+                  alt=""
+                  className="size-14 rounded-full object-cover"
+                  style={{ objectPosition: `50% ${member.photoFocus}%` }}
+                />
+              )}
+              <span className="font-semibold">
+                {index + 1}. {member.nameZh}
+              </span>
+              {member.roleZh && <span className="text-muted-foreground">{member.roleZh}</span>}
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {index > 0 && <MoveTeamButton id={member.id} direction="up" />}
+              {index < venue.team.length - 1 && <MoveTeamButton id={member.id} direction="down" />}
+            </div>
+            <details>
+              <summary className="cursor-pointer font-semibold">編輯「{member.nameZh}」</summary>
+              <div className="mt-3">
+                <TeamMemberForm item={item} template={template} venueId={venue.venueId} conferenceId={conferenceId} member={member} />
+              </div>
+            </details>
+            <details>
+              <summary className="cursor-pointer font-semibold text-destructive">刪除「{member.nameZh}」</summary>
+              <form action={deleteTeamMemberAction} className="mt-3 flex flex-col gap-2">
+                <input type="hidden" name="id" value={member.id} />
+                <p>確定要刪除這位團隊成員嗎？教堂頁會立即拿掉，不能復原。</p>
+                <SubmitButton
+                  className={cn(buttonVariants(), buttonClass, "self-start bg-destructive text-white hover:bg-destructive/80")}
+                >
+                  確定刪除
+                </SubmitButton>
+              </form>
+            </details>
+          </li>
+        ))}
+      </ol>
+      <details className="rounded-lg border p-3">
+        <summary className="cursor-pointer font-semibold">新增團隊成員</summary>
+        <div className="mt-3">
+          <TeamMemberForm item={item} template={template} venueId={venue.venueId} conferenceId={conferenceId} />
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function TeamMemberForm({
+  item,
+  template,
+  venueId,
+  conferenceId,
+  member,
+}: {
+  item: HighlightItem;
+  template: FeatureTemplate;
+  venueId: string;
+  conferenceId: string;
+  member?: TeamMemberItem;
+}) {
+  return (
+    <form action={saveTeamMemberAction} className="flex flex-col gap-3">
+      <input type="hidden" name="highlightId" value={item.id} />
+      <input type="hidden" name="venueId" value={venueId} />
+      {member && <input type="hidden" name="id" value={member.id} />}
+      <TextPair name="role" label="事工" zh={member?.roleZh} en={member?.roleEn} />
+      <span className="text-sm text-muted-foreground">{TEAM_EXAMPLES[template]}，顯示在姓名上面。</span>
+      <TextPair name="name" label="姓名" zh={member?.nameZh} en={member?.nameEn} required />
+      <PersonPhotoField conferenceId={conferenceId} photo={member?.photo ?? null} focus={member?.photoFocus ?? 50} />
+      <TextPair name="bio" label="人物介紹" zh={member?.bioZh} en={member?.bioEn} multiline />
+      <span className="text-sm text-muted-foreground">一行一段。</span>
+      <SubmitButton className={submitClass}>{member ? `儲存「${member.nameZh}」` : "新增團隊成員"}</SubmitButton>
+    </form>
+  );
+}
+
+function MoveTeamButton({ id, direction }: { id: string; direction: "up" | "down" }) {
+  return (
+    <form action={moveTeamMemberAction}>
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="direction" value={direction} />
+      <SubmitButton className={cn(buttonVariants({ variant: "outline" }), buttonClass)}>
+        {direction === "up" ? "↑ 往前移" : "↓ 往後移"}
+      </SubmitButton>
+    </form>
+  );
+}
+
 /** 人物表單可選的支聯會與支會（含停用的）、目前年度的教堂與課程。 */
 type PersonChoices = {
   stakes: DirectoryUnit[];
@@ -569,7 +804,7 @@ function HighlightPeopleForms({
   choices,
 }: {
   item: HighlightItem;
-  template: PageTemplate;
+  template: CardTemplate;
   conferenceId: string;
   choices: PersonChoices;
 }) {
@@ -650,7 +885,7 @@ function PersonForm({
   person,
 }: {
   item: HighlightItem;
-  template: PageTemplate;
+  template: CardTemplate;
   conferenceId: string;
   choices: PersonChoices;
   person?: HighlightPersonItem;
@@ -802,29 +1037,52 @@ function ItemForm({
           <TextPair name="summary" label="卡片上的一句話" zh={item?.summaryZh} en={item?.summaryEn} />
           <Field
             label="介紹頁版型"
-            hint="角落課程、靈性課程、向貴賓致敬、與年長夫婦傳教士有約、靜態展示選對應的版型：介紹頁上面是副標與介紹內容，下面是依教堂分組的人物卡片（存檔後在這一項下面新增人物），每位人物有自己的個人介紹頁。"
+            hint="人物卡片：介紹頁上面是副標與介紹內容，下面是依教堂分組的人物卡片（存檔後在這一項下面新增人物），每位人物有自己的個人介紹頁。圖文型：介紹頁有各教堂按鈕、活動圖片與介紹內容，每間教堂有自己的頁面（存檔後在這一項下面的「各教堂頁」填寫）。"
           >
             <select name="pageTemplate" defaultValue={highlight?.pageTemplate ?? ""} className={cn(inputClass, "sm:max-w-md")}>
               <option value="">一般介紹頁（介紹內容加各教堂分頁）</option>
-              {(Object.keys(TEMPLATE_LABELS) as PageTemplate[]).map((template) => (
-                <option key={template} value={template}>
-                  {TEMPLATE_LABELS[template]}
-                </option>
-              ))}
+              <optgroup label="人物卡片">
+                {CARD_TEMPLATES.map((template) => (
+                  <option key={template} value={template}>
+                    {TEMPLATE_LABELS[template]}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="圖文型（各教堂有自己的頁面）">
+                {FEATURE_TEMPLATES.map((template) => (
+                  <option key={template} value={template}>
+                    {TEMPLATE_LABELS[template]}
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </Field>
           <fieldset className="flex flex-col gap-3 rounded-lg border p-3">
-            <legend className="px-1 font-semibold">人物卡片版型的標題區與引言（一般介紹頁不顯示）</legend>
+            <legend className="px-1 font-semibold">選了版型時的標題區與引言（一般介紹頁不顯示）</legend>
             <TextPair name="subtitle" label="副標" zh={highlight?.subtitleZh} en={highlight?.subtitleEn} />
             <span className="text-sm text-muted-foreground">標題下面的一句話，例如「80 歲長輩，持守到底的美好榜樣。」</span>
             <TextPair name="leadQuote" label="引言" zh={highlight?.leadQuoteZh} en={highlight?.leadQuoteEn} multiline />
-            <span className="text-sm text-muted-foreground">介紹內容左邊放大的一句話。不填就只有介紹內容。</span>
+            <span className="text-sm text-muted-foreground">只有人物卡片有：介紹內容左邊放大的一句話。不填就只有介紹內容。</span>
             <TextPair
               name="leadQuoteSource"
               label="引言出處"
               zh={highlight?.leadQuoteSourceZh}
               en={highlight?.leadQuoteSourceEn}
             />
+          </fieldset>
+          <fieldset className="flex flex-col gap-3 rounded-lg border p-3">
+            <legend className="px-1 font-semibold">圖文型的活動圖片與結語（其他版型不顯示）</legend>
+            <WideImageField
+              conferenceId={conferenceId}
+              image={highlight?.image ?? null}
+              name="imagePath"
+              legend="活動圖片"
+              hint="橫式照片，建議 2400×800（3:1）；手機上會裁成 4:3，重要的人物請放在中間。"
+            />
+            <TextPair name="imageAlt" label="圖片說明" zh={highlight?.imageAltZh} en={highlight?.imageAltEn} />
+            <span className="text-sm text-muted-foreground">給看不到圖的人聽的文字，例如「姐妹們一起唱詩的照片」。</span>
+            <TextPair name="closing" label="結語" zh={highlight?.closingZh} en={highlight?.closingEn} />
+            <span className="text-sm text-muted-foreground">介紹內容最後放大的一句話，例如「來吧！加入即席唱詩班吧！」。不填就沒有。</span>
           </fieldset>
           <RichTextEditor
             name="bodyZh"

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { getCurrentConference, homePhase } from "@/lib/conference";
-import { getHighlight, hasPersonPage, PERSON_SECTIONS, type PersonSection } from "@/lib/home-content";
+import { getHighlight, hasPersonPage, isCardTemplate, PERSON_SECTIONS, type PersonSection } from "@/lib/home-content";
 import { getLocale, getMessages } from "@/lib/i18n/server";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -22,7 +22,7 @@ export async function PersonPage({ highlightId, personId, preview }: { highlight
     getCurrentConference(supabase, new Date()),
     getHighlight(supabase, highlightId, locale),
   ]);
-  if (!highlight?.template || !homePhase(conference, { preview })) notFound();
+  if (!highlight || !isCardTemplate(highlight.template) || !homePhase(conference, { preview })) notFound();
   const template = highlight.template;
   // 網址的編號可能是大寫。
   const person = highlight.people.find((candidate) => candidate.id === personId.toLowerCase());
