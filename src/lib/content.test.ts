@@ -748,11 +748,10 @@ describe("大會特色的教堂分頁", () => {
         [],
       );
       expect((await client.from("highlight_venues").delete().eq("highlight_id", concert).select("venue_id")).data ?? []).toEqual([]);
-      const rpc = await client.rpc("save_highlight_venue", {
+      const rpc = await client.rpc("save_highlight_venue_page", {
         p_highlight_id: concert,
         p_venue_id: jinhua,
-        p_body_zh: "被改了",
-        p_body_en: "",
+        p_values: { body_zh: "被改了" },
       });
       expect(rpc.error).not.toBeNull();
     }
@@ -1028,7 +1027,6 @@ describe("介紹頁的人物版型", () => {
     // 直接寫資料庫也擋下。
     const insert = (row: Record<string, unknown>) =>
       admin.from("highlight_people").insert({ conference_id: conferenceId, highlight_id: id, name_zh: "甲", ...row });
-    expect((await insert({ link_url: "javascript:alert(1)" })).error?.message).toContain("highlight_people_link_url_safe");
     expect((await insert({ photo_path: "a/b.gif" })).error?.message).toContain("highlight_people_photo_path_valid");
     expect((await insert({ photo_focus: 101 })).error?.message).toContain("highlight_people_photo_focus_range");
     expect((await admin.from("highlights").update({ page_template: "gallery" }).eq("id", id)).error?.message).toContain(
@@ -1116,55 +1114,20 @@ describe("介紹頁的人物版型", () => {
     }
   });
 
-  it("舊後台存檔（沒有送新欄位）時，教堂、課程與個人介紹頁的文字保留", async () => {
+  it("只送了部分欄位時，沒送的教堂、課程與個人介紹頁的文字保留", async () => {
     const id = await savedItem({ kind: "highlight", titleZh: "角落課程", pageTemplate: "corner" });
     const jinhua = await venue(1, "台北金華教堂");
     expect(await saveHighlightPerson(headAdmin, person(id, { nameZh: "甲", venueId: jinhua, courseTitleZh: "課", bioZh: "介紹" }))).toEqual({
       ok: true,
     });
     const [existing] = (await getContentEditor(headAdmin))!.highlights[0].people;
-    // 舊程式送的欄位：沒有教堂、課程與介紹文字，有按鈕文字與連結。
-    must(
-      await headAdmin.rpc("save_highlight_person", {
-        p_highlight_id: id,
-        p_id: existing.id,
-        p_values: { name_zh: "甲改", link_label_zh: "舊按鈕", link_url: "/old" },
-      }),
-    );
+    must(await headAdmin.rpc("save_highlight_person", { p_highlight_id: id, p_id: existing.id, p_values: { name_zh: "甲改" } }));
     expect((await getContentEditor(headAdmin))!.highlights[0].people[0]).toMatchObject({
       nameZh: "甲改",
       venueId: jinhua,
       courseTitleZh: "課",
       bioZh: "介紹",
     });
-    expect(must(await admin.from("highlight_people").select("link_label_zh, link_url").eq("id", existing.id))).toEqual([
-      { link_label_zh: "舊按鈕", link_url: "/old" },
-    ]);
-    // 舊後台改靜態展示的作品名稱（按鈕文字）：新的作品名稱跟著換算，新增的也是。
-    const exhibit = await savedItem({ kind: "highlight", titleZh: "靜態展示", pageTemplate: "exhibit" });
-    const oldSave = (pId: string | null, values: Record<string, unknown>) =>
-      headAdmin.rpc("save_highlight_person", { p_highlight_id: exhibit, p_id: pId, p_values: values });
-    must(await oldSave(null, { name_zh: "王真真", link_label_zh: "溫柔的心", link_label_en: "A gentle heart" }));
-    const [work] = (await getContentEditor(headAdmin))!.highlights.find((h) => h.id === exhibit)!.people;
-    expect(work).toMatchObject({ courseTitleZh: "溫柔的心", courseTitleEn: "A gentle heart" });
-    must(await oldSave(work.id, { name_zh: "王真真", link_label_zh: "改名的作品", link_label_en: "" }));
-    expect((await getContentEditor(headAdmin))!.highlights.find((h) => h.id === exhibit)!.people[0]).toMatchObject({
-      courseTitleZh: "改名的作品",
-      courseTitleEn: "",
-    });
-    // 只送一個語言時，另一個語言的作品名稱不動。
-    must(await oldSave(work.id, { name_zh: "王真真", link_label_en: "Renamed" }));
-    must(await oldSave(work.id, { name_zh: "王真真", link_label_zh: "只改中文" }));
-    expect((await getContentEditor(headAdmin))!.highlights.find((h) => h.id === exhibit)!.people[0]).toMatchObject({
-      courseTitleZh: "只改中文",
-      courseTitleEn: "Renamed",
-    });
-
-    // 新程式存檔不送舊欄位，舊欄位也照留。
-    expect(await saveHighlightPerson(headAdmin, person(id, { id: existing.id, nameZh: "甲" }))).toEqual({ ok: true });
-    expect(must(await admin.from("highlight_people").select("link_label_zh, link_url").eq("id", existing.id))).toEqual([
-      { link_label_zh: "舊按鈕", link_url: "/old" },
-    ]);
   });
 
   it("過去年度、找不到的大會特色或人物都不能改", async () => {
@@ -1354,8 +1317,6 @@ describe("圖文型介紹頁與各教堂頁", () => {
     // 一般介紹頁的表單只送說明：節目名稱與海報保留；說明清空也不會拿掉有海報的頁面。
     expect(await saveHighlightVenue(headAdmin, { highlightId: id, venueId: daya, bodyZh: "", bodyEn: "" })).toEqual({ ok: true });
     expect((await getVenuePage(anonClient(), id, daya, "zh"))!).toMatchObject({ showTitle: "〈妳是我的寶〉", inspiration: "" });
-    // 舊後台用的函式也一樣。
-    must(await headAdmin.rpc("save_highlight_venue", { p_highlight_id: id, p_venue_id: daya, p_body_zh: "", p_body_en: "" }));
     expect((await getVenuePage(anonClient(), id, daya, "zh"))!.poster).not.toBeNull();
   });
 
