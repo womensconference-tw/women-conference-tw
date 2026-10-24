@@ -6,8 +6,8 @@ import {
   CARD_SHOWS_COURSE,
   hasPersonPage,
   type Highlight,
+  type CardTemplate,
   type HighlightPerson,
-  type PageTemplate,
 } from "@/lib/home-content";
 import type { Messages } from "@/lib/i18n/messages";
 import { cn } from "@/lib/utils";
@@ -32,7 +32,7 @@ export function ActivityPage({
   t,
 }: {
   highlight: Highlight;
-  template: PageTemplate;
+  template: CardTemplate;
   preview: boolean;
   t: Messages;
 }) {
@@ -214,7 +214,7 @@ export function PersonPhoto({ person, className }: { person: HighlightPerson; cl
 }
 
 /** 支聯會、支會分兩行；傳教士是在台灣服務的支聯會與服務地區，也分兩行，不會被看成同一個單位。 */
-export function PersonUnits({ person, template, t }: { person: HighlightPerson; template: PageTemplate; t: Messages }) {
+export function PersonUnits({ person, template, t }: { person: HighlightPerson; template: CardTemplate; t: Messages }) {
   const second =
     template === "missionary"
       ? person.serviceArea && t.activity.missionary.serviceArea(person.serviceArea)
@@ -239,7 +239,7 @@ function PersonCard({
   t,
 }: {
   person: HighlightPerson;
-  template: PageTemplate;
+  template: CardTemplate;
   href: string;
   t: Messages;
 }) {

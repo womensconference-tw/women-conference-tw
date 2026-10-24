@@ -6,24 +6,28 @@ import { getCurrentConference } from "./conference";
 import {
   deleteHighlightPerson,
   deleteHomeItem,
+  deleteTeamMember,
   getContentEditor,
   isSafeButtonUrl,
   missingEnglish,
   moveHighlightPerson,
   moveHomeItem,
+  moveTeamMember,
   parseTaipeiDateTime,
   saveConferenceDetails,
   saveHighlightPerson,
   saveHighlightVenue,
   saveHomeItem,
   saveSchedule,
+  saveTeamMember,
   toTaipeiDateTimeInput,
   type ConferenceDetailsInput,
   type HighlightPersonInput,
+  type TeamMemberInput,
   type HomeItemInput,
   type ScheduleInput,
 } from "./content";
-import { getHighlight, getHomeContent, hasPersonPage } from "./home-content";
+import { getHighlight, getHomeContent, getVenuePage, hasPersonPage } from "./home-content";
 
 const admin = adminClient();
 const MINUTE = 60 * 1000;
@@ -82,7 +86,17 @@ afterEach(async () => {
 });
 
 // 沒選人物版型的介紹頁，人物版型的欄位都是空的。
-const ordinaryPage = { template: null, subtitle: "", leadQuote: "", leadQuoteSource: "", people: [], peopleVenues: [] };
+const ordinaryPage = {
+  template: null,
+  subtitle: "",
+  leadQuote: "",
+  leadQuoteSource: "",
+  people: [],
+  peopleVenues: [],
+  image: null,
+  closing: "",
+  venuePages: [],
+};
 
 /** 表單上的台灣時間（datetime-local 的格式），距離現在 offset 毫秒。 */
 function taipei(offset: number): string {
@@ -1203,6 +1217,207 @@ describe("介紹頁的人物版型", () => {
     expect(await saveHighlightPerson(headAdmin, person(id, { nameZh: "甲" }))).toEqual({ ok: true });
     expect(await deleteHomeItem(headAdmin, "highlight", id)).toEqual({ ok: true });
     expect(must(await admin.from("highlight_people").select("id").eq("conference_id", conferenceId!))).toEqual([]);
+  });
+});
+
+describe("圖文型介紹頁與各教堂頁", () => {
+  async function venue(position: number, nameZh: string, nameEn = "") {
+    return must(
+      await admin
+        .from("venues")
+        .insert({ conference_id: conferenceId, position, region: "north", name_zh: nameZh, name_en: nameEn })
+        .select("id")
+        .single(),
+    ).id as string;
+  }
+
+  const image = () => `${conferenceId}/${crypto.randomUUID()}.jpg`;
+  const member = (highlightId: string, venueId: string, changes: Partial<TeamMemberInput> = {}): TeamMemberInput => ({
+    highlightId,
+    venueId,
+    roleZh: "",
+    roleEn: "",
+    nameZh: "",
+    nameEn: "",
+    photoPath: "",
+    photoFocus: "50",
+    bioZh: "",
+    bioEn: "",
+    ...changes,
+  });
+  const linkable = async () => (await getHomeContent(anonClient(), "zh"))!.highlights.map((card) => card.linkable);
+
+  it("活動圖片、結語存得起來；只有圖片也能點；教堂按鈕只列有內容的教堂，照場地的順序", async () => {
+    const photo = image();
+    const id = await savedItem({
+      kind: "highlight",
+      titleZh: "即席唱詩班",
+      titleEn: "Impromptu choir",
+      pageTemplate: "choir",
+      imagePath: photo,
+      imageAltZh: "姐妹們一起唱詩",
+      closingZh: " 來吧！加入即席唱詩班吧！ ",
+      closingEn: "Come and join us!",
+    });
+    expect(await linkable()).toEqual([true]);
+    const daya = await venue(2, "台中大雅教堂", "Taichung Daya Chapel");
+    const jinhua = await venue(1, "台北金華教堂");
+    await venue(3, "高雄鳥松教堂");
+    expect(await saveHighlightVenue(headAdmin, { highlightId: id, venueId: daya, bodyZh: "", bodyEn: "", showTitleZh: "〈妳是我的寶〉" })).toEqual({
+      ok: true,
+    });
+    expect(await saveTeamMember(headAdmin, member(id, jinhua, { roleZh: "指揮", nameZh: "黃淑真" }))).toEqual({ ok: true });
+
+    const page = (await getHighlight(anonClient(), id, "en"))!;
+    expect(page).toMatchObject({
+      template: "choir",
+      name: "Impromptu choir",
+      closing: "Come and join us!",
+      // 英文沒填時顯示中文。
+      image: { alt: "姐妹們一起唱詩" },
+      venuePages: [
+        { id: jinhua, name: "台北金華教堂" },
+        { id: daya, name: "Taichung Daya Chapel" },
+      ],
+    });
+    expect(page.image!.url).toMatch(new RegExp(`${photo}$`));
+    expect((await getContentEditor(headAdmin))!.highlights[0]).toMatchObject({
+      image: { path: photo },
+      imageAltZh: "姐妹們一起唱詩",
+      closingZh: "來吧！加入即席唱詩班吧！",
+    });
+
+    // 拿掉圖片，只剩各教堂頁也能點；全部拿掉就不能點。
+    expect(await saveItem({ kind: "highlight", id, titleZh: "即席唱詩班", pageTemplate: "choir" })).toMatchObject({ ok: true });
+    expect(await linkable()).toEqual([true]);
+    expect(await saveHighlightVenue(headAdmin, { highlightId: id, venueId: daya, bodyZh: "", bodyEn: "", showTitleZh: "" })).toEqual({
+      ok: true,
+    });
+    const [only] = (await getContentEditor(headAdmin))!.highlights[0].venues.find((v) => v.venueId === jinhua)!.team;
+    expect(await deleteTeamMember(headAdmin, only.id)).toEqual({ ok: true });
+    expect(await linkable()).toEqual([false]);
+    expect(await getHighlight(anonClient(), id, "zh")).toBeNull();
+    expect(must(await admin.from("highlight_venues").select("venue_id").eq("highlight_id", id))).toEqual([]);
+  });
+
+  it("各教堂頁：節目名稱、海報、製作靈感與團隊成員；英文缺漏顯示中文；可以排序", async () => {
+    const id = await savedItem({ kind: "highlight", titleZh: "迷妳音樂會", pageTemplate: "concert" });
+    const jinhua = await venue(1, "台北金華教堂");
+    const daya = await venue(2, "台中大雅教堂");
+    const poster = image();
+    expect(
+      await saveHighlightVenue(headAdmin, {
+        highlightId: id,
+        venueId: daya,
+        bodyZh: "在這一場充滿**音樂**的午後",
+        bodyEn: "",
+        showTitleZh: "〈妳是我的寶〉",
+        showTitleEn: "You Are My Treasure",
+        posterPath: poster,
+        posterAltZh: "海報，含 7 首曲目",
+        posterAltEn: "",
+      }),
+    ).toEqual({ ok: true });
+    for (const [roleZh, nameZh] of [["製作人", "陳玉穎"], ["主持", "王台君"]]) {
+      expect(await saveTeamMember(headAdmin, member(id, daya, { roleZh, nameZh, bioZh: "第一段\n\n第二段" }))).toEqual({ ok: true });
+    }
+    expect(await saveTeamMember(headAdmin, member(id, jinhua, { nameZh: "金華的人" }))).toEqual({ ok: true });
+
+    const page = (await getVenuePage(anonClient(), id, daya.toUpperCase(), "en"))!;
+    expect(page).toMatchObject({
+      highlight: { id, name: "迷妳音樂會", template: "concert" },
+      venue: { id: daya, name: "台中大雅教堂" },
+      showTitle: "You Are My Treasure",
+      poster: { alt: "海報，含 7 首曲目" },
+      inspiration: "在這一場充滿**音樂**的午後",
+      venues: [
+        { id: jinhua, name: "台北金華教堂" },
+        { id: daya, name: "台中大雅教堂" },
+      ],
+    });
+    expect(page.poster!.url).toMatch(new RegExp(`${poster}$`));
+    expect(page.team.map(({ role, name, bio }) => ({ role, name, bio }))).toEqual([
+      { role: "製作人", name: "陳玉穎", bio: ["第一段", "第二段"] },
+      { role: "主持", name: "王台君", bio: ["第一段", "第二段"] },
+    ]);
+
+    const team = async () => (await getContentEditor(headAdmin))!.highlights[0].venues.find((v) => v.venueId === daya)!.team;
+    const [, host] = await team();
+    expect(await moveTeamMember(headAdmin, host.id, "up")).toEqual({ ok: true });
+    expect(await saveTeamMember(headAdmin, member(id, daya, { id: host.id, roleZh: "主持人", nameZh: "王台君" }))).toEqual({ ok: true });
+    expect((await team()).map((m) => [m.roleZh, m.nameZh])).toEqual([
+      ["主持人", "王台君"],
+      ["製作人", "陳玉穎"],
+    ]);
+
+    // 一般介紹頁的表單只送說明：節目名稱與海報保留；說明清空也不會拿掉有海報的頁面。
+    expect(await saveHighlightVenue(headAdmin, { highlightId: id, venueId: daya, bodyZh: "", bodyEn: "" })).toEqual({ ok: true });
+    expect((await getVenuePage(anonClient(), id, daya, "zh"))!).toMatchObject({ showTitle: "〈妳是我的寶〉", inspiration: "" });
+    // 舊後台用的函式也一樣。
+    must(await headAdmin.rpc("save_highlight_venue", { p_highlight_id: id, p_venue_id: daya, p_body_zh: "", p_body_en: "" }));
+    expect((await getVenuePage(anonClient(), id, daya, "zh"))!.poster).not.toBeNull();
+  });
+
+  it("各教堂頁找不到：沒有內容的教堂、不是圖文型、不是編號", async () => {
+    const id = await savedItem({ kind: "highlight", titleZh: "即席唱詩班", pageTemplate: "choir", bodyZh: "介紹" });
+    const jinhua = await venue(1, "台北金華教堂");
+    expect(await getVenuePage(anonClient(), id, jinhua, "zh")).toBeNull();
+    expect(await getVenuePage(anonClient(), id, "不是編號", "zh")).toBeNull();
+    expect(await saveTeamMember(headAdmin, member(id, jinhua, { nameZh: "甲" }))).toEqual({ ok: true });
+    expect(await getVenuePage(anonClient(), id, jinhua, "zh")).not.toBeNull();
+    // 改成人物卡片版型後就沒有各教堂頁（資料留著，改回來還在）。
+    expect(await saveItem({ kind: "highlight", id, titleZh: "即席唱詩班", pageTemplate: "honor", bodyZh: "介紹" })).toMatchObject({ ok: true });
+    expect(await getVenuePage(anonClient(), id, jinhua, "zh")).toBeNull();
+  });
+
+  it("姓名要填；教堂、圖片路徑不對當成找不到；課務組、報報組與訪客不能改", async () => {
+    const id = await savedItem({ kind: "highlight", titleZh: "即席唱詩班", pageTemplate: "choir" });
+    const jinhua = await venue(1, "台北金華教堂");
+    expect(await saveTeamMember(headAdmin, member(id, jinhua, { nameZh: " " }))).toEqual({ ok: false, error: "person_name_required" });
+    expect(await saveTeamMember(headAdmin, member(id, crypto.randomUUID(), { nameZh: "甲" }))).toEqual({ ok: false, error: "not_found" });
+    expect(await saveTeamMember(headAdmin, member(id, jinhua, { nameZh: "甲", photoPath: "../a.jpg" }))).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+    expect(
+      await saveHighlightVenue(headAdmin, { highlightId: id, venueId: jinhua, bodyZh: "", bodyEn: "", showTitleZh: "", posterPath: "a.gif" }),
+    ).toEqual({ ok: false, error: "not_found" });
+    expect(await saveItem({ kind: "highlight", id, titleZh: "即席唱詩班", imagePath: "x/y.png" })).toEqual({ ok: false, error: "not_found" });
+
+    expect(await saveTeamMember(headAdmin, member(id, jinhua, { nameZh: "甲" }))).toEqual({ ok: true });
+    const [existing] = (await getContentEditor(headAdmin))!.highlights[0].venues[0].team;
+    for (const client of [courseTeam, registrationTeam, anonClient()]) {
+      expect(await saveTeamMember(client, member(id, jinhua, { nameZh: "偷加" }))).toEqual({ ok: false, error: "not_admin" });
+      expect(await moveTeamMember(client, existing.id, "down")).toEqual({ ok: false, error: "not_admin" });
+      expect(await deleteTeamMember(client, existing.id)).toEqual({ ok: false, error: "not_admin" });
+      expect(
+        (await client.from("highlight_venue_team").insert({ conference_id: conferenceId, highlight_id: id, venue_id: jinhua, name_zh: "偷" })).error,
+      ).not.toBeNull();
+      expect((await client.from("highlight_venue_team").update({ name_zh: "改" }).eq("id", existing.id).select("id")).data ?? []).toEqual([]);
+    }
+
+    // 過去年度的不能改。
+    must(await admin.from("conferences").update({ is_current: false }).eq("id", conferenceId!));
+    expect(await saveTeamMember(headAdmin, member(id, jinhua, { id: existing.id, nameZh: "改" }))).toEqual({ ok: false, error: "not_found" });
+    expect(await deleteTeamMember(headAdmin, existing.id)).toEqual({ ok: false, error: "not_found" });
+  });
+
+  it("舊後台存大會特色（沒有送活動圖片與結語）時保留原值", async () => {
+    const photo = image();
+    const id = await savedItem({ kind: "highlight", titleZh: "即席唱詩班", pageTemplate: "choir", imagePath: photo, closingZh: "來吧" });
+    must(
+      await headAdmin.rpc("save_home_item", {
+        p_table: "highlights",
+        p_id: id,
+        p_conference_id: conferenceId,
+        p_values: { name_zh: "即席唱詩班改", name_en: "", summary_zh: "", summary_en: "", description_zh: "", description_en: "", page_template: "choir" },
+      }),
+    );
+    expect((await getContentEditor(headAdmin))!.highlights[0]).toMatchObject({
+      titleZh: "即席唱詩班改",
+      image: { path: photo },
+      closingZh: "來吧",
+    });
   });
 });
 

@@ -103,8 +103,8 @@ export async function getHomeContent(
         agenda_item_parts(name_zh, name_en, highlight_id),
         agenda_item_venues(venue_id, place_zh, place_en, note_zh, note_en, session_id)),
       custom_blocks(title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
-      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, page_template,
-        highlight_venues(body_zh), highlight_people(id))`,
+      highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, page_template, image_path,
+        highlight_venues(venue_id, body_zh, show_title_zh, poster_path), highlight_people(id), highlight_venue_team(venue_id))`,
     )
     .eq("is_current", true)
     // 排序相同時再依 id，讓順序每次都一樣。
@@ -204,21 +204,40 @@ export async function getHomeContent(
   };
 }
 
+/** 一項大會特色在一間教堂的頁面內容（highlight_venues 的一列），與那間教堂的團隊成員。 */
+type VenuePageRow = { body_zh: string; show_title_zh?: string; poster_path?: string | null };
+
+/** 範本 C 的各教堂頁有沒有東西可看：製作靈感、節目名稱、海報或團隊成員有一個就算（只看中文，和簡介一樣）。 */
+export function hasVenuePage(row: VenuePageRow | undefined, teamCount: number): boolean {
+  if (teamCount > 0) return true;
+  if (!row) return false;
+  return row.body_zh.trim() !== "" || (row.show_title_zh ?? "").trim() !== "" || !!row.poster_path;
+}
+
 /**
  * 介紹頁有沒有東西可看：簡介、任何一間教堂的說明、或有課程分在這一類（#100），有一個就算。
- * 選了人物版型的介紹頁不分教堂，改看簡介或人物。
+ * 人物卡片版型不分教堂，改看簡介或人物；圖文型看簡介、活動圖片或任何一間教堂頁。
  * 英文沒填時顯示中文，所以只看中文有沒有寫。首頁卡片、大會程序與課程分類的連結都依這個規則。
  */
 export function hasHighlightPage(
   highlight: {
     description_zh: string;
     page_template: string | null;
-    highlight_venues: { body_zh: string }[];
+    image_path?: string | null;
+    highlight_venues: (VenuePageRow & { venue_id?: string })[];
     highlight_people: unknown[];
+    highlight_venue_team?: { venue_id: string }[];
   },
   hasCourses: boolean,
 ): boolean {
   if (highlight.description_zh.trim() !== "") return true;
+  if (isFeatureTemplate(highlight.page_template)) {
+    return (
+      !!highlight.image_path ||
+      highlight.highlight_venues.some((row) => hasVenuePage(row, 0)) ||
+      (highlight.highlight_venue_team ?? []).length > 0
+    );
+  }
   if (highlight.page_template) return highlight.highlight_people.length > 0;
   return highlight.highlight_venues.some((venue) => venue.body_zh.trim() !== "") || hasCourses;
 }
@@ -226,16 +245,34 @@ export function hasHighlightPage(
 /**
  * 介紹頁的人物卡片版型（範本 A，設計稿 docs/design/template-a-cards.dc.html）：五種共用一個版面，
  * 只差卡片上要不要顯示課程（作品）名稱、按鈕文字與個人介紹頁有哪幾段（PERSON_SECTIONS）。
- * 沒選版型的大會特色是一般的介紹頁（簡介加教堂分頁）。
  */
-export const PAGE_TEMPLATES = ["corner", "spiritual", "honor", "missionary", "exhibit"] as const;
-export type PageTemplate = (typeof PAGE_TEMPLATES)[number];
+export const CARD_TEMPLATES = ["corner", "spiritual", "honor", "missionary", "exhibit"] as const;
+export type CardTemplate = (typeof CARD_TEMPLATES)[number];
+
+/**
+ * 介紹頁的圖文型版型（範本 B，設計稿 docs/design/template-b-feature.dc.html）：即席唱詩班、迷妳音樂會，
+ * 介紹頁有各教堂大按鈕，連到每間教堂的團隊頁（範本 C）。兩種只差文字。
+ */
+export const FEATURE_TEMPLATES = ["choir", "concert"] as const;
+export type FeatureTemplate = (typeof FEATURE_TEMPLATES)[number];
+
+/** 大會特色可選的介紹頁版型；沒選的是一般的介紹頁（簡介加教堂分頁）。 */
+export const PAGE_TEMPLATES = [...CARD_TEMPLATES, ...FEATURE_TEMPLATES] as const;
+export type PageTemplate = CardTemplate | FeatureTemplate;
+
+export function isCardTemplate(template: string | null): template is CardTemplate {
+  return (CARD_TEMPLATES as readonly (string | null)[]).includes(template);
+}
+
+export function isFeatureTemplate(template: string | null): template is FeatureTemplate {
+  return (FEATURE_TEMPLATES as readonly (string | null)[]).includes(template);
+}
 
 /** 個人介紹頁（範本 D）的一段：講師（貴賓）介紹、課程簡介、課程大綱。 */
 export type PersonSection = "bio" | "summary" | "outline";
 
 /** 每種版型的個人介紹頁有哪幾段，依這個順序（設計交接說明）。 */
-export const PERSON_SECTIONS: Record<PageTemplate, PersonSection[]> = {
+export const PERSON_SECTIONS: Record<CardTemplate, PersonSection[]> = {
   corner: ["bio", "summary", "outline"],
   spiritual: ["bio", "summary", "outline"],
   honor: ["bio"],
@@ -244,7 +281,7 @@ export const PERSON_SECTIONS: Record<PageTemplate, PersonSection[]> = {
 };
 
 /** 卡片上顯示課程（作品）名稱的版型：角落課程顯示課名、靜態展示顯示作品名稱。 */
-export const CARD_SHOWS_COURSE: Record<PageTemplate, boolean> = {
+export const CARD_SHOWS_COURSE: Record<CardTemplate, boolean> = {
   corner: true,
   spiritual: false,
   honor: false,
@@ -289,11 +326,11 @@ export type Highlight = {
   name: string;
   /** 簡介；沒寫是空字串。 */
   description: string;
-  /** 教堂分頁，照場地的順序；只有有說明或有課程的教堂。人物卡片版型不用，是空陣列。 */
+  /** 教堂分頁，照場地的順序；只有有說明或有課程的教堂。選了版型的不用，是空陣列。 */
   venues: HighlightVenue[];
-  /** 人物卡片版型；一般的介紹頁是 null。 */
+  /** 版型；一般的介紹頁是 null。 */
   template: PageTemplate | null;
-  /** 以下只有人物卡片版型用，沒填是空字串。 */
+  /** 以下是版型用的，沒填是空字串。副標兩種版型都有。 */
   subtitle: string;
   leadQuote: string;
   leadQuoteSource: string;
@@ -301,10 +338,16 @@ export type Highlight = {
   people: HighlightPerson[];
   /** 人物卡片分組用的教堂，照場地的順序（含沒有人的教堂，由頁面決定顯示哪些）。 */
   peopleVenues: { id: string; name: string }[];
+  /** 圖文型：活動圖片與圖片說明；沒有圖是 null。 */
+  image: { url: string; alt: string } | null;
+  /** 圖文型：介紹內容最後放大的一句結語；沒寫是空字串。 */
+  closing: string;
+  /** 圖文型：有各教堂頁（範本 C）的教堂，照場地的順序。 */
+  venuePages: { id: string; name: string }[];
 };
 
 /** 個人介紹頁有沒有東西可寫：這個版型要顯示的段落有一段有寫。卡片的按鈕只在有的時候出現。 */
-export function hasPersonPage(person: HighlightPerson, template: PageTemplate): boolean {
+export function hasPersonPage(person: HighlightPerson, template: CardTemplate): boolean {
   return PERSON_SECTIONS[template].some((section) => person.sections[section].length > 0);
 }
 
@@ -330,7 +373,8 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
     .select(
       `id, conference_id, name_zh, name_en, description_zh, description_en, page_template,
       subtitle_zh, subtitle_en, lead_quote_zh, lead_quote_en, lead_quote_source_zh, lead_quote_source_en,
-      highlight_venues(venue_id, body_zh, body_en),
+      image_path, image_alt_zh, image_alt_en, closing_zh, closing_en,
+      highlight_venues(venue_id, body_zh, body_en, show_title_zh, poster_path), highlight_venue_team(venue_id),
       highlight_people(id, service_area_zh, service_area_en, name_zh, name_en, photo_path, photo_focus, venue_id,
         course_title_zh, course_title_en, bio_zh, bio_en, summary_zh, summary_en, outline_zh, outline_en,
         courses(title_zh, title_en, sessions(venue_id))),
@@ -345,6 +389,42 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
   if (!data) return null;
   const description = data.description_zh.trim() === "" ? "" : localized(data, "description", locale);
 
+  const noFeature = { image: null, closing: "", venuePages: [] };
+  if (isFeatureTemplate(data.page_template)) {
+    const venueRows = await supabase
+      .from("venues")
+      .select("id, name_zh, name_en")
+      .eq("conference_id", data.conference_id)
+      .order("position")
+      .order("id");
+    if (venueRows.error) throw venueRows.error;
+    const venuePages = venueRows.data
+      .filter((venue) =>
+        hasVenuePage(
+          data.highlight_venues.find((row) => row.venue_id === venue.id),
+          data.highlight_venue_team.filter((member) => member.venue_id === venue.id).length,
+        ),
+      )
+      .map((venue) => ({ id: venue.id, name: localized(venue, "name", locale) }));
+    if (description === "" && !data.image_path && venuePages.length === 0) return null;
+    return {
+      id: data.id,
+      name: localized(data, "name", locale),
+      description,
+      venues: [],
+      template: data.page_template,
+      subtitle: localized(data, "subtitle", locale),
+      leadQuote: "",
+      leadQuoteSource: "",
+      people: [],
+      peopleVenues: [],
+      image: data.image_path
+        ? { url: highlightImageUrl(supabase, data.image_path), alt: localized(data, "image_alt", locale) }
+        : null,
+      closing: localized(data, "closing", locale).trim(),
+      venuePages,
+    };
+  }
   if (data.page_template) {
     if (description === "" && data.highlight_people.length === 0) return null;
     // 支聯會、支會可能已經停用，訪客直接讀名單讀不到，改用資料庫函式讀名稱。
@@ -388,6 +468,7 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
         };
       }),
       peopleVenues: venueRows.data.map((venue) => ({ id: venue.id, name: localized(venue, "name", locale) })),
+      ...noFeature,
     };
   }
   const venueRows = await supabase
@@ -437,6 +518,7 @@ export async function getHighlight(supabase: SupabaseClient, id: string, locale:
     leadQuoteSource: "",
     people: [],
     peopleVenues: [],
+    ...noFeature,
   };
 }
 
@@ -480,6 +562,86 @@ function groupCourses(
     .filter((group) => group.courses.length > 0);
   const uncategorized = courses.filter((course) => !highlights.some((h) => h.id === course.highlight_id));
   return uncategorized.length > 0 ? [...groups, { category: null, courses: uncategorized.map(toCourse) }] : groups;
+}
+
+/** 範本 C 的一位團隊成員，已依語言挑好（英文缺漏時是中文）。 */
+export type TeamMember = {
+  id: string;
+  /** 事工，例如指揮、司琴；沒填是空字串。 */
+  role: string;
+  name: string;
+  photoUrl: string | null;
+  photoFocus: number;
+  /** 人物介紹，一行一段。 */
+  bio: string[];
+};
+
+/** 範本 C：圖文型大會特色在一間教堂的頁面，已依語言挑好。 */
+export type VenuePage = {
+  highlight: { id: string; name: string; template: FeatureTemplate };
+  venue: { id: string; name: string };
+  /** 節目名稱，例如〈妳是我的寶〉；沒寫是空字串。 */
+  showTitle: string;
+  poster: { url: string; alt: string } | null;
+  /** 製作靈感（Markdown）；沒寫是空字串。 */
+  inspiration: string;
+  team: TeamMember[];
+  /** 有教堂頁的教堂（含這一間），照場地的順序，給切換其他教堂用。 */
+  venues: { id: string; name: string }[];
+};
+
+/**
+ * 讀取目前年度一項圖文型大會特色在一間教堂的頁面。不是圖文型的、不是目前年度的、找不到的、
+ * 這間教堂沒有內容的都回傳 null。公告上線前要不要顯示，由頁面判斷。
+ */
+export async function getVenuePage(
+  supabase: SupabaseClient,
+  highlightId: string,
+  venueId: string,
+  locale: Locale,
+): Promise<VenuePage | null> {
+  const highlight = await getHighlight(supabase, highlightId, locale);
+  if (!highlight || !isFeatureTemplate(highlight.template)) return null;
+  // 網址的編號可能是大寫。
+  const venue = highlight.venuePages.find((candidate) => candidate.id === venueId.toLowerCase());
+  if (!venue) return null;
+  const [page, team] = await Promise.all([
+    supabase
+      .from("highlight_venues")
+      .select("body_zh, body_en, show_title_zh, show_title_en, poster_path, poster_alt_zh, poster_alt_en")
+      .eq("highlight_id", highlight.id)
+      .eq("venue_id", venue.id)
+      .maybeSingle(),
+    supabase
+      .from("highlight_venue_team")
+      .select("id, role_zh, role_en, name_zh, name_en, photo_path, photo_focus, bio_zh, bio_en")
+      .eq("highlight_id", highlight.id)
+      .eq("venue_id", venue.id)
+      .order("position")
+      .order("id"),
+  ]);
+  if (page.error) throw page.error;
+  if (team.error) throw team.error;
+  const row = page.data;
+  return {
+    highlight: { id: highlight.id, name: highlight.name, template: highlight.template },
+    venue,
+    showTitle: row && row.show_title_zh.trim() !== "" ? localized(row, "show_title", locale).trim() : "",
+    poster: row?.poster_path
+      ? { url: highlightImageUrl(supabase, row.poster_path), alt: localized(row, "poster_alt", locale) }
+      : null,
+    // 中文沒寫就當成沒有（和教堂說明一樣）。
+    inspiration: row && row.body_zh.trim() !== "" ? localized(row, "body", locale) : "",
+    team: team.data.map((member) => ({
+      id: member.id,
+      role: localized(member, "role", locale).trim(),
+      name: localized(member, "name", locale),
+      photoUrl: member.photo_path && highlightImageUrl(supabase, member.photo_path),
+      photoFocus: member.photo_focus,
+      bio: textLines(localized(member, "bio", locale)),
+    })),
+    venues: highlight.venuePages,
+  };
 }
 
 // 個人介紹頁的純文字一行一段（大綱一行一點），空行不算。

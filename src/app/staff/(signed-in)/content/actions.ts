@@ -4,14 +4,17 @@ import { redirect } from "next/navigation";
 import {
   deleteHighlightPerson,
   deleteHomeItem,
+  deleteTeamMember,
   HOME_ITEM_KINDS,
   moveHighlightPerson,
   moveHomeItem,
+  moveTeamMember,
   saveConferenceDetails,
   saveHighlightPerson,
   saveHighlightVenue,
   saveHomeItem,
   saveSchedule,
+  saveTeamMember,
   type ContentResult,
   type HomeItemKind,
 } from "@/lib/content";
@@ -77,6 +80,11 @@ export async function saveContentItem(formData: FormData) {
     leadQuoteEn: field("leadQuoteEn"),
     leadQuoteSourceZh: field("leadQuoteSourceZh"),
     leadQuoteSourceEn: field("leadQuoteSourceEn"),
+    imagePath: field("imagePath"),
+    imageAltZh: field("imageAltZh"),
+    imageAltEn: field("imageAltEn"),
+    closingZh: field("closingZh"),
+    closingEn: field("closingEn"),
   });
   done(result, "saved");
 }
@@ -104,8 +112,45 @@ export async function saveHighlightVenueAction(formData: FormData) {
     venueId: field("venueId"),
     bodyZh: field("bodyZh"),
     bodyEn: field("bodyEn"),
+    // 只有圖文型的各教堂頁表單有這些欄位；一般介紹頁的表單不送，保留原值。
+    ...(formData.has("showTitleZh") && {
+      showTitleZh: field("showTitleZh"),
+      showTitleEn: field("showTitleEn"),
+      posterPath: field("posterPath"),
+      posterAltZh: field("posterAltZh"),
+      posterAltEn: field("posterAltEn"),
+    }),
   });
   done(result, "venueSaved");
+}
+
+export async function saveTeamMemberAction(formData: FormData) {
+  const field = fieldsOf(formData);
+  const result = await saveTeamMember(await createClient(), {
+    highlightId: field("highlightId"),
+    venueId: field("venueId"),
+    id: field("id") || null,
+    roleZh: field("roleZh"),
+    roleEn: field("roleEn"),
+    nameZh: field("nameZh"),
+    nameEn: field("nameEn"),
+    photoPath: field("photoPath"),
+    photoFocus: field("photoFocus"),
+    bioZh: field("bioZh"),
+    bioEn: field("bioEn"),
+  });
+  done(result, "teamSaved");
+}
+
+export async function deleteTeamMemberAction(formData: FormData) {
+  const result = await deleteTeamMember(await createClient(), fieldsOf(formData)("id"));
+  done(result, "deleted");
+}
+
+export async function moveTeamMemberAction(formData: FormData) {
+  const field = fieldsOf(formData);
+  const result = await moveTeamMember(await createClient(), field("id"), field("direction") === "up" ? "up" : "down");
+  done(result, "moved");
 }
 
 export async function saveHighlightPersonAction(formData: FormData) {

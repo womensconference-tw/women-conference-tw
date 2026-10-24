@@ -139,6 +139,19 @@ const zh = {
       linkLabel: "看作品介紹",
       bio: "講師介紹",
     },
+    // 圖文型（範本 B）與各教堂頁（範本 C），設計稿 docs/design/template-b-feature.dc.html、template-c-venue-team.dc.html。
+    otherVenues: "其他教堂",
+    poster: "海報",
+    posterEnlarge: "點圖可以放大看",
+    inspiration: "製作靈感",
+    choir: {
+      venuePrompt: "看各教堂的指揮與司琴",
+      teamHeading: "指揮與司琴",
+    },
+    concert: {
+      venuePrompt: "看各教堂的音樂會",
+      teamHeading: "製作團隊",
+    },
   },
   register: {
     title: "報名台灣姐妹大會",
@@ -470,6 +483,18 @@ const en = {
       count: (count: number) => `${count} ${count === 1 ? "work" : "works"}`,
       linkLabel: "About the work",
       bio: "About the artist",
+    },
+    otherVenues: "Other chapels",
+    poster: "Poster",
+    posterEnlarge: "Tap the poster to see it larger",
+    inspiration: "The inspiration",
+    choir: {
+      venuePrompt: "Conductors and accompanists at each chapel",
+      teamHeading: "Conductor and accompanist",
+    },
+    concert: {
+      venuePrompt: "The concert at each chapel",
+      teamHeading: "The team",
     },
   },
   register: {
