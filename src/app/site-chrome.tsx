@@ -10,6 +10,8 @@ export type SiteLink = { href: string; label: string; mobile?: boolean };
  * 全站表頭（設計交接說明「全站表頭與頁尾」）：網站名稱、選單與 English。首頁與大會特色介紹頁共用。
  * 手機寬度（≤640px，所以斷點寫 641px 而不是 Tailwind 的 sm）表頭只留標了 mobile 的連結與 English，其餘放頁尾，第一屏才不會被選單擠掉。
  * 首頁的網站名稱是頁面標題；其他頁有 home 時，網站名稱連回首頁，頁面標題由頁面自己放。
+ * 選單連結（包括 #about 這種頁內錨點）都用 Link：一般連結跳錨點時，瀏覽器記下的歷史紀錄 Next.js 不認得，
+ * 之後換到別頁再按上一頁，網址回來了畫面卻沒換回來（#116）。
  */
 export function SiteHeader({ t, links, home }: { t: Messages; links: SiteLink[]; home?: string }) {
   const titleClass = "text-lead leading-tight font-bold";
@@ -29,9 +31,9 @@ export function SiteHeader({ t, links, home }: { t: Messages; links: SiteLink[];
               <ul className="flex flex-wrap items-center">
                 {links.map((link) => (
                   <li key={link.href + link.label} className={cn(!link.mobile && "max-[40.0625rem]:hidden")}>
-                    <a href={link.href} className="inline-flex min-h-11 items-center px-3 font-semibold hover:underline">
+                    <Link href={link.href} className="inline-flex min-h-11 items-center px-3 font-semibold hover:underline">
                       {link.label}
-                    </a>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -58,17 +60,17 @@ export function SiteFooter({ t, links }: { t: Messages; links: SiteLink[] }) {
             <ul className="grid grid-cols-2 min-[40.0625rem]:flex min-[40.0625rem]:flex-wrap">
               {links.map((link) => (
                 <li key={link.href + link.label}>
-                  <a href={link.href} className="inline-flex min-h-11 items-center underline min-[40.0625rem]:px-3">
+                  <Link href={link.href} className="inline-flex min-h-11 items-center underline min-[40.0625rem]:px-3">
                     {link.label}
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>
           </nav>
         )}
-        <a href="#top" className="inline-flex min-h-11 items-center underline">
+        <Link href="#top" className="inline-flex min-h-11 items-center underline">
           {t.home.backToTop}
-        </a>
+        </Link>
       </div>
     </footer>
   );
