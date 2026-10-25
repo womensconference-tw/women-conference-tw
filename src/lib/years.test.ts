@@ -209,7 +209,13 @@ async function lastYear() {
   const afternoon = await insert("sessions", { venue_id: venue, position: 3, name_zh: "午后動態" });
   await insert("courses", { session_id: afternoon, title_zh: "手作花圈", speaker_zh: "余心愛", highlight_id: service });
   const agendaItem = await insert("agenda_items", { position: 1, start_time: "11:00", end_time: "11:50", name_zh: "第一場次" });
-  await insert("agenda_items", { position: 2, start_time: "12:30", end_time: "13:15", name_zh: "公益服務說明", name_en: "Service" });
+  const serviceItem = await insert("agenda_items", {
+    position: 2,
+    start_time: "12:30",
+    end_time: "13:15",
+    name_zh: "公益服務說明",
+    name_en: "Service",
+  });
   must(
     await admin.from("agenda_item_parts").insert([
       { conference_id: sourceId, agenda_item_id: agendaItem, position: 1, name_zh: "公益服務", name_en: "", highlight_id: service },
@@ -223,6 +229,14 @@ async function lastYear() {
       venue_id: venue,
       place_zh: "一樓大會堂",
       session_id: first,
+    }),
+  );
+  must(
+    await admin.from("agenda_item_venues").insert({
+      conference_id: sourceId,
+      agenda_item_id: serviceItem,
+      venue_id: venue,
+      highlight_id: honor,
     }),
   );
   must(
@@ -432,7 +446,7 @@ describe("複製去年建立新年度", () => {
     ]);
   });
 
-  it("大會程序一起帶過去，子項目的大會特色、教堂與場次都對到新年度的", async () => {
+  it("大會程序一起帶過去，子項目與各教堂的大會特色、教堂與場次都對到新年度的", async () => {
     await lastYear();
 
     await switchedTo(await copied());
@@ -448,10 +462,18 @@ describe("複製去年建立新年度", () => {
         parts: item.parts.map((part) => [part.nameZh, part.highlightId && highlightName.get(part.highlightId)]),
         place: item.venues[venue.id].placeZh,
         session: venue.sessions.find((session) => session.id === item.venues[venue.id].sessionId)?.nameZh ?? null,
+        highlight: highlightName.get(item.venues[venue.id].highlightId ?? "") ?? null,
       })),
     ).toEqual([
-      { name: "第一場次", time: "11:00–11:50", parts: [["公益服務", "公益服務"], ["見證", null]], place: "一樓大會堂", session: "第一場" },
-      { name: "公益服務說明", time: "12:30–13:15", parts: [], place: "", session: null },
+      {
+        name: "第一場次",
+        time: "11:00–11:50",
+        parts: [["公益服務", "公益服務"], ["見證", null]],
+        place: "一樓大會堂",
+        session: "第一場",
+        highlight: null,
+      },
+      { name: "公益服務說明", time: "12:30–13:15", parts: [], place: "", session: null, highlight: "向貴賓致敬" },
     ]);
     expect(agenda.unplacedSessions.map((session) => session.sessionNameZh)).toEqual(["第二場", "午后動態"]);
   });

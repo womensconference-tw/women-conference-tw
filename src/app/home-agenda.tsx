@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
 import { buttonVariants } from "@/components/ui/button";
-import type { CourseGroup, Venue } from "@/lib/home-content";
+import type { AgendaRow, CourseGroup, Venue } from "@/lib/home-content";
 import type { Locale } from "@/lib/i18n/locale";
 import { messages } from "@/lib/i18n/messages";
 import { cn } from "@/lib/utils";
@@ -15,7 +15,7 @@ const WIDE_QUERY = "(min-width: 48rem)";
  * 首頁的大會程序（#85）：三個大按鈕選教堂（不用下拉選單），下面是那間教堂的地址、地圖與時間軸。
  * 選教堂、展開課程都只在畫面上切換，不重新載入頁面。
  * 課程用 <details>，關掉 JavaScript 也能點開；伺服器畫的是第一間教堂、只展開第一個場次，
- * 電腦寬度在瀏覽器上再全部展開。
+ * 電腦寬度在瀏覽器上再全部展開。接了大會特色的列（例如靜態展示）直接列出這間教堂的人物，不用展開。
  */
 export function HomeAgenda({
   venues,
@@ -107,6 +107,7 @@ export function HomeAgenda({
                     locale={locale}
                   />
                 )}
+                {row.highlightPeople && <People {...row.highlightPeople} highlightPath={highlightPath} />}
               </div>
             </li>
           ))}
@@ -176,6 +177,36 @@ function Courses({
         </div>
       </details>
     </div>
+  );
+}
+
+/** 大會特色裡這間教堂的人物：作品名稱與姓名，有個人介紹頁的點作品名稱連過去（沒有作品名稱時點姓名）。 */
+function People({
+  highlightId,
+  people,
+  highlightPath,
+}: NonNullable<AgendaRow["highlightPeople"]> & { highlightPath: string }) {
+  return (
+    <ul className="flex flex-col gap-2">
+      {people.map((person, index) => {
+        const label = person.title || person.name;
+        return (
+          <li key={index} className="flex flex-col rounded-md border border-card-outline bg-background px-4 py-3">
+            {person.personId ? (
+              <Link
+                href={`${highlightPath}${highlightId}/people/${person.personId}`}
+                className="self-start font-semibold text-primary underline"
+              >
+                {label}
+              </Link>
+            ) : (
+              <span className="font-semibold">{label}</span>
+            )}
+            {person.title && <span className="text-muted-foreground">{person.name}</span>}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

@@ -132,7 +132,16 @@ describe("首頁內容", () => {
       { name: "展示", highlightId: null },
     ];
     expect(jinhuaAgenda).toEqual([
-      { start: "09:30", end: "10:30", name: "開幕式", place: "一樓大會堂", note: "請提早入座", parts, courseGroups: null },
+      {
+        start: "09:30",
+        end: "10:30",
+        name: "開幕式",
+        place: "一樓大會堂",
+        note: "請提早入座",
+        parts,
+        courseGroups: null,
+        highlightPeople: null,
+      },
       {
         start: "13:30",
         end: "14:15",
@@ -156,6 +165,7 @@ describe("首頁內容", () => {
           },
           { category: null, courses: [{ title: "家譜入門", speaker: "", pairedWith: null }] },
         ],
+        highlightPeople: null,
       },
     ]);
     // 大雅沒有接場次，也沒有說明。
@@ -183,6 +193,67 @@ describe("首頁內容", () => {
       name: "第三場次",
       courseGroups: [{ category: null, courses: [{ title: "麵包", pairedWith: { sessionName: "Session 2", isSecond: true } }] }],
     });
+  });
+
+  it("大會程序接了大會特色的列：列出那項大會特色裡屬於這間教堂的人物，有個人介紹頁的才連過去", async () => {
+    const insert = async (table: string, row: Record<string, unknown>) =>
+      must(await admin.from(table).insert({ conference_id: currentId, ...row }).select("id").single()).id as string;
+    const exhibit = await insert("highlights", { name_zh: "靜態展示", page_template: "exhibit" });
+    const jinhua = await insert("venues", { position: 1, region: "north", name_zh: "台北金華教堂" });
+    const daya = await insert("venues", { position: 2, region: "central", name_zh: "台中大雅教堂" });
+    const niaosong = await insert("venues", { position: 3, region: "south", name_zh: "高雄鳥松教堂" });
+    const session = await insert("sessions", { venue_id: jinhua, name_zh: "第一場次" });
+    const quilt = await insert("courses", { session_id: session, title_zh: "拼布被", title_en: "Quilt" });
+    const person = (position: number, row: Record<string, unknown>) =>
+      insert("highlight_people", { highlight_id: exhibit, position, ...row });
+    const lin = await person(2, { venue_id: jinhua, name_zh: "林美華", name_en: "Lin", course_title_zh: "十字繡", bio_zh: "介紹" });
+    await person(1, { venue_id: jinhua, name_zh: "陳月英", course_title_zh: "剪紙", course_title_en: "Paper cutting" });
+    // 靜態展示的個人介紹頁只有講師介紹一段，只寫了課程簡介的沒有個人介紹頁。
+    await person(3, { venue_id: jinhua, name_zh: "王小玲", summary_zh: "簡介" });
+    // 對應到課程的人物，教堂與作品名稱從課程帶。
+    const wu = await person(4, { course_id: quilt, name_zh: "吳淑芬", bio_zh: "介紹" });
+    await person(5, { venue_id: daya, name_zh: "張美玉", course_title_zh: "油畫" });
+    await person(6, { name_zh: "沒選教堂" });
+
+    const item = await insert("agenda_items", { start_time: "09:00", end_time: "16:00", name_zh: "靜態展示" });
+    must(
+      await admin.from("agenda_item_venues").insert(
+        [jinhua, daya, niaosong].map((venue) => ({
+          conference_id: currentId,
+          agenda_item_id: item,
+          venue_id: venue,
+          highlight_id: exhibit,
+        })),
+      ),
+    );
+
+    const content = await getHomeContent(anonClient(), "zh");
+
+    const [jinhuaRow, dayaRow, niaosongRow] = content!.venues.map((venue) => venue.agenda[0]);
+    expect(jinhuaRow).toMatchObject({ name: "靜態展示", courseGroups: null });
+    expect(jinhuaRow.highlightPeople).toEqual({
+      highlightId: exhibit,
+      people: [
+        { title: "剪紙", name: "陳月英", personId: null },
+        { title: "十字繡", name: "林美華", personId: lin },
+        { title: "", name: "王小玲", personId: null },
+        { title: "拼布被", name: "吳淑芬", personId: wu },
+      ],
+    });
+    expect(dayaRow.highlightPeople).toEqual({
+      highlightId: exhibit,
+      people: [{ title: "油畫", name: "張美玉", personId: null }],
+    });
+    // 這間教堂沒有人物時不列空的清單。
+    expect(niaosongRow.highlightPeople).toBeNull();
+
+    const english = await getHomeContent(anonClient(), "en");
+    expect(english!.venues[0].agenda[0].highlightPeople?.people.map((p) => [p.title, p.name])).toEqual([
+      ["Paper cutting", "陳月英"],
+      ["十字繡", "Lin"],
+      ["", "王小玲"],
+      ["Quilt", "吳淑芬"],
+    ]);
   });
 
   it("依排序列出目前年度的自訂區塊；英文缺漏的欄位顯示中文", async () => {

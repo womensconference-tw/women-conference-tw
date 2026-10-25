@@ -42,6 +42,7 @@ export async function saveAgendaVenueAction(formData: FormData) {
     noteZh: field("noteZh"),
     noteEn: field("noteEn"),
     sessionId: field("sessionId"),
+    highlightId: field("highlightId"),
   });
   done(result, "saved");
 }
