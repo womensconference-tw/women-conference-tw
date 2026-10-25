@@ -52,9 +52,10 @@ export function CommitteeShell({ nav, homeHref, children }: { nav: ReactNode; ho
       <footer className="border-t border-committee-line bg-committee-soft">
         <div className={cn(committeeWrapClass, "flex flex-wrap justify-between gap-3 py-7 text-sm text-committee-text-2")}>
           <span>{COMMITTEE_SITE_TITLE}</span>
-          <a href="#top" className="text-committee hover:text-committee-hover">
+          {/* 頁內錨點也用 Link，換頁後按上一頁才回得來（#116）。 */}
+          <Link href="#top" className="text-committee hover:text-committee-hover">
             回到頂端
-          </a>
+          </Link>
         </div>
       </footer>
     </div>

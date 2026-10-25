@@ -364,7 +364,10 @@ function Section({ id, heading, children }: { id?: string; heading: string; chil
   );
 }
 
-/** 寫完整文字的大按鈕。站內用 Link，頁內與站外用一般連結（同一個分頁開，不開彈出視窗）。 */
+/**
+ * 寫完整文字的大按鈕，一律用 Link（同一個分頁開，不開彈出視窗）。頁內錨點用一般連結會讓上一頁失靈（見 SiteHeader），
+ * 自訂區塊也可能填本站的完整網址加錨點；站外網址 Link 會交給瀏覽器直接換頁。
+ */
 function ActionLink({
   href,
   variant = "default",
@@ -377,14 +380,10 @@ function ActionLink({
   children: ReactNode;
 }) {
   const classes = cn(buttonVariants({ variant }), actionClass, className);
-  return href.startsWith("/") ? (
+  return (
     <Link href={href} className={classes}>
       {children}
     </Link>
-  ) : (
-    <a href={href} className={classes}>
-      {children}
-    </a>
   );
 }
 

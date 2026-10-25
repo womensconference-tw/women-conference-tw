@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useState } from "react";
 import { NavLink } from "@/app/staff/nav-link";
 import { cn } from "@/lib/utils";
@@ -25,14 +26,15 @@ export function MemberDirectory({ regions, memberQuery }: { regions: DirectoryRe
       <div className="mb-10 flex flex-wrap items-end justify-between gap-5 border-b border-committee-line pb-7">
         <nav aria-label="地區" className="flex flex-wrap gap-2">
           {shown.map((region) => (
-            <a
+            // 頁內錨點也用 Link，點進個人頁再按上一頁才回得來（#116）。
+            <Link
               key={region.id}
               href={`#${region.id}`}
               className="inline-flex h-11 items-center gap-2 rounded-full border border-committee-line-strong px-4 text-[15px] text-[#1f2933] no-underline hover:border-committee"
             >
               {region.name}
               <span className="text-[13px] text-committee-text-3">{region.members.length}</span>
-            </a>
+            </Link>
           ))}
         </nav>
         <div className="flex w-[300px] max-w-full flex-col gap-1.5">
