@@ -99,7 +99,7 @@ async function saved(input: Partial<AgendaItemInput> & { nameZh: string }) {
 }
 
 async function setVenue(input: Partial<AgendaVenueInput> & { agendaItemId: string; venueId: string }, client = headAdmin) {
-  return saveAgendaVenue(client, { placeZh: "", placeEn: "", noteZh: "", noteEn: "", sessionId: "", ...input });
+  return saveAgendaVenue(client, { placeZh: "", placeEn: "", noteZh: "", noteEn: "", sessionId: "", highlightId: "", ...input });
 }
 
 async function editor() {
@@ -241,8 +241,15 @@ describe("各教堂的設定", () => {
 
     const [item] = (await editor()).items;
     expect(item.venues).toEqual({
-      [jinhua]: { placeZh: "一樓大會堂", placeEn: "1F Assembly Hall", noteZh: "或改參加午后動態", noteEn: "", sessionId: jinhuaAfternoon },
-      [daya]: { placeZh: "", placeEn: "", noteZh: "", noteEn: "", sessionId: null },
+      [jinhua]: {
+        placeZh: "一樓大會堂",
+        placeEn: "1F Assembly Hall",
+        noteZh: "或改參加午后動態",
+        noteEn: "",
+        sessionId: jinhuaAfternoon,
+        highlightId: null,
+      },
+      [daya]: { placeZh: "", placeEn: "", noteZh: "", noteEn: "", sessionId: null, highlightId: null },
     });
 
     // 再存一次是修改，不會多一筆。
@@ -269,6 +276,74 @@ describe("各教堂的設定", () => {
       error: "session_invalid",
     });
     expect((await editor()).items[1].venues[jinhua].sessionId).toBeNull();
+  });
+
+  it("可以改接一項大會特色（例如靜態展示），和場次擇一；選單只列人物卡片版型的大會特色", async () => {
+    const insert = async (table: string, row: Record<string, unknown>) =>
+      must(await admin.from(table).insert({ conference_id: conferenceId, ...row }).select("id").single()).id as string;
+    const exhibit = await insert("highlights", { position: 2, name_zh: "靜態展示", page_template: "exhibit" });
+    const corner = await insert("highlights", { position: 1, name_zh: "角落課程", page_template: "corner" });
+    await insert("highlights", { position: 3, name_zh: "即席唱詩班", page_template: "choir" });
+    await insert("highlights", { position: 4, name_zh: "公益服務" });
+    expect((await editor()).cardHighlights).toEqual([
+      { id: corner, nameZh: "角落課程" },
+      { id: exhibit, nameZh: "靜態展示" },
+    ]);
+
+    const display = await saved({ nameZh: "靜態展示" });
+    expect(await setVenue({ agendaItemId: display, venueId: jinhua, placeZh: "二樓", highlightId: exhibit })).toEqual({ ok: true });
+    expect((await editor()).items[0].venues[jinhua]).toMatchObject({ placeZh: "二樓", sessionId: null, highlightId: exhibit });
+
+    expect(
+      await setVenue({ agendaItemId: display, venueId: jinhua, sessionId: jinhuaFirst, highlightId: exhibit }),
+    ).toEqual({ ok: false, error: "session_and_highlight" });
+    // 直接寫資料庫也擋下。
+    const both = await headAdmin.rpc("save_agenda_item_venue", {
+      p_agenda_item_id: display,
+      p_venue_id: jinhua,
+      p_place_zh: "",
+      p_place_en: "",
+      p_note_zh: "",
+      p_note_en: "",
+      p_session_id: jinhuaFirst,
+      p_highlight_id: exhibit,
+    });
+    expect(both.error?.message).toContain("agenda_item_venues_session_or_highlight");
+
+    // 改接場次就把大會特色清掉。
+    expect(await setVenue({ agendaItemId: display, venueId: jinhua, sessionId: jinhuaFirst })).toEqual({ ok: true });
+    expect((await editor()).items[0].venues[jinhua]).toMatchObject({ sessionId: jinhuaFirst, highlightId: null });
+  });
+
+  it("只能接同一年度的大會特色；刪除大會特色時只清掉對應", async () => {
+    const other = must(await admin.from("conferences").insert({ year: 2098, conference_date: "2098-05-15" }).select("id").single()).id;
+    try {
+      const oldExhibit = must(
+        await admin.from("highlights").insert({ conference_id: other, name_zh: "去年的展示" }).select("id").single(),
+      ).id;
+      const display = await saved({ nameZh: "靜態展示" });
+      expect(await setVenue({ agendaItemId: display, venueId: jinhua, highlightId: oldExhibit })).toEqual({
+        ok: false,
+        error: "highlight_invalid",
+      });
+      expect(await setVenue({ agendaItemId: display, venueId: jinhua, highlightId: "不是編號" })).toEqual({
+        ok: false,
+        error: "highlight_invalid",
+      });
+
+      const exhibit = must(
+        await admin
+          .from("highlights")
+          .insert({ conference_id: conferenceId, name_zh: "靜態展示", page_template: "exhibit" })
+          .select("id")
+          .single(),
+      ).id;
+      await setVenue({ agendaItemId: display, venueId: jinhua, placeZh: "二樓", highlightId: exhibit });
+      must(await admin.from("highlights").delete().eq("id", exhibit));
+      expect((await editor()).items[0].venues[jinhua]).toMatchObject({ placeZh: "二樓", highlightId: null });
+    } finally {
+      must(await admin.from("conferences").delete().eq("id", other));
+    }
   });
 
   it("不能設定別的年度的教堂", async () => {

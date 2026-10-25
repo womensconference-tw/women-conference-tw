@@ -29,6 +29,20 @@ export type AgendaRow = {
   parts: { name: string; highlightId: string | null }[];
   /** 這一列在這間教堂接的場次的課程，依分類分組；沒接場次或場次還沒有課程時是 null。 */
   courseGroups: CourseGroup[] | null;
+  /**
+   * 這一列在這間教堂接的大會特色（例如靜態展示，#118）裡屬於這間教堂的人物，照排序；
+   * 沒接大會特色、或這間教堂沒有人物時是 null。
+   */
+  highlightPeople: { highlightId: string; people: AgendaPerson[] } | null;
+};
+
+/** 大會程序列出的一位人物。 */
+export type AgendaPerson = {
+  /** 作品（課程）名稱；沒有是空字串。 */
+  title: string;
+  name: string;
+  /** 有個人介紹頁時是人物編號，連到大會特色介紹頁底下的個人介紹頁；沒有是 null（只是文字）。 */
+  personId: string | null;
 };
 
 /** 同一個分類的課程。沒有分類的課程放在最後一組，category 是 null。 */
@@ -101,10 +115,12 @@ export async function getHomeContent(
         sessions(id, name_zh, name_en, courses(id, title_zh, title_en, speaker_zh, speaker_en, highlight_id))),
       agenda_items(start_time, end_time, name_zh, name_en,
         agenda_item_parts(name_zh, name_en, highlight_id),
-        agenda_item_venues(venue_id, place_zh, place_en, note_zh, note_en, session_id)),
+        agenda_item_venues(venue_id, place_zh, place_en, note_zh, note_en, session_id, highlight_id)),
       custom_blocks(title_zh, title_en, body_zh, body_en, button_label_zh, button_label_en, button_url),
       highlights(id, name_zh, name_en, summary_zh, summary_en, description_zh, page_template, image_path,
-        highlight_venues(venue_id, body_zh, show_title_zh, poster_path), highlight_people(id), highlight_venue_team(venue_id))`,
+        highlight_venues(venue_id, body_zh, show_title_zh, poster_path), highlight_venue_team(venue_id),
+        highlight_people(id, venue_id, name_zh, name_en, course_title_zh, course_title_en,
+          bio_zh, bio_en, summary_zh, summary_en, outline_zh, outline_en, courses(title_zh, title_en, sessions(venue_id))))`,
     )
     .eq("is_current", true)
     // 排序相同時再依 id，讓順序每次都一樣。
@@ -124,6 +140,8 @@ export async function getHomeContent(
     .order("id", { referencedTable: "custom_blocks" })
     .order("position", { referencedTable: "highlights" })
     .order("id", { referencedTable: "highlights" })
+    .order("position", { referencedTable: "highlights.highlight_people" })
+    .order("id", { referencedTable: "highlights.highlight_people" })
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -183,6 +201,11 @@ export async function getHomeContent(
               session && session.courses.length > 0
                 ? groupCourses(session.courses, venue.sessions, data.highlights, pairs.data, highlightLink, locale)
                 : null,
+            highlightPeople: agendaPeople(
+              data.highlights.find((highlight) => highlight.id === setting?.highlight_id),
+              venue.id,
+              locale,
+            ),
           };
         }),
       };
@@ -202,6 +225,37 @@ export async function getHomeContent(
       linkable: linkable.has(highlight.id),
     })),
   };
+}
+
+type AgendaPersonRow = {
+  id: string;
+  venue_id: string | null;
+  courses: unknown;
+} & LocalizedRow<"name" | "course_title" | "bio" | "summary" | "outline">;
+
+/** 大會程序一列接的大會特色裡，屬於這間教堂的人物（#118）。只有人物卡片版型有人物；教堂與作品名稱和介紹頁一樣算。 */
+function agendaPeople(
+  highlight: { id: string; page_template: string | null; highlight_people: AgendaPersonRow[] } | undefined,
+  venueId: string,
+  locale: Locale,
+): AgendaRow["highlightPeople"] {
+  if (!highlight || !isCardTemplate(highlight.page_template)) return null;
+  const template = highlight.page_template;
+  const people = highlight.highlight_people.flatMap((person) => {
+    // 一位人物只對到一門課，讀出來是物件不是陣列。
+    const course = person.courses as ({ sessions: { venue_id: string } | null } & LocalizedRow<"title">) | null;
+    if ((course?.sessions?.venue_id ?? person.venue_id) !== venueId) return [];
+    // 和 hasPersonPage 同一個規則：這個版型要顯示的段落有一段有寫。
+    const hasPage = PERSON_SECTIONS[template].some((section) => textLines(localized(person, section, locale)).length > 0);
+    return [
+      {
+        title: (course ? localized(course, "title", locale) : localized(person, "course_title", locale)).trim(),
+        name: localized(person, "name", locale),
+        personId: hasPage ? person.id : null,
+      },
+    ];
+  });
+  return people.length > 0 ? { highlightId: highlight.id, people } : null;
 }
 
 /** 一項大會特色在一間教堂的頁面內容（highlight_venues 的一列），與那間教堂的團隊成員。 */

@@ -35,6 +35,7 @@ const ERRORS: Record<AgendaError, string> = {
   highlight_invalid: "選的大會特色找不到，可能剛被刪除。請重新整理頁面再選一次。",
   session_taken: "這個場次已經接到另一列了。一個場次只能接到一列，請先把另一列的場次改掉。",
   session_invalid: "選的場次找不到，可能剛被刪除。請重新整理頁面再選一次。",
+  session_and_highlight: "對應的場次與大會特色只能選一個，請把其中一個改成「沒有」。",
   not_found: "找不到這一列，可能已經被刪除，或目前年度已經換了。請重新整理頁面再試一次。",
   unavailable: "系統暫時出了問題，請稍後再試。",
 };
@@ -82,7 +83,8 @@ export default async function AgendaPage({ searchParams }: PageProps<"/staff/age
       <ResultMessage searchParams={searchParams} done={DONE} errors={ERRORS} />
       <p>
         大會當天一整天的時間軸，新首頁上線後顯示在首頁「大會程序」。每一列三間教堂共用時間、名稱與子項目；
-        地點、補充說明與對應的場次分教堂設定。接了場次的列，首頁會在下面列出那個場次的課程。
+        地點、補充說明與對應的場次或大會特色分教堂設定。接了場次的列，首頁會在下面列出那個場次的課程；
+        接了大會特色的列（例如靜態展示），列出那項大會特色裡這間教堂的人物。
         報名開放後也可以改。英文欄位沒填時，英文版會顯示中文。
       </p>
       {missingCount > 0 && (
@@ -122,6 +124,7 @@ export default async function AgendaPage({ searchParams }: PageProps<"/staff/age
 
 function AgendaItemCard({ item, agenda, first, last }: { item: AgendaItem; agenda: AgendaEditor; first: boolean; last: boolean }) {
   const sessionName = new Map(agenda.venues.flatMap((venue) => venue.sessions.map((session) => [session.id, session.nameZh])));
+  const highlightName = new Map(agenda.highlights.map((highlight) => [highlight.id, highlight.nameZh]));
   return (
     <li className={cardClass}>
       <h3 className="text-lg font-bold">
@@ -134,6 +137,7 @@ function AgendaItemCard({ item, agenda, first, last }: { item: AgendaItem; agend
           const details = [
             setting.placeZh && `地點 ${setting.placeZh}`,
             setting.sessionId && `場次 ${sessionName.get(setting.sessionId)}`,
+            setting.highlightId && `大會特色 ${highlightName.get(setting.highlightId)}`,
             setting.noteZh && `補充說明 ${setting.noteZh}`,
           ].filter(Boolean);
           return (
@@ -158,7 +162,16 @@ function AgendaItemCard({ item, agenda, first, last }: { item: AgendaItem; agend
         <details key={venue.id}>
           <summary className="cursor-pointer font-semibold">設定{venue.nameZh}</summary>
           <div className="mt-3">
-            <AgendaVenueForm item={item} venue={venue} />
+            <AgendaVenueForm
+              item={item}
+              venue={venue}
+              // 已經接的大會特色後來換了版型的話也列出來，存別的欄位時才不會被清掉。
+              highlights={agenda.highlights.filter(
+                (highlight) =>
+                  highlight.id === item.venues[venue.id].highlightId ||
+                  agenda.cardHighlights.some((card) => card.id === highlight.id),
+              )}
+            />
           </div>
         </details>
       ))}
@@ -239,8 +252,16 @@ function AgendaItemForm({ agenda, item, submitLabel }: { agenda: AgendaEditor; i
   );
 }
 
-/** 一列在一間教堂的地點、補充說明、對應場次。 */
-function AgendaVenueForm({ item, venue }: { item: AgendaItem; venue: AgendaEditor["venues"][number] }) {
+/** 一列在一間教堂的地點、補充說明、對應場次或大會特色。 */
+function AgendaVenueForm({
+  item,
+  venue,
+  highlights,
+}: {
+  item: AgendaItem;
+  venue: AgendaEditor["venues"][number];
+  highlights: AgendaEditor["highlights"];
+}) {
   const setting = item.venues[venue.id];
   return (
     <form action={saveAgendaVenueAction} className="flex flex-col gap-3">
@@ -257,6 +278,19 @@ function AgendaVenueForm({ item, venue }: { item: AgendaItem; venue: AgendaEdito
           {venue.sessions.map((session) => (
             <option key={session.id} value={session.id}>
               {session.nameZh}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field
+        label="對應的大會特色"
+        hint="不用報名的整天活動，例如靜態展示：首頁會在這一列下面列出這項大會特色裡這間教堂的人物（作品名稱與姓名）。和對應的場次只能選一個。"
+      >
+        <select name="highlightId" defaultValue={setting.highlightId ?? ""} className={cn(inputClass, "sm:max-w-md")}>
+          <option value="">沒有</option>
+          {highlights.map((highlight) => (
+            <option key={highlight.id} value={highlight.id}>
+              {highlight.nameZh}
             </option>
           ))}
         </select>

@@ -342,4 +342,33 @@ describe("大會程序", () => {
     expect(within(agenda).getByText("沈思的力量")).toBeTruthy();
     expect(within(agenda).queryByText("我會傾聽")).toBeNull();
   });
+
+  it("接了靜態展示的列直接列出這間教堂的作品與姓名，有個人介紹頁的點作品名稱連過去", async () => {
+    const exhibit = await insert("highlights", { name_zh: "靜態展示", page_template: "exhibit" });
+    const lin = await insert("highlight_people", {
+      highlight_id: exhibit,
+      position: 1,
+      venue_id: jinhua,
+      name_zh: "林美華",
+      course_title_zh: "十字繡",
+      bio_zh: "介紹",
+    });
+    await insert("highlight_people", { highlight_id: exhibit, position: 2, venue_id: jinhua, name_zh: "陳月英", course_title_zh: "剪紙" });
+    await insert("highlight_people", { highlight_id: exhibit, position: 3, venue_id: daya, name_zh: "張美玉", course_title_zh: "油畫" });
+    const display = await insert("agenda_items", { position: 4, start_time: "09:00", end_time: "16:00", name_zh: "靜態展示" });
+    must(
+      await admin
+        .from("agenda_item_venues")
+        .insert({ conference_id: fixtureId, agenda_item_id: display, venue_id: jinhua, highlight_id: exhibit }),
+    );
+
+    await renderPage(HomePage({ preview: false }));
+
+    const agenda = document.getElementById("agenda")!;
+    expect(within(agenda).getByRole("link", { name: "十字繡" }).getAttribute("href")).toBe(`/highlights/${exhibit}/people/${lin}`);
+    expect(within(agenda).getByText("林美華")).toBeTruthy();
+    expect(within(agenda).getByText("剪紙").tagName).toBe("SPAN");
+    expect(within(agenda).queryByRole("link", { name: "剪紙" })).toBeNull();
+    expect(within(agenda).queryByText("油畫")).toBeNull();
+  });
 });

@@ -1,9 +1,10 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { isCardTemplate } from "./home-content";
 import { trimBlank, UUID_PATTERN } from "./registration";
 
 /*
  * 後台編輯目前年度的大會程序（#84）：一整天的時間軸，每一列各場地共用時間、名稱、子項目，
- * 地點、補充說明、對應的場次各場地不同。首頁的「大會程序」照這裡顯示（#85）。
+ * 地點、補充說明、對應的場次或大會特色各場地不同。首頁的「大會程序」照這裡顯示（#85）。
  * 只有總管理員能寫入，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
  * 一個場次只能接到一列、場次要是同一間教堂的，都由資料庫擋下，這裡把錯誤轉成代碼。
  */
@@ -16,6 +17,7 @@ export type AgendaError =
   | "highlight_invalid"
   | "session_taken"
   | "session_invalid"
+  | "session_and_highlight"
   | "not_found"
   | "unavailable";
 
@@ -92,15 +94,19 @@ export type AgendaVenueInput = {
   noteEn: string;
   /** 空白表示這一列在這個場地沒有對應的場次。 */
   sessionId: string;
+  /** 對應的大會特色（例如靜態展示，#118），和場次擇一；空白表示沒有。 */
+  highlightId: string;
 };
 
-/** 存一列在一個場地的地點、補充說明、對應場次。 */
+/** 存一列在一個場地的地點、補充說明、對應場次或大會特色。 */
 export async function saveAgendaVenue(supabase: SupabaseClient, input: AgendaVenueInput): Promise<AgendaResult> {
   const text = (value: string) => trimBlank(value);
   if (!validIds(input.agendaItemId, input.venueId) || !input.agendaItemId || !input.venueId) {
     return { ok: false, error: "not_found" };
   }
   if (!validIds(input.sessionId)) return { ok: false, error: "session_invalid" };
+  if (!validIds(input.highlightId)) return { ok: false, error: "highlight_invalid" };
+  if (input.sessionId && input.highlightId) return { ok: false, error: "session_and_highlight" };
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
@@ -112,6 +118,7 @@ export async function saveAgendaVenue(supabase: SupabaseClient, input: AgendaVen
     p_note_zh: text(input.noteZh),
     p_note_en: text(input.noteEn),
     p_session_id: input.sessionId || null,
+    p_highlight_id: input.highlightId || null,
   });
   return error ? failure(error) : { ok: true };
 }
@@ -162,7 +169,10 @@ function failure(error: PostgrestError): { ok: false; error: AgendaError } {
     case error.code === "23503" && violates("agenda_item_venues_session_same_venue"):
       return { ok: false, error: "session_invalid" };
     case error.code === "23503" && violates("agenda_item_parts_highlight_same_conference"):
+    case error.code === "23503" && violates("agenda_item_venues_highlight_same_conference"):
       return { ok: false, error: "highlight_invalid" };
+    case error.code === "23514" && violates("agenda_item_venues_session_or_highlight"):
+      return { ok: false, error: "session_and_highlight" };
     // 場地不是這一列同一年度的（網頁被改過、或場地剛被刪掉）。
     case error.code === "23503" && violates("agenda_item_venues_venue"):
       return { ok: false, error: "not_found" };
@@ -191,6 +201,7 @@ export type AgendaVenueSetting = {
   noteZh: string;
   noteEn: string;
   sessionId: string | null;
+  highlightId: string | null;
 };
 
 export type AgendaItem = {
@@ -213,11 +224,20 @@ export type AgendaEditor = {
   venues: { id: string; nameZh: string; sessions: { id: string; nameZh: string }[] }[];
   /** 子項目可以連的大會特色，依首頁的順序。 */
   highlights: { id: string; nameZh: string }[];
+  /** 各教堂可以接的大會特色：人物卡片版型的才有人物可以列（#118），依首頁的順序。 */
+  cardHighlights: { id: string; nameZh: string }[];
   /** 還沒接到任何一列的場次（首頁會漏掉這些課程）。 */
   unplacedSessions: { venueNameZh: string; sessionNameZh: string }[];
 };
 
-const EMPTY_SETTING: AgendaVenueSetting = { placeZh: "", placeEn: "", noteZh: "", noteEn: "", sessionId: null };
+const EMPTY_SETTING: AgendaVenueSetting = {
+  placeZh: "",
+  placeEn: "",
+  noteZh: "",
+  noteEn: "",
+  sessionId: null,
+  highlightId: null,
+};
 
 /** 目前年度的大會程序，含中英兩欄與各場地的設定。沒有目前年度時回傳 null。 */
 export async function getAgendaEditor(supabase: SupabaseClient): Promise<AgendaEditor | null> {
@@ -227,9 +247,9 @@ export async function getAgendaEditor(supabase: SupabaseClient): Promise<AgendaE
       `id, year,
       agenda_items(id, start_time, end_time, name_zh, name_en,
         agenda_item_parts(position, name_zh, name_en, highlight_id),
-        agenda_item_venues(venue_id, place_zh, place_en, note_zh, note_en, session_id)),
+        agenda_item_venues(venue_id, place_zh, place_en, note_zh, note_en, session_id, highlight_id)),
       venues(id, name_zh, sessions(id, name_zh)),
-      highlights(id, name_zh)`,
+      highlights(id, name_zh, page_template)`,
     )
     .eq("is_current", true)
     // 排序相同時再依 id，讓順序每次都一樣（和首頁一樣）。
@@ -271,6 +291,7 @@ export async function getAgendaEditor(supabase: SupabaseClient): Promise<AgendaE
                 noteZh: setting.note_zh,
                 noteEn: setting.note_en,
                 sessionId: setting.session_id,
+                highlightId: setting.highlight_id,
               }
             : EMPTY_SETTING,
         ];
@@ -289,6 +310,9 @@ export async function getAgendaEditor(supabase: SupabaseClient): Promise<AgendaE
       sessions: venue.sessions.map((session) => ({ id: session.id, nameZh: session.name_zh })),
     })),
     highlights: data.highlights.map((highlight) => ({ id: highlight.id, nameZh: highlight.name_zh })),
+    cardHighlights: data.highlights
+      .filter((highlight) => isCardTemplate(highlight.page_template))
+      .map((highlight) => ({ id: highlight.id, nameZh: highlight.name_zh })),
     unplacedSessions: data.venues.flatMap((venue) =>
       venue.sessions
         .filter((session) => !placed.has(session.id))
