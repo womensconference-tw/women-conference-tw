@@ -66,6 +66,37 @@ describe("介面文字對照檔", () => {
   });
 });
 
+// 暫時不提供大會管理員的聯絡方式（見 showAdminContact）：前台文字改請姐妹問自己支會或分會的慈助會會長。
+// 隱藏中的「需要幫忙嗎？」區塊與選單文字留著，恢復時用。
+describe("求助指引", () => {
+  const hiddenHelpKeys = ["home.navHelp", "home.helpDescription", "home.helpLineId", "home.helpLineButton", "home.helpLineComingSoon"];
+  const guidanceKeys = [
+    "home.closedDescription",
+    "register.errors.portraitConsentRequired",
+    "lookup.closedDescription",
+    "lookup.errors.notFound",
+    "email.footer",
+  ];
+  const guidance = {
+    zh: "如有疑問，請聯絡您所屬支會或分會的慈助會會長。",
+    en: "If you have questions, please contact your ward or branch Relief Society president.",
+  };
+
+  it.each(locales)("%s 不叫人聯絡大會管理員", (locale) => {
+    const mentions = leaves(messages[locale])
+      .filter(([path, value]) => !hiddenHelpKeys.includes(path) && typeof value === "string")
+      .filter(([, value]) => /管理員|administrator/i.test(value as string))
+      .map(([path]) => path);
+
+    expect(mentions).toEqual([]);
+  });
+
+  it.each(locales)("%s 需要求助的地方請姐妹聯絡慈助會會長", (locale) => {
+    const text = Object.fromEntries(leaves(messages[locale]));
+    for (const key of guidanceKeys) expect(text[key], key).toContain(guidance[locale]);
+  });
+});
+
 function leaves(node: object, prefix = ""): [string, unknown][] {
   return Object.entries(node).flatMap(([key, value]) => {
     const path = prefix ? `${prefix}.${key}` : key;

@@ -77,7 +77,7 @@ const zh = {
     canChangeUntil: (date: string) => `${date}以前都可以自己修改。`,
     lookupOrChangeButton: "查詢或修改我的報名",
     closedHeading: "報名已經截止",
-    closedDescription: "已報名的姐妹可以查詢自己的資料。需要修改，請用 LINE 聯絡管理員。",
+    closedDescription: "已報名的姐妹可以查詢自己的資料。報名截止後，網站上不能修改或取消。如有疑問，請聯絡您所屬支會或分會的慈助會會長。",
     lookupButton: "查詢我的報名",
     faqHeading: "常見問題",
     helpHeading: "需要幫忙嗎？",
@@ -249,12 +249,12 @@ const zh = {
       lunchFull: "您選的午餐剛剛被訂完了，請改選其他午餐。其他資料都還在，不用重填。",
       servicesInvalid: "服務意願有無法辨識的選項，請重新勾選。",
       printedHandbookRequired: "請選擇是否需要紙本手冊。",
-      portraitConsentRequired: "需要同意肖像權才能報名。如有疑問，請先聯絡大會管理員。",
+      portraitConsentRequired: "需要同意肖像權才能報名。如有疑問，請聯絡您所屬支會或分會的慈助會會長。",
       notOpen: "目前不在報名期間，報名沒有送出。",
-      notFound: "找不到這筆報名，可能已經取消了。請重新查詢，或聯絡大會管理員。",
+      notFound: "找不到這筆報名，可能已經取消了。請重新查詢。",
       cancelled: "這筆報名已經取消，不能修改。要參加的話，請重新報名。",
-      tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試，或聯絡大會管理員。",
-      unknown: "系統暫時出了問題，報名沒有送出。請稍後再試一次，或聯絡大會管理員。",
+      tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試。",
+      unknown: "系統暫時出了問題，報名沒有送出。請稍後再試一次。",
     },
     done: {
       heading: "報名完成",
@@ -275,7 +275,7 @@ const zh = {
     resultHeading: "您的報名資料",
     cancelled: "這筆報名已經取消。",
     closedHeading: "報名已截止，現在只能查詢",
-    closedDescription: "要修改或取消報名，請用 LINE 聯絡大會管理員。",
+    closedDescription: "報名截止後，網站上不能修改或取消報名。如有疑問，請聯絡您所屬支會或分會的慈助會會長。",
     editButton: "修改這筆報名",
     errors: {
       nameRequired: "請填寫姓名。",
@@ -283,9 +283,9 @@ const zh = {
       phoneOrNumberInvalid:
         "電話或報名編號的格式不對。電話請只填數字，例如 0912345678；報名編號是 6 個數字。",
       notFound:
-        "找不到符合的報名。請確認姓名和電話（或報名編號）跟報名時填的一樣，再試一次。如果還是找不到，請聯絡大會管理員。",
-      tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試，或聯絡大會管理員。",
-      unknown: "系統暫時出了問題，請稍後再試一次，或聯絡大會管理員。",
+        "找不到符合的報名。請確認姓名和電話（或報名編號）跟報名時填的一樣，再試一次。如有疑問，請聯絡您所屬支會或分會的慈助會會長。",
+      tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試。",
+      unknown: "系統暫時出了問題，請稍後再試一次。",
     },
   },
   // 修改報名：沿用報名表的步驟與確認頁，只有這些地方的文字不同。
@@ -293,7 +293,7 @@ const zh = {
     title: "修改報名",
     stepTitles: ["聯絡資料", "選擇場地", "選擇課程", "午餐與服務", "確認修改"],
     editButtons: ["修改聯絡資料", "修改場地", "修改課程", "修改午餐與服務"],
-    fixedDetailsHint: "姓名和支會不能在這裡修改。要修改的話，請聯絡大會管理員。",
+    fixedDetailsHint: "姓名和支會不能在這裡修改。",
     reviewHeading: "請確認修改後的資料",
     submitButton: "確認送出修改",
     cancelButton: "不修改了，回到查詢結果",
@@ -303,7 +303,7 @@ const zh = {
       notOpen: "目前不在報名期間，修改沒有送出。",
       // 連線中斷時修改可能已經存下，所以不說「沒有送出」。
       unknown:
-        "系統暫時出了問題，不確定修改有沒有存下來。請再按一次「確認送出修改」；還是不行的話，請稍後重新查詢，看看目前的資料，或聯絡大會管理員。",
+        "系統暫時出了問題，不確定修改有沒有存下來。請再按一次「確認送出修改」；還是不行的話，請稍後重新查詢，看看目前的資料。",
     },
   },
   // 取消報名：在查詢結果裡確認，不用彈出視窗。
@@ -318,13 +318,13 @@ const zh = {
     done: "已經取消這筆報名。",
     errors: {
       // 回應斷掉後跨過截止才重按時，其實可能已經取消了，所以不說「沒有取消」。
-      notOpen: "目前不在報名期間，網站上無法取消。請重新查詢，看看這筆報名現在的狀態；要取消的話，請聯絡大會管理員。",
+      notOpen: "目前不在報名期間，網站上無法取消。請重新查詢，看看這筆報名現在的狀態。",
       notFound:
-        "找不到這筆報名，可能資料剛剛改過。請重新查詢後再試一次，或聯絡大會管理員。",
-      tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試，或聯絡大會管理員。",
+        "找不到這筆報名，可能資料剛剛改過。請重新查詢後再試一次。",
+      tooManyAttempts: "這個姓名查詢失敗太多次，請過一小時再試。",
       // 連線中斷時取消可能已經存下，所以不說「沒有取消」；再按一次也不會出錯。
       unknown:
-        "系統暫時出了問題，不確定報名有沒有取消。請再按一次「確定取消報名」；還是不行的話，請稍後重新查詢，或聯絡大會管理員。",
+        "系統暫時出了問題，不確定報名有沒有取消。請再按一次「確定取消報名」；還是不行的話，請稍後重新查詢。",
     },
   },
   // 報名、修改、取消後寄給報名者的確認信。
@@ -347,7 +347,7 @@ const zh = {
     lookupLink: "查詢我的報名",
     // 純文字版的信裡，標籤和內容之間的符號。
     labelSeparator: "：",
-    footer: "這封信由系統自動寄出，請不要直接回覆。有任何問題，請用 LINE 聯絡大會管理員。",
+    footer: "這封信由系統自動寄出，請不要直接回覆。如有疑問，請聯絡您所屬支會或分會的慈助會會長。",
   },
 };
 
@@ -425,7 +425,7 @@ const en = {
     lookupOrChangeButton: "Look up or change my registration",
     closedHeading: "Registration has closed",
     closedDescription:
-      "If you have registered, you can still look up your details. To make changes, contact the administrator on LINE.",
+      "If you have registered, you can still look up your details. Now that registration has closed, registrations can't be changed or cancelled on the website. If you have questions, please contact your ward or branch Relief Society president.",
     lookupButton: "Look up my registration",
     faqHeading: "Frequently asked questions",
     helpHeading: "Need help?",
@@ -615,16 +615,16 @@ const en = {
       servicesInvalid: "Some of your service choices weren't recognised. Please tick them again.",
       printedHandbookRequired: "Please choose whether you need a printed handbook.",
       portraitConsentRequired:
-        "You need to agree to the photo consent to register. If you have questions, please contact the conference administrator first.",
+        "You need to agree to the photo consent to register. If you have questions, please contact your ward or branch Relief Society president.",
       notOpen: "Registration is not open right now. Your registration was not submitted.",
       notFound:
-        "We couldn't find this registration. It may have been cancelled. Please look it up again, or contact the conference administrator.",
+        "We couldn't find this registration. It may have been cancelled. Please look it up again.",
       cancelled:
         "This registration has been cancelled, so it can't be changed. To attend, please register again.",
       tooManyAttempts:
-        "There have been too many unsuccessful lookups for this name. Please try again in an hour, or contact the conference administrator.",
+        "There have been too many unsuccessful lookups for this name. Please try again in an hour.",
       unknown:
-        "Something went wrong and your registration was not submitted. Please try again later, or contact the conference administrator.",
+        "Something went wrong and your registration was not submitted. Please try again later.",
     },
     done: {
       heading: "You're registered",
@@ -650,7 +650,7 @@ const en = {
     cancelled: "This registration has been cancelled.",
     closedHeading: "Registration has closed. You can only look up your registration now.",
     closedDescription:
-      "To change or cancel your registration, please contact the conference administrator on LINE.",
+      "Now that registration has closed, registrations can't be changed or cancelled on the website. If you have questions, please contact your ward or branch Relief Society president.",
     editButton: "Change this registration",
     errors: {
       nameRequired: "Please enter your name.",
@@ -659,10 +659,10 @@ const en = {
       phoneOrNumberInvalid:
         "That phone number or registration number doesn't look right. Phone numbers are digits only, e.g. 0912345678; registration numbers are 6 digits.",
       notFound:
-        "We couldn't find a matching registration. Please check that your name and phone number (or registration number) are exactly as you registered, and try again. If you still can't find it, please contact the conference administrator.",
+        "We couldn't find a matching registration. Please check that your name and phone number (or registration number) are exactly as you registered, and try again. If you have questions, please contact your ward or branch Relief Society president.",
       tooManyAttempts:
-        "There have been too many unsuccessful lookups for this name. Please try again in an hour, or contact the conference administrator.",
-      unknown: "Something went wrong. Please try again later, or contact the conference administrator.",
+        "There have been too many unsuccessful lookups for this name. Please try again in an hour.",
+      unknown: "Something went wrong. Please try again later.",
     },
   },
   edit: {
@@ -670,7 +670,7 @@ const en = {
     stepTitles: ["Contact details", "Choose a venue", "Choose your classes", "Lunch and service", "Review changes"],
     editButtons: ["Change contact details", "Change venue", "Change classes", "Change lunch and service"],
     fixedDetailsHint:
-      "Your name and ward can't be changed here. To change them, please contact the conference administrator.",
+      "Your name and ward can't be changed here.",
     reviewHeading: "Please check your changed details",
     submitButton: "Save my changes",
     cancelButton: "Don't change anything, back to my registration",
@@ -679,7 +679,7 @@ const en = {
     errors: {
       notOpen: "Registration is not open right now. Your changes were not saved.",
       unknown:
-        "Something went wrong, and we're not sure whether your changes were saved. Please press \"Save my changes\" again. If that doesn't work, look up your registration again later to check your details, or contact the conference administrator.",
+        "Something went wrong, and we're not sure whether your changes were saved. Please press \"Save my changes\" again. If that doesn't work, look up your registration again later to check your details.",
     },
   },
   cancel: {
@@ -693,13 +693,13 @@ const en = {
     done: "This registration has been cancelled.",
     errors: {
       notOpen:
-        "Registration is not open right now, so you can't cancel on the website. Please look up your registration again to check its current status. To cancel, please contact the conference administrator.",
+        "Registration is not open right now, so you can't cancel on the website. Please look up your registration again to check its current status.",
       notFound:
-        "We couldn't find this registration. Its details may have just changed. Please look it up again and try again, or contact the conference administrator.",
+        "We couldn't find this registration. Its details may have just changed. Please look it up again and try again.",
       tooManyAttempts:
-        "There have been too many unsuccessful lookups for this name. Please try again in an hour, or contact the conference administrator.",
+        "There have been too many unsuccessful lookups for this name. Please try again in an hour.",
       unknown:
-        "Something went wrong, and we're not sure whether your registration was cancelled. Please press \"Yes, cancel my registration\" again. If that doesn't work, look up your registration again later, or contact the conference administrator.",
+        "Something went wrong, and we're not sure whether your registration was cancelled. Please press \"Yes, cancel my registration\" again. If that doesn't work, look up your registration again later.",
     },
   },
   email: {
@@ -723,7 +723,7 @@ const en = {
     lookupLink: "Look up my registration",
     labelSeparator: ": ",
     footer:
-      "This email was sent automatically. Please don't reply to it. If you have any questions, please contact the conference administrator on LINE.",
+      "This email was sent automatically. Please don't reply to it. If you have questions, please contact your ward or branch Relief Society president.",
   },
 } satisfies Messages;
 

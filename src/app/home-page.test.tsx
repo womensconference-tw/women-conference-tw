@@ -139,7 +139,8 @@ async function setSchedule(opensAt: string, closesAt: string) {
 }
 
 describe("首頁區塊", () => {
-  it("依新設計的順序：主視覺、狀態列、歡迎詞、大會有什麼、大會程序、報名、常見問題、需要幫忙、自訂區塊", async () => {
+  // 「需要幫忙嗎？」暫時不顯示（showAdminContact）；恢復時把它加回標題清單三處（中文兩處、英文一處）、選單加回「聯絡管理員」與 #help。
+  it("依新設計的順序：主視覺、狀態列、歡迎詞、大會有什麼、大會程序、報名、常見問題、自訂區塊", async () => {
     await insert("highlights", { name_zh: "即席唱詩班" });
     await insert("venues", { region: "north", name_zh: "台北金華教堂" });
     await insert("faqs", { question_zh: "要帶什麼？", answer_zh: "經文" });
@@ -154,7 +155,6 @@ describe("首頁區塊", () => {
       "大會程序",
       "報名參加",
       "常見問題",
-      "需要幫忙嗎？",
       "交通資訊",
     ]);
     // 沒有主視覺圖時，主題經文在最上面、狀態列前面。
@@ -164,7 +164,7 @@ describe("首頁區塊", () => {
     // 表頭的選單都跳得到；「大會場地」還沒有自己的頁面，先跳到大會程序。頁尾有同樣的選單。
     const nav = screen.getByRole("navigation", { name: "主選單" });
     const links = within(nav).getAllByRole("link");
-    expect(links.map((link) => link.textContent)).toEqual(["認識大會", "大會程序", "大會場地", "報名與查詢", "聯絡管理員"]);
+    expect(links.map((link) => link.textContent)).toEqual(["認識大會", "大會程序", "大會場地", "報名與查詢"]);
     expect(links[2].getAttribute("href")).toBe("#agenda");
     expect(within(screen.getByRole("navigation", { name: "頁尾選單" })).getAllByRole("link").map((link) => link.textContent)).toEqual(
       links.map((link) => link.textContent),
@@ -181,10 +181,9 @@ describe("首頁區塊", () => {
 
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
       "報名參加",
-      "需要幫忙嗎？",
     ]);
     const nav = screen.getByRole("navigation", { name: "主選單" });
-    expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["#register", "#help"]);
+    expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["#register"]);
   });
 });
 
@@ -249,7 +248,6 @@ describe("狀態列與報名區", () => {
       "Welcome to the Women's Conference",
       "Programme",
       "Register",
-      "Need help?",
     ]);
     expect(screen.getByRole("button", { name: "Taipei Jinhua Chapel" })).toBeTruthy();
     expect(screen.getByText(/You can change it yourself until Tuesday, January 13\.$/)).toBeTruthy();

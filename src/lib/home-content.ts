@@ -5,6 +5,12 @@ import { heroImageUrl, heroPathsOf, pickHeroPaths } from "./hero";
 import { highlightImageUrl } from "./highlight-images";
 import { UUID_PATTERN } from "./registration";
 
+/**
+ * 暫時不在前台顯示管理員聯絡方式：首頁選單的「聯絡管理員」、首頁「需要幫忙嗎？」整區（含 #help）、
+ * 查詢頁截止後的管理員 LINE。後台設定與資料照舊保留；恢復時改成 true。
+ */
+export const showAdminContact: boolean = false;
+
 /** 首頁「大會程序」的一間教堂：名稱、地址、地圖連結與這間教堂的時間軸（#84）。 */
 export type Venue = {
   id: string;

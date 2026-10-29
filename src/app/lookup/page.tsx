@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { LanguageSwitch } from "@/components/language-switch";
 import { buttonVariants } from "@/components/ui/button";
 import { getCurrentConference } from "@/lib/conference";
-import { getHomeContent } from "@/lib/home-content";
+import { getHomeContent, showAdminContact } from "@/lib/home-content";
 import { getRegistrationOptions } from "@/lib/registration-options";
 import { getLocale, getMessages } from "@/lib/i18n/server";
 import { createClient } from "@/lib/supabase/server";
@@ -16,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /**
  * 查詢頁：用姓名＋電話（或報名編號）查自己的報名。任何時候都能查；報名中可以接著修改或取消。
- * 已截止時先說明現在只能查詢，修改與取消要聯絡管理員，並列出管理員 LINE。
+ * 已截止時先說明現在只能查詢、網站上不能修改或取消，並列出管理員 LINE（暫時不顯示，見 showAdminContact）。
  * 場地、課程、午餐的名稱用報名表的選項顯示，所以這裡一起讀進來。
  */
 export default async function LookupPage() {
@@ -27,9 +27,11 @@ export default async function LookupPage() {
     getCurrentConference(supabase, new Date()),
     getRegistrationOptions(supabase, locale),
   ]);
-  // 管理員 LINE 只在已截止時顯示。
+  // 管理員 LINE 只在已截止時顯示；暫時不顯示時（showAdminContact）也不讀。
   const adminLine =
-    conference?.phase === "closed" ? ((await getHomeContent(supabase, locale))?.adminLine ?? null) : null;
+    showAdminContact && conference?.phase === "closed"
+      ? ((await getHomeContent(supabase, locale))?.adminLine ?? null)
+      : null;
 
   return (
     <main className="mx-auto flex w-full max-w-(--content-max-width) flex-1 flex-col gap-8 px-5 pt-3 pb-8 text-body leading-relaxed">
@@ -47,7 +49,7 @@ export default async function LookupPage() {
             <section className="flex flex-col gap-3 rounded-lg border-2 border-card-outline p-5">
               <h2 className="text-lead font-bold">{t.lookup.closedHeading}</h2>
               <p>{t.lookup.closedDescription}</p>
-              {adminLine ? (
+              {!showAdminContact ? null : adminLine ? (
                 <>
                   <p className="font-semibold">{t.home.helpLineId(adminLine.id)}</p>
                   <a
