@@ -757,43 +757,46 @@ function LunchAndService({
         </fieldset>
       )}
 
-      <fieldset className="flex flex-col gap-3">
-        <legend className="mb-2 text-lead font-bold">{t.register.choirLabel}</legend>
-        <p id="choir-hint">{t.register.choirHint}</p>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {[null, ...CHOIR_PARTS].map((part) => (
-            <label key={part ?? "none"} className={choiceClass}>
+      {/* 唱詩班與服務意願共用 services 的錯誤，包在一起，出錯時游標才會先到唱詩班。 */}
+      <div data-field="services" className="flex flex-col gap-8">
+        <FieldError field="services" errors={errors} t={t} />
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-2 text-lead font-bold">{t.register.choirLabel}</legend>
+          <p id="choir-hint">{t.register.choirHint}</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[null, ...CHOIR_PARTS].map((part) => (
+              <label key={part ?? "none"} className={choiceClass}>
+                <input
+                  type="radio"
+                  name="choirPart"
+                  className={radioClass}
+                  checked={input.choirPart === part}
+                  onChange={() => update({ choirPart: part })}
+                  {...errorAria("services", errors, "choir-hint")}
+                />
+                {part ? t.register.choirParts[part] : t.register.noChoir}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-2 text-lead font-bold">{t.register.servicesLabel}</legend>
+          <p id="services-hint">{t.register.servicesHint}</p>
+          {SERVICES.map((service) => (
+            <label key={service} className={choiceClass}>
               <input
-                type="radio"
-                name="choirPart"
+                type="checkbox"
                 className={radioClass}
-                checked={input.choirPart === part}
-                onChange={() => update({ choirPart: part })}
-                {...errorAria("services", errors, "choir-hint")}
+                checked={input.services.includes(service)}
+                onChange={(event) => toggleService(service, event.target.checked)}
+                {...errorAria("services", errors, "services-hint")}
               />
-              {part ? t.register.choirParts[part] : t.register.noChoir}
+              {t.register.serviceNames[service]}
             </label>
           ))}
-        </div>
-      </fieldset>
-
-      <fieldset data-field="services" className="flex flex-col gap-3">
-        <legend className="mb-2 text-lead font-bold">{t.register.servicesLabel}</legend>
-        <p id="services-hint">{t.register.servicesHint}</p>
-        <FieldError field="services" errors={errors} t={t} />
-        {SERVICES.map((service) => (
-          <label key={service} className={choiceClass}>
-            <input
-              type="checkbox"
-              className={radioClass}
-              checked={input.services.includes(service)}
-              onChange={(event) => toggleService(service, event.target.checked)}
-              {...errorAria("services", errors, "services-hint")}
-            />
-            {t.register.serviceNames[service]}
-          </label>
-        ))}
-      </fieldset>
+        </fieldset>
+      </div>
 
       <fieldset data-field="printedHandbook" className="flex flex-col gap-3">
         <legend className="mb-2 text-lead font-bold">{t.register.printedHandbookLabel}</legend>

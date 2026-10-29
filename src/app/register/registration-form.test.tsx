@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FoundRegistration, RegistrationInput, SubmitResult } from "@/lib/registration";
@@ -237,6 +237,20 @@ describe("修改報名時換場地", () => {
         }),
       }),
     );
+  });
+
+  // 唱詩班是獨立的區塊，但和服務意願共用錯誤，游標要先到唱詩班，不能略過它到服務意願（Codex 審查）。
+  it("原本的聲部已不能選：按「確認送出修改」跳回午餐與服務，游標停在唱詩班", async () => {
+    const user = userEvent.setup();
+    // 資料庫裡的舊資料可能是現在已沒有的聲部。
+    const registration = { ...found, choirPart: "tenor" as FoundRegistration["choirPart"] };
+    render(<RegistrationForm locale="zh" options={options} edit={{ ...edit, registration }} />);
+
+    await user.click(button("確認送出修改"));
+
+    expect(step("午餐與服務")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(radio("即席唱詩班", "不參加")));
+    expect(updateMine).not.toHaveBeenCalled();
   });
 
   // 確認頁的「確認送出修改」會把每一步再檢查一次：她在確認頁時名單可能剛好變了，例如場地多了一個場次。
