@@ -696,7 +696,7 @@ function LimitedChoice({
 
 /**
  * 午餐與服務：場地有午餐時才問午餐，要明確選一份（包括「不需要」）；
- * 服務意願選填；紙本手冊要選要或不要。
+ * 即席唱詩班、服務意願選填；紙本手冊要選要或不要。
  */
 function LunchAndService({
   venue,
@@ -757,29 +757,30 @@ function LunchAndService({
         </fieldset>
       )}
 
+      <fieldset className="flex flex-col gap-3">
+        <legend className="mb-2 text-lead font-bold">{t.register.choirLabel}</legend>
+        <p id="choir-hint">{t.register.choirHint}</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {[null, ...CHOIR_PARTS].map((part) => (
+            <label key={part ?? "none"} className={choiceClass}>
+              <input
+                type="radio"
+                name="choirPart"
+                className={radioClass}
+                checked={input.choirPart === part}
+                onChange={() => update({ choirPart: part })}
+                {...errorAria("services", errors, "choir-hint")}
+              />
+              {part ? t.register.choirParts[part] : t.register.noChoir}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
       <fieldset data-field="services" className="flex flex-col gap-3">
         <legend className="mb-2 text-lead font-bold">{t.register.servicesLabel}</legend>
         <p id="services-hint">{t.register.servicesHint}</p>
         <FieldError field="services" errors={errors} t={t} />
-        <fieldset className="flex flex-col gap-3">
-          <legend className="mb-2 font-bold">{t.register.choirLabel}</legend>
-          <p>{t.register.choirHint}</p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {[null, ...CHOIR_PARTS].map((part) => (
-              <label key={part ?? "none"} className={choiceClass}>
-                <input
-                  type="radio"
-                  name="choirPart"
-                  className={radioClass}
-                  checked={input.choirPart === part}
-                  onChange={() => update({ choirPart: part })}
-                  {...errorAria("services", errors, "services-hint")}
-                />
-                {part ? t.register.choirParts[part] : t.register.noChoir}
-              </label>
-            ))}
-          </div>
-        </fieldset>
         {SERVICES.map((service) => (
           <label key={service} className={choiceClass}>
             <input
