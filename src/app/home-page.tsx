@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import { getCurrentConference, homePhase, type CurrentConference, type SchedulePhase } from "@/lib/conference";
-import { getHomeContent, type HomeContent } from "@/lib/home-content";
+import { getHomeContent, showAdminContact, type HomeContent } from "@/lib/home-content";
 import { languageTags, type Locale } from "@/lib/i18n/locale";
 import type { Messages } from "@/lib/i18n/messages";
 import { getLocale, getMessages } from "@/lib/i18n/server";
@@ -54,7 +54,7 @@ export async function HomePage({ preview }: { preview: boolean }) {
         hasAgenda && { href: "#agenda", label: t.home.navAgenda },
         hasAgenda && { href: "#agenda", label: t.home.navVenues },
         { href: "#register", label: t.home.navRegister },
-        { href: "#help", label: t.home.navHelp },
+        showAdminContact && { href: "#help", label: t.home.navHelp },
       ].filter((link) => !!link)
     : [];
 
@@ -87,7 +87,7 @@ export async function HomePage({ preview }: { preview: boolean }) {
             {hasAgenda && <HomeAgenda venues={shown.content.venues} locale={locale} highlightPath={highlightPath} />}
             <RegisterSection {...shown} registerPath={registerPath} t={t} locale={locale} />
             <FaqSection content={shown.content} t={t} />
-            <HelpSection content={shown.content} t={t} />
+            {showAdminContact && <HelpSection content={shown.content} t={t} />}
             {shown.content.customBlocks.map((block, index) => (
               <Section key={index} heading={block.title}>
                 {block.body && <p className="whitespace-pre-line">{block.body}</p>}
