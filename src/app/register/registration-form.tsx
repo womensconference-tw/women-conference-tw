@@ -696,7 +696,7 @@ function LimitedChoice({
 
 /**
  * 午餐與服務：場地有午餐時才問午餐，要明確選一份（包括「不需要」）；
- * 服務意願選填；紙本手冊要選要或不要。
+ * 即席唱詩班、服務意願選填；紙本手冊要選要或不要。
  */
 function LunchAndService({
   venue,
@@ -757,13 +757,12 @@ function LunchAndService({
         </fieldset>
       )}
 
-      <fieldset data-field="services" className="flex flex-col gap-3">
-        <legend className="mb-2 text-lead font-bold">{t.register.servicesLabel}</legend>
-        <p id="services-hint">{t.register.servicesHint}</p>
+      {/* 唱詩班與服務意願共用 services 的錯誤，包在一起，出錯時游標才會先到唱詩班。 */}
+      <div data-field="services" className="flex flex-col gap-8">
         <FieldError field="services" errors={errors} t={t} />
         <fieldset className="flex flex-col gap-3">
-          <legend className="mb-2 font-bold">{t.register.choirLabel}</legend>
-          <p>{t.register.choirHint}</p>
+          <legend className="mb-2 text-lead font-bold">{t.register.choirLabel}</legend>
+          <p id="choir-hint">{t.register.choirHint}</p>
           <div className="grid gap-3 sm:grid-cols-3">
             {[null, ...CHOIR_PARTS].map((part) => (
               <label key={part ?? "none"} className={choiceClass}>
@@ -773,26 +772,31 @@ function LunchAndService({
                   className={radioClass}
                   checked={input.choirPart === part}
                   onChange={() => update({ choirPart: part })}
-                  {...errorAria("services", errors, "services-hint")}
+                  {...errorAria("services", errors, "choir-hint")}
                 />
                 {part ? t.register.choirParts[part] : t.register.noChoir}
               </label>
             ))}
           </div>
         </fieldset>
-        {SERVICES.map((service) => (
-          <label key={service} className={choiceClass}>
-            <input
-              type="checkbox"
-              className={radioClass}
-              checked={input.services.includes(service)}
-              onChange={(event) => toggleService(service, event.target.checked)}
-              {...errorAria("services", errors, "services-hint")}
-            />
-            {t.register.serviceNames[service]}
-          </label>
-        ))}
-      </fieldset>
+
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-2 text-lead font-bold">{t.register.servicesLabel}</legend>
+          <p id="services-hint">{t.register.servicesHint}</p>
+          {SERVICES.map((service) => (
+            <label key={service} className={choiceClass}>
+              <input
+                type="checkbox"
+                className={radioClass}
+                checked={input.services.includes(service)}
+                onChange={(event) => toggleService(service, event.target.checked)}
+                {...errorAria("services", errors, "services-hint")}
+              />
+              {t.register.serviceNames[service]}
+            </label>
+          ))}
+        </fieldset>
+      </div>
 
       <fieldset data-field="printedHandbook" className="flex flex-col gap-3">
         <legend className="mb-2 text-lead font-bold">{t.register.printedHandbookLabel}</legend>
