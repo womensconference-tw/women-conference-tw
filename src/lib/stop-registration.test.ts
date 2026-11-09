@@ -712,7 +712,6 @@ describe("只有總管理員能停止、重新開放、調名額、換教室", (
         p_classroom: "大教室",
         p_speaker_zh: "",
         p_speaker_en: "",
-        p_highlight_id: null,
       }),
     ]);
     // 有執行到函式、被權限擋下，不是參數對不上（PGRST202）而根本沒執行（Codex 審查）。
