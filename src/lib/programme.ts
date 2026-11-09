@@ -104,7 +104,7 @@ export async function saveItem(
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
-  // 課程連同教室、講師與分類在同一個交易裡存（save_course），教室存不了時課程也不存。
+  // 課程連同教室、講師在同一個交易裡存（save_course），教室存不了時課程也不存。
   if (input.kind === "course") {
     const { data, error } = await supabase.rpc("save_course", {
       p_id: input.id || null,

@@ -556,13 +556,36 @@ describe("教室只有後台看得到", () => {
       p_classroom: "   ",
       p_speaker_zh: "",
       p_speaker_en: "",
-      p_highlight_id: null,
     });
 
     // 是教室的檢查擋下的，不是參數對不上、根本沒執行（Codex 審查）。
     expect(error?.code).toBe("23514");
     expect(error?.message).toContain("course_classrooms_classroom_valid");
     expect(must(await admin.from("courses").select("id").eq("title_zh", "存不了教室的課"))).toEqual([]);
+  });
+
+  it("舊版 save_course（帶分類）已經拿掉（#128）", async () => {
+    const { session } = await venueWithCourse();
+
+    const { error } = await headAdmin.rpc("save_course", {
+      p_id: null,
+      p_conference_id: conferenceId,
+      p_session_id: session,
+      p_position: 0,
+      p_title_zh: "帶分類的課",
+      p_title_en: "",
+      p_description_zh: "",
+      p_description_en: "",
+      p_capacity: null,
+      p_classroom: null,
+      p_speaker_zh: "",
+      p_speaker_en: "",
+      p_highlight_id: null,
+    });
+
+    // 找不到這個參數組合的函式。
+    expect(error?.code).toBe("PGRST202");
+    expect(must(await admin.from("courses").select("id").eq("title_zh", "帶分類的課"))).toEqual([]);
   });
 
   it("總管理員可以填、換、清掉教室", async () => {
