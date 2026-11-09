@@ -76,7 +76,7 @@ describe("報名入口頁", () => {
   it("公告上線前：只顯示「大會資訊即將公布」，沒有大會資訊與報名按鈕", async () => {
     await renderPage(LandingPage({ preview: false }));
 
-    expect(screen.getByText(messages.zh.home.comingSoon)).toBeTruthy();
+    expect(screen.getByText(messages.zh.landing.comingSoon)).toBeTruthy();
     expect(screen.queryByText(/2099/)).toBeNull();
     expect(screen.queryByRole("link", { name: "我要報名" })).toBeNull();
     expect(screen.queryByRole("link", { name: "查詢或修改報名" })).toBeNull();
@@ -126,7 +126,7 @@ describe("報名入口頁", () => {
     await renderPage(LandingPage({ preview: false }));
 
     expect(within(status()).getByRole("heading", { name: "報名已經截止" })).toBeTruthy();
-    expect(within(status()).getByText(messages.zh.home.closedDescription)).toBeTruthy();
+    expect(within(status()).getByText(messages.zh.landing.closedDescription)).toBeTruthy();
     expect(screen.getByRole("link", { name: "查詢我的報名" }).getAttribute("href")).toBe("/lookup");
     expect(screen.queryByRole("link", { name: "我要報名" })).toBeNull();
     expect(screen.queryByRole("link", { name: "幫家人或朋友報名" })).toBeNull();
@@ -166,7 +166,7 @@ describe("報名入口頁", () => {
     expect(screen.getByRole("status").textContent).toBe(messages.zh.preview.homeNotAnnounced);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("2099 台灣姐妹大會報名");
     expect(within(status()).getByRole("heading", { name: "報名還沒開始" })).toBeTruthy();
-    expect(screen.queryByText(messages.zh.home.comingSoon)).toBeNull();
+    expect(screen.queryByText(messages.zh.landing.comingSoon)).toBeNull();
   });
 
   it("後台預覽報名中：報名按鈕連到預覽報名表，不會真的報名", async () => {

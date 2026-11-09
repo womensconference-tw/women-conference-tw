@@ -4,14 +4,12 @@ import { LanguageSwitch } from "@/components/language-switch";
 import { buttonVariants } from "@/components/ui/button";
 import { getCurrentConference, homePhase, type CurrentConference } from "@/lib/conference";
 import { CONFERENCE_SITE_URL } from "@/lib/conference-site";
-import { getHomeContent, showAdminContact } from "@/lib/home-content";
 import { languageTags, type Locale } from "@/lib/i18n/locale";
 import type { Messages } from "@/lib/i18n/messages";
 import { getLocale, getMessages } from "@/lib/i18n/server";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { PreviewBanner } from "./preview/preview-banner";
-import { SiteFooter } from "./site-chrome";
 
 // 預覽的報名按鈕連到預覽報名表，工作人員點了不會真的報名。
 const registerPaths = { live: "/register", preview: "/preview/register" };
@@ -39,9 +37,6 @@ export async function LandingPage({ preview }: { preview: boolean }) {
   const conference = await getCurrentConference(supabase, new Date());
   const phase = homePhase(conference, { preview });
   const registerPath = preview ? registerPaths.preview : registerPaths.live;
-  // 管理員 LINE 暫時不顯示（showAdminContact）；不顯示時也不讀。
-  const adminLine =
-    showAdminContact && phase ? ((await getHomeContent(supabase, locale))?.adminLine ?? null) : null;
 
   return (
     <>
@@ -58,7 +53,7 @@ export async function LandingPage({ preview }: { preview: boolean }) {
           <LanguageSwitch />
         </div>
         {!conference || !phase ? (
-          <p>{t.home.comingSoon}</p>
+          <p>{t.landing.comingSoon}</p>
         ) : (
           <>
             <div className="flex flex-col gap-1">
@@ -81,14 +76,14 @@ export async function LandingPage({ preview }: { preview: boolean }) {
                   {t.landing.lookupButton}
                 </ActionLink>
                 {conference.registrationClosesAt && (
-                  <p>{t.home.canChangeUntil(formatDay(lastDay(conference.registrationClosesAt), locale))}</p>
+                  <p>{t.landing.canChangeUntil(formatDay(lastDay(conference.registrationClosesAt), locale))}</p>
                 )}
               </div>
             )}
             {/* 截止後網站上不能修改，按鈕只寫「查詢」。 */}
             {phase === "closed" && (
               <ActionLink href={lookupPath} className={primaryActionClass}>
-                {t.home.lookupButton}
+                {t.landing.lookupOnlyButton}
               </ActionLink>
             )}
             {/* 站外網址用一般連結，同一個分頁開。 */}
@@ -96,27 +91,28 @@ export async function LandingPage({ preview }: { preview: boolean }) {
               {t.landing.conferenceSite}
               <span aria-hidden>&nbsp;→</span>
             </a>
-            {showAdminContact && (
-              <section className="flex flex-col gap-3">
-                <h2 className="text-heading font-bold">{t.home.helpHeading}</h2>
-                {adminLine ? (
-                  <>
-                    <p>{t.home.helpDescription}</p>
-                    <p className="font-semibold">{t.home.helpLineId(adminLine.id)}</p>
-                    <ActionLink href={adminLine.url} variant="outline">
-                      {t.home.helpLineButton}
-                    </ActionLink>
-                  </>
-                ) : (
-                  <p>{t.home.helpLineComingSoon}</p>
-                )}
-              </section>
-            )}
           </>
         )}
       </main>
-      <SiteFooter t={t} links={[]} />
+      <Footer t={t} />
     </>
+  );
+}
+
+/** 頁尾：網站名稱、教會名稱、回到最上面。 */
+function Footer({ t }: { t: Messages }) {
+  return (
+    <footer className="bg-foreground text-background">
+      <div className="mx-auto flex w-full max-w-(--content-max-width) flex-wrap items-center justify-between gap-x-6 gap-y-3 px-5 pt-7 pb-10">
+        <div className="flex flex-col">
+          <p className="font-bold">{t.site.title}</p>
+          <p>{t.landing.church}</p>
+        </div>
+        <Link href="#top" className="inline-flex min-h-11 items-center underline">
+          {t.landing.backToTop}
+        </Link>
+      </div>
+    </footer>
   );
 }
 
@@ -139,25 +135,25 @@ function RegistrationStatus({
     <section id="status" className="flex flex-col gap-1 rounded-lg bg-muted p-5">
       {phase === "upcoming" && (
         <>
-          <h2 className="text-lead font-bold">{t.home.notOpenHeading}</h2>
+          <h2 className="text-lead font-bold">{t.landing.notOpenHeading}</h2>
           {opensAt ? (
-            <p className="font-semibold">{t.home.opensOn(formatDayTime(opensAt, locale))}</p>
+            <p className="font-semibold">{t.landing.opensOn(formatDayTime(opensAt, locale))}</p>
           ) : (
-            <p>{t.home.registrationOpensSoon}</p>
+            <p>{t.landing.registrationOpensSoon}</p>
           )}
-          {closesAt && <p>{t.home.closesOn(formatDayTime(closesAt, locale))}</p>}
+          {closesAt && <p>{t.landing.closesOn(formatDayTime(closesAt, locale))}</p>}
         </>
       )}
       {phase === "open" && (
         <>
-          <h2 className="text-lead font-bold">{t.home.openHeading}</h2>
-          {closesAt && <p>{t.home.closesOn(formatDayTime(closesAt, locale))}</p>}
+          <h2 className="text-lead font-bold">{t.landing.openHeading}</h2>
+          {closesAt && <p>{t.landing.closesOn(formatDayTime(closesAt, locale))}</p>}
         </>
       )}
       {phase === "closed" && (
         <>
-          <h2 className="text-lead font-bold">{t.home.closedHeading}</h2>
-          <p>{t.home.closedDescription}</p>
+          <h2 className="text-lead font-bold">{t.landing.closedHeading}</h2>
+          <p>{t.landing.closedDescription}</p>
         </>
       )}
     </section>
@@ -186,8 +182,8 @@ function ActionLink({
 function conferenceTime(conference: CurrentConference, start: string, t: Messages, locale: Locale): string {
   const at = (hhmm: string) => formatTime(new Date(`${conference.conferenceDate}T${hhmm}:00+08:00`), locale);
   return conference.endTime
-    ? t.home.conferenceTime(at(start), at(conference.endTime))
-    : t.home.conferenceStartsAt(at(start));
+    ? t.landing.conferenceTime(at(start), at(conference.endTime))
+    : t.landing.conferenceStartsAt(at(start));
 }
 
 // conference_date is a calendar date (YYYY-MM-DD), not an instant; anchor it at noon Taiwan time.

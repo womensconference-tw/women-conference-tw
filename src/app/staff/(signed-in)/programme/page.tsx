@@ -65,8 +65,6 @@ export default async function ProgrammePage({ searchParams }: PageProps<"/staff/
               <ItemForm kind="venue" conferenceId={programme.conferenceId} submitLabel="新增場地">
                 <TextPair name="name" label="名稱" required />
                 <RegionField />
-                <TextPair name="address" label="地址" />
-                <TextPair name="features" label="場地特色" multiline />
                 <NumberFields position={programme.venues.length + 1} />
               </ItemForm>
           </section>

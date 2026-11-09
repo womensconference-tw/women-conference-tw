@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { toTaipeiDateTimeInput } from "@/lib/content";
+import { toTaipeiDateTimeInput } from "@/lib/schedule";
 import { inputClass } from "./ui";
 
 /** 後台表單的一個欄位：標題（必填的加紅色＊）、輸入框、下面的說明。 */

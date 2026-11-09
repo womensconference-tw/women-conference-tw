@@ -3,8 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TransactionSql } from "postgres";
 import { adminClient, anonClient, databaseClient, must, serverClient, signedInClient } from "../../test/supabase";
 import { getCurrentConference } from "./conference";
-import { getAgendaEditor } from "./agenda";
-import { getContentEditor, toTaipeiDateTimeInput } from "./content";
+import { toTaipeiDateTimeInput } from "./schedule";
 import { getProgramme, type Programme } from "./programme";
 import { cancelRegistration, submitRegistration, updateRegistration, type RegistrationInput } from "./registration";
 import { listRegistrations } from "./registration-list";
@@ -95,7 +94,7 @@ async function switchedTo(conferenceId: string) {
 
 /**
  * 2099 年的完整安排：一個場地、兩個場次、三門課（其中兩門成對、一門有教室與講師）、限量午餐、午后動態（第三個場次，裡面一門不限量的課）、
- * 首頁內容、常見問題、自訂區塊、兩項大會特色，以及一筆報名。建好後把時程移到過去（已截止），像去年一樣。
+ * 舊首頁的內容（主題經文、歡迎詞、常見問題、自訂區塊、大會特色、大會程序），以及一筆報名。建好後把時程移到過去（已截止），像去年一樣。
  */
 /** 支聯會、支會名單不分年度，人物用 seed 的第一個支會。 */
 async function seedWard() {
@@ -292,7 +291,6 @@ function arrangement(programme: Programme) {
     venues: programme.venues.map((venue) => ({
       nameZh: venue.nameZh,
       region: venue.region,
-      featuresZh: venue.featuresZh,
       sessions: venue.sessions.map((session) => ({
         nameZh: session.nameZh,
         courses: session.courses.map((course) => [course.nameZh, course.capacity, course.classroom]),
@@ -316,7 +314,6 @@ describe("複製去年建立新年度", () => {
         {
           nameZh: "台北金華教堂",
           region: "north",
-          featuresZh: "另有午后動態",
           sessions: [
             {
               nameZh: "第一場",
@@ -398,226 +395,68 @@ describe("複製去年建立新年度", () => {
     expect(after.coursePairs).toEqual([]);
   });
 
-  it("首頁內容（含歡迎詞署名，不含主視覺）、常見問題、自訂區塊、大會特色都複製過去", async () => {
-    await lastYear();
-
-    await switchedTo(await copied());
-
-    expect(await getContentEditor(headAdmin)).toMatchObject({
-      year: 2100,
-      conferenceDate: "2100-05-15",
-      startTime: "09:00",
-      endTime: "16:00",
-      themeScriptureZh: "你的兒女都要受耶和華的教訓",
-      themeScriptureEn: "All thy children shall be taught of the Lord",
-      welcomeZh: "歡迎姐妹們",
-      welcomeSignatureZh: "2099台灣姐妹大會籌備委員會",
-      welcomeSignatureEn: "2099 Organizing Committee",
-      adminLineId: "@twsisters",
-      // 主視覺每年不同，圖與圖片說明都不複製。
-      heroImages: { mobileZh: null, mobileEn: null, desktopZh: null, desktopEn: null },
-      heroAltZh: "",
-      heroAltEn: "",
-      faqs: [{ titleZh: "要收費嗎？", bodyZh: "不用。" }],
-      customBlocks: [{ titleZh: "交通資訊", buttonLabelZh: "查看", buttonUrl: "/lookup" }],
-      highlights: [
-        { titleZh: "即席唱詩班", titleEn: "Choir", summaryZh: "跟著影片練唱", bodyZh: "[練唱影片](https://www.youtube.com/)" },
-        { titleZh: "公益服務", summaryZh: "", bodyZh: "" },
-        { titleZh: "向貴賓致敬", pageTemplate: "honor" },
-      ],
-    });
-  });
-
-  it("課程的講師與分類都帶過去，分類對到新年度複製出來的那一項", async () => {
-    await lastYear();
-
-    await switchedTo(await copied());
-
-    const programme = (await getProgramme(headAdmin))!;
-    const category = new Map(programme.highlights.map((highlight) => [highlight.id, highlight.nameZh]));
-    const courses = programme.venues[0].sessions.flatMap((session) => session.courses);
-    expect(
-      courses.map((course) => [course.nameZh, course.speakerZh, course.speakerEn, course.highlightId && category.get(course.highlightId)]),
-    ).toEqual([
-      ["家譜入門", "蔡婷儀", "Tsai Ting-yi", null],
-      ["自由選課", "", "", null],
-      ["家譜進階", "", "", null],
-      ["手作花圈", "余心愛", "", "公益服務"],
-    ]);
-  });
-
-  it("大會程序一起帶過去，子項目與各教堂的大會特色、教堂與場次都對到新年度的", async () => {
-    await lastYear();
-
-    await switchedTo(await copied());
-
-    const agenda = (await getAgendaEditor(headAdmin))!;
-    const venue = agenda.venues[0];
-    const highlightName = new Map(agenda.highlights.map((highlight) => [highlight.id, highlight.nameZh]));
-    expect(agenda.year).toBe(2100);
-    expect(
-      agenda.items.map((item) => ({
-        name: item.nameZh,
-        time: `${item.startTime}–${item.endTime}`,
-        parts: item.parts.map((part) => [part.nameZh, part.highlightId && highlightName.get(part.highlightId)]),
-        place: item.venues[venue.id].placeZh,
-        session: venue.sessions.find((session) => session.id === item.venues[venue.id].sessionId)?.nameZh ?? null,
-        highlight: highlightName.get(item.venues[venue.id].highlightId ?? "") ?? null,
-      })),
-    ).toEqual([
-      {
-        name: "第一場次",
-        time: "11:00–11:50",
-        parts: [["公益服務", "公益服務"], ["見證", null]],
-        place: "一樓大會堂",
-        session: "第一場",
-        highlight: null,
-      },
-      { name: "公益服務說明", time: "12:30–13:15", parts: [], place: "", session: null, highlight: "向貴賓致敬" },
-    ]);
-    expect(agenda.unplacedSessions.map((session) => session.sessionNameZh)).toEqual(["第二場", "午后動態"]);
-  });
-
-  it("大會特色的教堂分頁一起帶過去，對到新年度的大會特色與教堂", async () => {
+  it("大會開始、結束時間與課程講師帶過去；課程不帶分類", async () => {
     await lastYear();
 
     const id = await copied();
 
-    const rows = must(
-      await admin
-        .from("highlight_venues")
-        .select("body_zh, body_en, highlights(conference_id, name_zh), venues(conference_id, name_zh)")
-        .eq("conference_id", id),
-    );
-    // 即席唱詩班的各教堂頁另外測（下面的圖文型）。
-    expect(rows.filter((row) => (row.highlights as unknown as { name_zh: string }).name_zh === "公益服務")).toEqual([
-      {
-        body_zh: "在一樓大廳",
-        body_en: "In the 1F lobby",
-        highlights: { conference_id: id, name_zh: "公益服務" },
-        venues: { conference_id: id, name_zh: "台北金華教堂" },
-      },
-    ]);
-  });
-
-  it("介紹頁的版型、副標、引言與人物一起帶過去，照片用同一個檔案，教堂與課程換成新年度的", async () => {
-    await lastYear();
-    const ward = await seedWard();
-
-    await switchedTo(await copied());
-
-    const editor = (await getContentEditor(headAdmin))!;
-    const honor = editor.highlights.find((highlight) => highlight.titleZh === "向貴賓致敬")!;
-    const [venue] = editor.venues;
-    const genealogy = editor.courses.find((course) => course.label.endsWith("家譜入門"))!;
-    expect(honor).toMatchObject({
-      pageTemplate: "honor",
-      subtitleZh: "80 歲長輩",
-      leadQuoteZh: "值得尊敬的姐妹",
-      leadQuoteSourceEn: "Source",
-      linkable: true,
+    expect(must(await admin.from("conferences").select("start_time, end_time").eq("id", id).single())).toEqual({
+      start_time: "09:00:00",
+      end_time: "16:00:00",
     });
-    expect(
-      honor.people.map((person) => [
-        person.nameZh,
-        person.stakeId,
-        person.wardId,
-        person.serviceAreaEn,
-        person.photo?.path ?? null,
-        person.photoFocus,
-        person.venueId,
-        person.courseId,
-        person.courseTitleZh,
-        person.bioZh,
-        person.outlineEn,
+    const courses = must(await admin.from("courses").select("title_zh, speaker_zh, speaker_en, highlight_id").eq("conference_id", id));
+    expect(courses).toEqual(
+      expect.arrayContaining([
+        { title_zh: "家譜入門", speaker_zh: "蔡婷儀", speaker_en: "Tsai Ting-yi", highlight_id: null },
+        { title_zh: "手作花圈", speaker_zh: "余心愛", speaker_en: "", highlight_id: null },
       ]),
-    ).toEqual([
-      [
-        "沈亦斌 姐妹",
-        ward.stake_id,
-        ward.id,
-        "Taipei Mission",
-        `${sourceId}/00000000-0000-4000-8000-000000000000.jpg`,
-        20,
-        venue.id,
-        genealogy.id,
-        "",
-        "貴賓介紹",
-        "Point",
-      ],
-      ["黃蘋 姐妹", "", "", "", null, 50, venue.id, "", "她的故事", "", ""],
-    ]);
-  });
-
-  it("圖文型的活動圖片與結語、各教堂頁的節目名稱與海報、團隊成員一起帶過去，教堂換成新年度的", async () => {
-    await lastYear();
-
-    await switchedTo(await copied());
-
-    const editor = (await getContentEditor(headAdmin))!;
-    const choir = editor.highlights.find((highlight) => highlight.titleZh === "即席唱詩班")!;
-    expect(choir).toMatchObject({
-      pageTemplate: "choir",
-      image: { path: `${sourceId}/11111111-1111-4111-8111-111111111111.jpg` },
-      imageAltZh: "唱詩的照片",
-      closingEn: "Come and join us!",
-    });
-    const [page] = choir.venues;
-    expect(page).toMatchObject({
-      venueId: editor.venues[0].id,
-      showTitleZh: "金華場",
-      poster: { path: `${sourceId}/22222222-2222-4222-8222-222222222222.png` },
-      posterAltEn: "Poster",
-    });
-    expect(page.team.map((m) => [m.roleZh, m.nameZh, m.photo?.path ?? null, m.photoFocus, m.bioEn])).toEqual([
-      ["指揮", "黃淑真", `${sourceId}/33333333-3333-4333-8333-333333333333.webp`, 30, "Bio"],
-      ["司琴", "曾明潔", null, 50, ""],
-    ]);
-  });
-
-  it("籌備委員會的文字（含執行計畫）一起帶過去", async () => {
-    await lastYear();
-    must(
-      await admin.from("committee_texts").insert({
-        conference_id: sourceId,
-        introduction: "大會簡介",
-        chair_message: "主席的話",
-        memorandum: "備忘錄",
-        execution_plan: "執行計畫",
-      }),
     );
-
-    const id = await copied();
-
-    expect(
-      must(
-        await admin
-          .from("committee_texts")
-          .select("introduction, chair_message, memorandum, execution_plan")
-          .eq("conference_id", id)
-          .single(),
-      ),
-    ).toEqual({ introduction: "大會簡介", chair_message: "主席的話", memorandum: "備忘錄", execution_plan: "執行計畫" });
+    expect(courses.every((course) => course.highlight_id === null)).toBe(true);
   });
 
-  it("大會特色的新編號由去年的編號固定算出（課程的分類才對得到新年度的那一項）", async () => {
+  // 首頁移到大會網站（ADR 0012）：這些只給舊首頁、籌備委員會網站用，新年度不再複製；去年的資料留著。
+  it("舊首頁與籌備委員會的內容不複製，去年的照樣留著", async () => {
     await lastYear();
-    const before = must(await admin.from("highlights").select("id").eq("conference_id", sourceId)).map((row) => row.id);
+    must(await admin.from("committee_texts").insert({ conference_id: sourceId, introduction: "大會簡介" }));
+    must(await admin.from("committee_links").insert({ conference_id: sourceId, position: 1, title: "連結", url: "https://example.com/" }));
+    const tables = [
+      "faqs",
+      "custom_blocks",
+      "highlights",
+      "highlight_venues",
+      "highlight_venue_team",
+      "highlight_people",
+      "agenda_items",
+      "agenda_item_parts",
+      "agenda_item_venues",
+      "committee_texts",
+      "committee_links",
+    ];
+    const count = async (table: string, conferenceId: string) =>
+      (await admin.from(table).select("*", { count: "exact", head: true }).eq("conference_id", conferenceId)).count;
+    const before = await Promise.all(tables.map((table) => count(table, sourceId)));
 
     const id = await copied();
 
-    const after = must(await admin.from("highlights").select("id").eq("conference_id", id)).map((row) => row.id);
-    expect(after).toHaveLength(3);
-    expect(after.some((highlight) => before.includes(highlight))).toBe(false);
-    const sql = databaseClient();
-    try {
-      const [{ ids }] = await sql<{ ids: string[] }[]>`
-        select array_agg(extensions.uuid_generate_v5(${id}::uuid, source::text)) as ids
-        from unnest(${before}::uuid[]) as source`;
-      expect([...after].sort()).toEqual([...ids].sort());
-    } finally {
-      await sql.end();
-    }
+    expect(Object.fromEntries(await Promise.all(tables.map(async (table) => [table, await count(table, id)])))).toEqual(
+      Object.fromEntries(tables.map((table) => [table, 0])),
+    );
+    expect(await Promise.all(tables.map((table) => count(table, sourceId)))).toEqual(before);
+    expect(before.every((rows) => rows! > 0)).toBe(true);
+    const conference = must(
+      await admin
+        .from("conferences")
+        .select("theme_scripture_zh, welcome_zh, welcome_signature_zh, admin_line_id, hero_alt_zh")
+        .eq("id", id)
+        .single(),
+    );
+    expect(conference).toEqual({
+      theme_scripture_zh: "",
+      welcome_zh: "",
+      welcome_signature_zh: "",
+      admin_line_id: null,
+      hero_alt_zh: "",
+    });
   });
 
   it("報名沒有被複製，新年度的名額都是空的", async () => {

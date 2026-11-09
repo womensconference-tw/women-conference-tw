@@ -20,12 +20,12 @@ const submitClass = cn(buttonVariants(), buttonClass, "self-start font-bold");
 
 const DONE: Record<string, string> = {
   created:
-    "已建立年度。請到下面「所有年度」按「設為目前年度」填時程，再到「場地與課程」「首頁內容」準備內容。",
-  copied: "已建立新年度。設為目前年度之前，首頁還是顯示原本的年度。",
+    "已建立年度。請到下面「所有年度」按「設為目前年度」填時程，再到「場地與課程」準備內容。",
+  copied: "已建立新年度。設為目前年度之前，報名首頁還是顯示原本的年度。",
   copied_without_some_pairs:
-    "已建立新年度，但有成對課程因為去年調過場次順序、兩個場次不再相鄰，沒有複製。請到「場地與課程」重新設定這些成對課程。設為目前年度之前，首頁還是顯示原本的年度。",
+    "已建立新年度，但有成對課程因為去年調過場次順序、兩個場次不再相鄰，沒有複製。請到「場地與課程」重新設定這些成對課程。設為目前年度之前，報名首頁還是顯示原本的年度。",
   switched:
-    "已設為目前年度，首頁改顯示這一年。公告上線前首頁只顯示「即將公布」，這段時間請到「首頁內容」「場地與課程」準備新年度。",
+    "已設為目前年度，報名首頁改顯示這一年。公告上線前報名首頁只顯示「即將公布」，這段時間請到「場地與課程」「大會時程」準備新年度。",
 };
 
 const ERRORS: Record<YearError, string> = {
@@ -66,7 +66,7 @@ export default async function YearsPage({ searchParams }: PageProps<"/staff/year
         <section className={cardClass}>
           <h2 className="text-xl font-bold">複製去年建立新年度</h2>
           <p>
-            複製場地、場次、課程（含名額與教室）、成對課程、午餐、首頁內容、常見問題與自訂區塊；
+            複製場地、場次、課程（含講師、名額與教室）、成對課程、午餐與大會開始結束時間；
             不複製報名。新年度的公告上線、報名開放、報名截止三個時間空著，設為目前年度時再填。
           </p>
           <form action={copyYear} className="flex flex-col gap-3">
@@ -125,7 +125,7 @@ function FirstYearForm() {
     <section className={cardClass}>
       <h2 className="text-xl font-bold">建立第一個年度</h2>
       <p>
-        還沒有任何年度。先建立一個空白的年度（沒有場地、課程、首頁內容），之後在「場地與課程」「首頁內容」準備；
+        還沒有任何年度。先建立一個空白的年度（沒有場地、課程），之後在「場地與課程」「大會時程」準備；
         公告上線、報名開放、報名截止三個時間空著，設為目前年度時再填。
       </p>
       <form action={createFirstYear} className="flex flex-col gap-3">
@@ -147,7 +147,7 @@ function FirstYearForm() {
 
 function YearCard({ year, current }: { year: ConferenceYear; current: ConferenceYear | undefined }) {
   const status = year.isCurrent
-    ? "目前年度（首頁正在顯示）"
+    ? "目前年度（報名首頁正在顯示）"
     : !current || year.year > current.year
       ? "準備中，還不是目前年度"
       : "舊年度";
@@ -186,15 +186,15 @@ function YearCard({ year, current }: { year: ConferenceYear; current: Conference
           <form action={makeCurrentYear} className="mt-3 flex flex-col gap-3">
             <input type="hidden" name="conferenceId" value={year.id} />
             <p className="rounded-lg border-2 border-destructive p-3 font-semibold">
-              設定後首頁立刻改顯示 {year.year} 年，報名、查詢、修改也都改成 {year.year} 年
+              設定後報名首頁立刻改顯示 {year.year} 年，報名、查詢、修改也都改成 {year.year} 年
               {current && `；${current.year} 年變成舊年度，資料都保留，報名名單可以選年度查看`}。
             </p>
             {missing && (
               <>
-                <p>這個年度的時程還沒填，請一起填好（台灣時間）。已經填了的不會改，之後可以在「首頁內容」修改。</p>
+                <p>這個年度的時程還沒填，請一起填好（台灣時間）。已經填了的不會改，之後可以在「大會時程」修改。</p>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {!year.announceAt && (
-                    <DateTimeField name="announceAt" label="公告上線" value={null} hint="首頁開始顯示日期與資訊。" />
+                    <DateTimeField name="announceAt" label="公告上線" value={null} hint="報名首頁開始顯示大會日期與報名狀態。" />
                   )}
                   {!year.registrationOpensAt && (
                     <DateTimeField
