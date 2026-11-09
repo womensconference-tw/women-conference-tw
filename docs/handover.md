@@ -17,7 +17,9 @@
 | Cloudflare | 網域 `taiwanwomensconference.org` 的註冊與 DNS | 以官方 GitHub 帳號登入 | Google Sheet（網域到期日、續約負責人、付款經費也記在這裡） |
 | Resend | 寄報名確認信，也替 Supabase 寄後台登入信，寄件人都是 `noreply@taiwanwomensconference.org` | 以官方 GitHub 帳號登入 | 兩組 API key 都在 Google Sheet：網站用的 `RESEND_API_KEY`（Vercel 環境變數 `RESEND_API_KEY`、`EMAIL_FROM`），以及 Supabase 寄登入信用的 `supabase-login`（Supabase → Authentication → Emails → SMTP Settings 的 Password） |
 
-正式網址是 `https://www.taiwanwomensconference.org`，沒有 www 的網址會自動轉過去。舊網址 `women-conference-tw.vercel.app` 仍然可以用。
+報名系統的正式網址是 `https://register.taiwanwomensconference.org`，舊網址 `women-conference-tw.vercel.app` 仍然可以用。`https://www.taiwanwomensconference.org`（和沒有 www 的網址）是大會網站，用 Google Sites 做、由其他人負責，**不是這個 repo**（ADR 0012）。
+
+Vercel 的 Production 環境變數 `SITE_URL` 要設成正式網址（`https://register.taiwanwomensconference.org`），報名確認信裡「查詢我的報名」的連結用它。
 
 Cloudflare 的 DNS 紀錄（Vercel 與 Resend 驗證用的）全部保持 **DNS only**（灰色雲朵），不要開 proxy（橘色雲朵），否則網站憑證或寄信驗證可能會出問題。
 
@@ -103,11 +105,16 @@ bash scripts/setup-production.sh
 
 ## 換網站網域時
 
-例如 2026 年從 `women-conference-tw.vercel.app` 換成 `www.taiwanwomensconference.org`：
+例如 2026 年 11 月從 `www.taiwanwomensconference.org` 換成 `register.taiwanwomensconference.org`（www 交給大會網站，#124）：
 
-- [ ] 在 Vercel 專案的 Settings → Domains 加上新網域
-- [ ] Supabase 後台 → Authentication → URL Configuration，把 **Site URL** 改成新網域（例如 `https://www.taiwanwomensconference.org`），按 Save changes。後台登入信的連結用這個網址，沒改的話工作人員點信裡的連結會回到舊網址。Redirect URLs 如果列了舊網址，也加上新網域
+- [ ] 在 Vercel 專案的 Settings → Domains 按 Add Domain 加上新網域，Environment 選 Production、不要設轉址。Vercel 會給一筆 CNAME 紀錄
+- [ ] Cloudflare → DNS → Records 照 Vercel 給的值加 CNAME（Name 填子網域，例如 `register`），Proxy status 選 **DNS only**。回 Vercel 按 Refresh，等它變成 Valid Configuration，再打開新網址的 `/register`、`/lookup`、`/staff/login`，確認都有 HTTPS
+- [ ] Supabase 後台 → Authentication → URL Configuration，把 **Site URL** 改成新網域（例如 `https://register.taiwanwomensconference.org`，最後不加 `/`），按 Save changes。後台登入信的連結用這個網址，沒改的話工作人員點信裡的連結會回到舊網址。Redirect URLs 如果列了舊網址，也加上新網域
 - [ ] 用新網域到 `/staff/login` 寄一次登入信，確認信裡的連結是新網域、點了能登入
+- [ ] Vercel → Settings → Environment Variables，把 `SITE_URL` 改成新網域（只勾 Production），再到 Deployments 把最新的 Production 部署 Redeploy，環境變數才會生效
+- [ ] 有場地與課程之後，後台重寄一封確認信給自己的報名，確認「查詢我的報名」的連結是新網域
+- [ ] 舊網域要交給別人的，等對方準備好再從 Vercel 的 Domains 移除；在那之前不要動 Cloudflare 上舊網域的紀錄。Cloudflare 上 `send`、`rsend`、`_dmarc`、`resend._domainkey` 是寄信用的，換網站網域時都不要動
+- [ ] 後台首頁「分享報名網站到 LINE 群組」複製新網址，通知工作人員和支會群組
 
 登入信範本裡寫的是 `{{ .SiteURL }}`，不用改；程式也不用改。
 
@@ -117,6 +124,7 @@ bash scripts/setup-production.sh
 
 - **查詢報名一直顯示「系統暫時出了問題」**：看 Vercel 的環境變數 `SUPABASE_SECRET_KEY` 還在不在、是不是 Supabase 後台現在的 Secret key（換過 key 要一起更新，再重新部署）。
 - **報名者收不到確認信**：先請她看垃圾郵件匣。Supabase 後台 Table Editor → `email_logs` 看那一筆的寄送結果（`status`、`error`）；錯誤是 `RESEND_API_KEY or EMAIL_FROM not set` 就是 Vercel 少了這兩個環境變數。Resend 後台 Logs 也看得到每封信的狀態。
+- **確認信裡「查詢我的報名」的連結是錯的網域**：看 Vercel 的 Production 環境變數 `SITE_URL` 是不是報名系統的正式網址，改了要 Redeploy。
 - **報名首頁打不開或顯示錯誤**：先看 Supabase 專案是不是被暫停了（後台會有 Restore 按鈕），再看 Vercel 最近一次部署有沒有失敗。
 - **出現「正式資料庫查詢失敗：Supabase 專案可能已暫停」的 issue**：防暫停 workflow 查詢失敗時會自動開這張 issue。到 Supabase 後台恢復專案，再到 Actions 分頁手動重跑「Keep Supabase awake」，成功後關閉 issue。
   不靠 GitHub 的失敗通知信，因為那只會寄給建立 workflow、最後修改 cron 排程，或最後重新啟用 workflow 的人，換屆後不一定是現任維護者。
