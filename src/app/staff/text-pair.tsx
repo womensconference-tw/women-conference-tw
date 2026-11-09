@@ -1,4 +1,4 @@
-import { missingEnglish } from "@/lib/content";
+import { missingEnglish } from "@/lib/missing-english";
 import { inputClass } from "./ui";
 
 /**

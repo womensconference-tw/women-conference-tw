@@ -1,5 +1,5 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
-import { parseTaipeiDateTime, validDate } from "./content";
+import { parseTaipeiDateTime, validDate } from "./schedule";
 import { trimBlank, UUID_PATTERN } from "./registration";
 
 /*
@@ -96,7 +96,7 @@ export type CreateFirstConferenceInput = {
 };
 
 /**
- * 還沒有任何年度時建立第一個年度（#70）：空白的年度，沒有場地、課程、首頁內容。
+ * 還沒有任何年度時建立第一個年度（#70）：空白的年度，沒有場地、課程。
  * 和複製出來的新年度一樣，時程時間點空著待填，也不會變成目前年度。已經有年度時不能用，要複製去年。
  */
 export async function createFirstConference(

@@ -40,11 +40,6 @@ export type ItemInput = {
   descriptionEn?: string;
   /** 場地所在的區。 */
   region?: string;
-  /** 場地的地址與特色。 */
-  addressZh?: string;
-  addressEn?: string;
-  featuresZh?: string;
-  featuresEn?: string;
   /** 課程、午餐的名額；空白表示不限。 */
   capacity?: string;
   /** 課程的教室；空白表示還沒排。 */
@@ -52,8 +47,6 @@ export type ItemInput = {
   /** 課程的講師；空白表示不顯示。 */
   speakerZh?: string;
   speakerEn?: string;
-  /** 課程的分類：同一年度的一項大會特色；空白表示沒有分類。 */
-  highlightId?: string | null;
 };
 
 export type ProgrammeError =
@@ -63,7 +56,6 @@ export type ProgrammeError =
   | "capacity_invalid"
   | "position_invalid"
   | "classroom_invalid"
-  | "highlight_invalid"
   | "in_use"
   | "programme_locked"
   | "course_pair_invalid"
@@ -109,7 +101,6 @@ export async function saveItem(
   if (classroom.length > CLASSROOM_MAX_LENGTH) return { ok: false, error: "classroom_invalid" };
 
   if (!validIds(input.id, input.conferenceId, input.parentId)) return { ok: false, error: "not_found" };
-  if (!validIds(input.highlightId)) return { ok: false, error: "highlight_invalid" };
   const admin = await ensureAdmin(supabase);
   if (admin) return admin;
 
@@ -128,7 +119,6 @@ export async function saveItem(
       p_classroom: classroom || null,
       p_speaker_zh: text(input.speakerZh),
       p_speaker_en: text(input.speakerEn),
-      p_highlight_id: input.highlightId || null,
     });
     return error ? failure(error) : { ok: true, id: data as string };
   }
@@ -139,13 +129,8 @@ export async function saveItem(
     [`${item.name}_en`]: text(input.nameEn),
   };
   if (input.kind === "venue") {
-    Object.assign(values, {
-      region,
-      address_zh: text(input.addressZh),
-      address_en: text(input.addressEn),
-      features_zh: text(input.featuresZh),
-      features_en: text(input.featuresEn),
-    });
+    // 地址與場地特色只給舊首頁用，後台不再編輯，存場地時不動（資料留著，ADR 0012）。
+    Object.assign(values, { region });
   } else if (input.kind === "lunch") {
     Object.assign(values, {
       description_zh: text(input.descriptionZh),
@@ -257,9 +242,6 @@ function failure(error: PostgrestError): { ok: false; error: ProgrammeError } {
     // 同一堂課已經是另一組的第一堂或第二堂。
     case error.code === "23505" && /course_pairs/.test(error.message):
       return { ok: false, error: "course_pair_invalid" };
-    // 分類不是同一年度的大會特色（網頁開著時被刪掉、或網頁被改過）。
-    case error.code === "23503" && /courses_highlight_same_conference/.test(error.message):
-      return { ok: false, error: "highlight_invalid" };
     // 有報名（包括已取消的）指向它，外鍵擋下刪除。
     case error.code === "23503" && /registration/.test(error.message):
       return { ok: false, error: "in_use" };
@@ -292,18 +274,12 @@ export type ProgrammeCourse = ProgrammeOption & {
   classroom: string | null;
   speakerZh: string;
   speakerEn: string;
-  /** 分類（大會特色）的編號；沒有分類是 null。 */
-  highlightId: string | null;
 };
 
 export type ProgrammeSession = ProgrammeItem & { courses: ProgrammeCourse[] };
 
 export type ProgrammeVenue = ProgrammeItem & {
   region: Region;
-  addressZh: string;
-  addressEn: string;
-  featuresZh: string;
-  featuresEn: string;
   sessions: ProgrammeSession[];
   lunchOptions: ProgrammeOption[];
 };
@@ -315,8 +291,6 @@ export type Programme = {
   registrationOpened: boolean;
   venues: ProgrammeVenue[];
   coursePairs: { firstCourseId: string; secondCourseId: string }[];
-  /** 課程可以選的分類：目前年度的大會特色，依首頁的順序。 */
-  highlights: { id: string; nameZh: string }[];
 };
 
 /** 目前年度的完整課程安排，含教室。只要一個場地時給 venueId。沒有目前年度時回傳 null。 */
@@ -333,15 +307,15 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
   let venueQuery = supabase
       .from("venues")
       .select(
-        `id, position, region, name_zh, name_en, address_zh, address_en, features_zh, features_en,
+        `id, position, region, name_zh, name_en,
         sessions(id, position, name_zh, name_en, courses(
-          ${option}, title_zh, title_en, speaker_zh, speaker_en, highlight_id, course_classrooms(classroom)
+          ${option}, title_zh, title_en, speaker_zh, speaker_en, course_classrooms(classroom)
         )),
         lunch_options(${option}, name_zh, name_en)`,
       )
       .eq("conference_id", conference.data.id);
   if (venueId) venueQuery = venueQuery.eq("id", venueId);
-  const [venues, pairs, highlights] = await Promise.all([
+  const [venues, pairs] = await Promise.all([
     venueQuery
       .order("position")
       .order("id")
@@ -356,16 +330,9 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
       .select("first_course_id, second_course_id")
       .eq("conference_id", conference.data.id)
       .order("created_at"),
-    supabase
-      .from("highlights")
-      .select("id, name_zh")
-      .eq("conference_id", conference.data.id)
-      .order("position")
-      .order("id"),
   ]);
   if (venues.error) throw venues.error;
   if (pairs.error) throw pairs.error;
-  if (highlights.error) throw highlights.error;
 
   type OptionRow = {
     id: string;
@@ -397,10 +364,6 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
       nameZh: venue.name_zh,
       nameEn: venue.name_en,
       region: venue.region,
-      addressZh: venue.address_zh,
-      addressEn: venue.address_en,
-      featuresZh: venue.features_zh,
-      featuresEn: venue.features_en,
       sessions: venue.sessions.map((session) => ({
         id: session.id,
         position: session.position,
@@ -412,7 +375,6 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
           classroom: (course.course_classrooms as unknown as { classroom: string } | null)?.classroom ?? null,
           speakerZh: course.speaker_zh,
           speakerEn: course.speaker_en,
-          highlightId: course.highlight_id,
         })),
       })),
       lunchOptions: venue.lunch_options.map((lunch) => toOption(lunch, lunch.name_zh, lunch.name_en)),
@@ -421,6 +383,5 @@ export async function getProgramme(supabase: SupabaseClient, venueId?: string): 
       firstCourseId: pair.first_course_id,
       secondCourseId: pair.second_course_id,
     })),
-    highlights: highlights.data.map((highlight) => ({ id: highlight.id, nameZh: highlight.name_zh })),
   };
 }

@@ -1,6 +1,7 @@
 import { networkInterfaces } from "node:os";
 import type { NextConfig } from "next";
 import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
+import { CONFERENCE_SITE_URL } from "./src/lib/conference-site";
 
 /**
  * 僅供 npm run dev：允許從這台電腦各網卡的確切 IPv4 位址載入開發資源與熱更新，同一個 Wi-Fi 的手機才能開開發中的網站。
@@ -14,6 +15,17 @@ function lanAddresses(): string[] {
     .map((address) => address.address);
 }
 
+/**
+ * 籌備委員會網站（/committee）與大會特色介紹頁（/highlights）移到大會網站（#126、ADR 0012），
+ * 舊網址（LINE 群組裡的舊連結）一律轉到大會網站首頁，不必一頁對一頁。
+ * 用暫時轉址（307）：瀏覽器不會永久記住，之後要改轉到別處也不會被舊的轉址卡住。
+ */
+const movedToConferenceSite = ["/committee/:path*", "/highlights/:path*"];
+
 export default function nextConfig(phase: string): NextConfig {
-  return phase === PHASE_DEVELOPMENT_SERVER ? { allowedDevOrigins: lanAddresses() } : {};
+  return {
+    ...(phase === PHASE_DEVELOPMENT_SERVER && { allowedDevOrigins: lanAddresses() }),
+    redirects: async () =>
+      movedToConferenceSite.map((source) => ({ source, destination: CONFERENCE_SITE_URL, permanent: false })),
+  };
 }

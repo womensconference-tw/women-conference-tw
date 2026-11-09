@@ -68,7 +68,7 @@ describe("公告上線前", () => {
   it("前台報名首頁只顯示「大會資訊即將公布」，看不到大會資訊，也沒有預覽提示", async () => {
     await renderPage(Home());
 
-    expect(screen.getByText(messages.zh.home.comingSoon)).toBeTruthy();
+    expect(screen.getByText(messages.zh.landing.comingSoon)).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
     expect(screen.queryByText(/預覽模式/)).toBeNull();
   });
@@ -81,7 +81,7 @@ describe("公告上線前", () => {
     expect(screen.getByRole("status").textContent).toBe("預覽模式：訪客還看不到這些內容。");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("2099 台灣姐妹大會報名");
     expect(screen.getByText("開放報名：4月1日（星期三） 上午9:00")).toBeTruthy();
-    expect(screen.queryByText(messages.zh.home.comingSoon)).toBeNull();
+    expect(screen.queryByText(messages.zh.landing.comingSoon)).toBeNull();
   });
 
   it("不是工作人員打開預覽報名首頁：導到登入頁，看不到內容", async () => {

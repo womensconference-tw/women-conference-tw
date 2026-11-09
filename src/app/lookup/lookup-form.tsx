@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { RegistrationForm } from "../register/registration-form";
 import { cancelMine, lookUp } from "./actions";
 
-// 與報名表同一套大按鈕、大輸入框。經過 cn() 的字級要寫成 text-(length:…)，見首頁的說明。
+// 與報名表同一套大按鈕、大輸入框。經過 cn() 的字級要寫成 text-(length:…)，見報名入口頁的說明。
 const actionClass =
   "h-auto min-h-(--button-min-height) px-6 py-3 text-(length:--text-body-size) whitespace-normal text-center";
 const textInputClass =

@@ -2,10 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
-import { missingEnglish } from "@/lib/content";
+import { missingEnglish } from "@/lib/missing-english";
 import {
   getProgramme,
-  type Programme,
   type ProgrammeCourse,
   type ProgrammeOption,
   type ProgrammeSession,
@@ -74,8 +73,6 @@ export default async function VenueProgrammePage({ params, searchParams }: PageP
         <ItemForm kind="venue" id={venue.id} {...shared} submitLabel="儲存場地資料">
           <TextPair name="name" label="名稱" zh={venue.nameZh} en={venue.nameEn} required />
           <RegionField region={venue.region} />
-          <TextPair name="address" label="地址" zh={venue.addressZh} en={venue.addressEn} />
-          <TextPair name="features" label="場地特色" zh={venue.featuresZh} en={venue.featuresEn} multiline />
           <NumberFields position={venue.position} />
         </ItemForm>
         {!locked && (
@@ -123,7 +120,6 @@ export default async function VenueProgrammePage({ params, searchParams }: PageP
                   session={session}
                   sessions={venue.sessions}
                   partnerLabel={courseLabel.get(partner.get(course.id) ?? "")}
-                  highlights={programme.highlights}
                   locked={locked}
                   {...shared}
                 />
@@ -135,7 +131,7 @@ export default async function VenueProgrammePage({ params, searchParams }: PageP
                 <summary className="cursor-pointer font-semibold">新增課程</summary>
                 <div className="mt-3">
                   <ItemForm kind="course" parentId={session.id} {...shared} submitLabel="新增課程">
-                    <CourseFields highlights={programme.highlights} position={session.courses.length + 1} />
+                    <CourseFields position={session.courses.length + 1} />
                   </ItemForm>
                 </div>
               </details>
@@ -222,7 +218,6 @@ function CourseCard({
   session,
   sessions,
   partnerLabel,
-  highlights,
   locked,
   conferenceId,
   venueId,
@@ -231,7 +226,6 @@ function CourseCard({
   session: ProgrammeSession;
   sessions: ProgrammeSession[];
   partnerLabel: string | undefined;
-  highlights: Programme["highlights"];
   locked: boolean;
   conferenceId: string;
   venueId: string;
@@ -240,7 +234,7 @@ function CourseCard({
     <li className="flex flex-col gap-2 rounded-lg border p-3">
       <span className="font-semibold">{course.nameZh}</span>
       <span className="text-sm text-muted-foreground">
-        講師 {course.speakerZh || "未填"}・分類 {highlights.find((highlight) => highlight.id === course.highlightId)?.nameZh ?? "無"}
+        講師 {course.speakerZh || "未填"}
       </span>
       <span className="text-sm text-muted-foreground">
         名額 {capacityLabel(course.capacity)}・教室 {course.classroom ?? "未定"}
@@ -255,7 +249,7 @@ function CourseCard({
         <summary className="cursor-pointer font-semibold">編輯課程</summary>
         <div className="mt-3 flex flex-col gap-3">
           <ItemForm kind="course" id={course.id} conferenceId={conferenceId} venueId={venueId} submitLabel="儲存課程">
-            <CourseFields course={course} highlights={highlights} position={course.position} />
+            <CourseFields course={course} position={course.position} />
             {/* 換時段只能在報名開放前。沒有換的時候照樣送出原本的場次。 */}
             {locked || sessions.length < 2 ? (
               <input type="hidden" name="parentId" value={session.id} />
@@ -297,35 +291,12 @@ function StoppedStatus({ stopped }: { stopped: boolean }) {
   );
 }
 
-/** 課程的欄位：課名、講師、分類、說明、教室、名額、排序。 */
-function CourseFields({
-  course,
-  highlights,
-  position,
-}: {
-  course?: ProgrammeCourse;
-  highlights: Programme["highlights"];
-  position: number;
-}) {
+/** 課程的欄位：課名、講師、說明、教室、名額、排序。 */
+function CourseFields({ course, position }: { course?: ProgrammeCourse; position: number }) {
   return (
     <>
       <TextPair name="name" label="課名" zh={course?.nameZh} en={course?.nameEn} required />
       <TextPair name="speaker" label="講師" zh={course?.speakerZh} en={course?.speakerEn} />
-      <label className="flex flex-col gap-1 sm:max-w-md">
-        <span className="font-semibold">分類</span>
-        <select name="highlightId" defaultValue={course?.highlightId ?? ""} className={inputClass}>
-          <option value="">不分類</option>
-          {highlights.map((highlight) => (
-            <option key={highlight.id} value={highlight.id}>
-              {highlight.nameZh}
-            </option>
-          ))}
-        </select>
-        <span className="text-sm text-muted-foreground">
-          分類是「首頁內容」裡的大會特色，例如靈性課程、角落課程。
-          {highlights.length === 0 && "目前還沒有大會特色，請先到「首頁內容」新增。"}
-        </span>
-      </label>
       <TextPair name="description" label="說明" zh={course?.descriptionZh} en={course?.descriptionEn} multiline />
       <label className="flex flex-col gap-1">
         <span className="font-semibold">教室</span>

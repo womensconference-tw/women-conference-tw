@@ -24,32 +24,18 @@ describe("介面文字對照檔", () => {
   // 要帶入資料的文字，每一則都要在這裡列出測試用的資料。
   const sampleArgs: Record<string, unknown[]> = {
     "email.greeting": ["SAMPLE_NAME"],
-    "home.statusOpensOn": ["SAMPLE_DATE"],
-    "home.statusOpenUntil": ["SAMPLE_DATE"],
-    "home.showCourses": [5],
-    "home.pairedFirst": ["SAMPLE_SESSION"],
-    "home.pairedSecond": ["SAMPLE_SESSION"],
-    "home.opensOn": ["SAMPLE_DATE_TIME"],
-    "home.closesOn": ["SAMPLE_DATE_TIME"],
-    "home.canChangeUntil": ["SAMPLE_DATE"],
-    "home.conferenceTime": ["SAMPLE_START", "SAMPLE_END"],
-    "home.conferenceStartsAt": ["SAMPLE_START"],
-    "home.simultaneous": ["SAMPLE_PLACES"],
     "landing.title": [2099],
-    "home.helpLineId": ["SAMPLE_LINE_ID"],
+    "landing.opensOn": ["SAMPLE_DATE_TIME"],
+    "landing.closesOn": ["SAMPLE_DATE_TIME"],
+    "landing.canChangeUntil": ["SAMPLE_DATE"],
+    "landing.conferenceTime": ["SAMPLE_START", "SAMPLE_END"],
+    "landing.conferenceStartsAt": ["SAMPLE_START"],
     "register.choirWithPart": ["SAMPLE_PART"],
     "register.pairedWith": ["SAMPLE_SESSION", "SAMPLE_COURSE"],
     "register.speaker": ["SAMPLE_SPEAKER"],
     "register.stepProgress": [2, 3, "SAMPLE_STEP"],
     "register.wardsOf": ["SAMPLE_STAKE"],
     "register.wardWithStake": ["SAMPLE_WARD", "SAMPLE_STAKE"],
-    "activity.backTo": ["SAMPLE_ACTIVITY"],
-    "activity.corner.count": [11],
-    "activity.spiritual.count": [14],
-    "activity.honor.count": [8],
-    "activity.missionary.count": [3],
-    "activity.missionary.serviceArea": ["SAMPLE_AREA"],
-    "activity.exhibit.count": [10],
   };
 
   it.each(locales)("%s 帶入資料的文字不空白，且有放進帶入的資料", (locale) => {
@@ -67,12 +53,10 @@ describe("介面文字對照檔", () => {
   });
 });
 
-// 暫時不提供大會管理員的聯絡方式（見 showAdminContact）：前台文字改請姐妹問自己支會或分會的慈助會會長。
-// 隱藏中的「需要幫忙嗎？」區塊與選單文字留著，恢復時用。
+// 不提供大會管理員的聯絡方式（#126 拿掉）：前台文字請姐妹問自己支會或分會的慈助會會長。
 describe("求助指引", () => {
-  const hiddenHelpKeys = ["home.navHelp", "home.helpDescription", "home.helpLineId", "home.helpLineButton", "home.helpLineComingSoon"];
   const guidanceKeys = [
-    "home.closedDescription",
+    "landing.closedDescription",
     "register.errors.portraitConsentRequired",
     "lookup.closedDescription",
     "lookup.errors.notFound",
@@ -85,7 +69,7 @@ describe("求助指引", () => {
 
   it.each(locales)("%s 不叫人聯絡大會管理員", (locale) => {
     const mentions = leaves(messages[locale])
-      .filter(([path, value]) => !hiddenHelpKeys.includes(path) && typeof value === "string")
+      .filter(([, value]) => typeof value === "string")
       .filter(([, value]) => /管理員|administrator/i.test(value as string))
       .map(([path]) => path);
 

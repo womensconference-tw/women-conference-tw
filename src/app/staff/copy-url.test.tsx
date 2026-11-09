@@ -14,9 +14,9 @@ const stubClipboard = (writeText: (text: string) => Promise<void>) =>
 it("網址用瀏覽器網址列上的網域，按下複製網址就複製（不用請求標頭，Codex 審查）", async () => {
   const writeText = vi.fn(async () => {});
   stubClipboard(writeText);
-  render(<CopyUrl path="/committee?year=2001" />);
+  render(<CopyUrl path="/register?for=others" />);
 
-  const expected = `${window.location.origin}/committee?year=2001&openExternalBrowser=1`;
+  const expected = `${window.location.origin}/register?for=others&openExternalBrowser=1`;
   expect(screen.getByLabelText<HTMLInputElement>("公開網址").value).toBe(expected);
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "複製網址" })));
   expect(writeText).toHaveBeenCalledWith(expected);

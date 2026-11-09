@@ -102,7 +102,7 @@ export type EditTarget = {
   onClose: (updated?: Registration) => void;
 };
 
-// 字級來自 globals.css 的主視覺設定。經過 cn() 的字級要寫成 text-(length:…)，見首頁的說明。
+// 字級來自 globals.css 的主視覺設定。經過 cn() 的字級要寫成 text-(length:…)，見報名入口頁的說明。
 const actionClass =
   "h-auto min-h-(--button-min-height) px-6 py-3 text-(length:--text-body-size) whitespace-normal text-center";
 const textInputClass =
@@ -526,7 +526,7 @@ export function RegistrationForm({
           disabled={pending || previewLocked}
           aria-busy={pending}
           className={cn(
-            // 預覽的送出按鈕和首頁「報名前」的按鈕一樣用虛線框表示不能按；不用半透明，文字才保有高對比。
+            // 預覽的送出按鈕用虛線框表示不能按；不用半透明，文字才保有高對比。
             buttonVariants(previewLocked ? { variant: "secondary" } : undefined),
             actionClass,
             "min-h-(--button-primary-min-height) gap-2 text-(length:--text-lead-size) font-bold disabled:opacity-100",

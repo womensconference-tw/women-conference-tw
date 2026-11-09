@@ -10,7 +10,6 @@ import {
   saveItem,
   type ItemInput,
 } from "./programme";
-import { deleteHomeItem, getContentEditor } from "./content";
 import { getRegistrationOptions } from "./registration-options";
 
 const admin = adminClient();
@@ -148,8 +147,6 @@ describe("總管理員編輯課程安排", () => {
       region: "north",
       nameZh: "台北金華教堂",
       nameEn: "Taipei Jinhua Chapel",
-      addressZh: "台北市金華街",
-      addressEn: "Jinhua St, Taipei",
     });
     const session = await saved({ kind: "session", parentId: venue, nameZh: "第一場", nameEn: "Session 1" });
     await saved({
@@ -188,8 +185,16 @@ describe("總管理員編輯課程安排", () => {
         lunchOptions: [{ id: expect.any(String), name: "Vegetarian", description: "", isFull: false }],
       },
     ]);
-    const stored = must(await admin.from("venues").select("address_zh, address_en").eq("id", venue).single());
-    expect(stored).toEqual({ address_zh: "台北市金華街", address_en: "Jinhua St, Taipei" });
+  });
+
+  it("存場地時不動舊首頁用的地址與場地特色（資料留著）", async () => {
+    const venue = await saved({ kind: "venue", region: "north", nameZh: "台北金華教堂" });
+    must(await admin.from("venues").update({ address_zh: "台北市金華街", features_zh: "有電梯" }).eq("id", venue));
+
+    await saved({ kind: "venue", id: venue, region: "north", nameZh: "台北金華教堂（改名）" });
+
+    const stored = must(await admin.from("venues").select("name_zh, address_zh, features_zh").eq("id", venue).single());
+    expect(stored).toEqual({ name_zh: "台北金華教堂（改名）", address_zh: "台北市金華街", features_zh: "有電梯" });
   });
 
   it("名額可設數字或不限", async () => {
@@ -445,86 +450,48 @@ describe("成對課程", () => {
   });
 });
 
-describe("課程的講師與分類", () => {
-  /** 一項大會特色。year 不給時是目前年度的。 */
-  async function highlight(nameZh: string, conference = conferenceId!) {
-    return must(await admin.from("highlights").insert({ conference_id: conference, name_zh: nameZh }).select("id").single())
-      .id as string;
-  }
-
+describe("課程的講師", () => {
   async function storedCourse(id: string) {
     const programme = (await getProgramme(headAdmin))!;
     return programme.venues.flatMap((venue) => venue.sessions.flatMap((session) => session.courses)).find((course) => course.id === id)!;
   }
 
-  it("總管理員可以設定講師（中英）與分類，後台讀得到可選的分類", async () => {
-    const spiritual = await highlight("靈性課程");
+  it("總管理員可以設定與清空講師（中英）", async () => {
     const { session } = await venueWithCourse();
 
-    const id = await saved({
-      kind: "course",
-      parentId: session,
-      nameZh: "研讀經文",
-      speakerZh: " 蔡婷儀 ",
-      speakerEn: "Tsai Ting-yi",
-      highlightId: spiritual,
-    });
+    const id = await saved({ kind: "course", parentId: session, nameZh: "研讀經文", speakerZh: " 蔡婷儀 ", speakerEn: "Tsai Ting-yi" });
+    expect(await storedCourse(id)).toMatchObject({ speakerZh: "蔡婷儀", speakerEn: "Tsai Ting-yi" });
 
-    expect(await storedCourse(id)).toMatchObject({ speakerZh: "蔡婷儀", speakerEn: "Tsai Ting-yi", highlightId: spiritual });
-    expect((await getProgramme(headAdmin))!.highlights).toEqual([{ id: spiritual, nameZh: "靈性課程" }]);
-
-    expect(await save({ kind: "course", id, parentId: session, nameZh: "研讀經文", speakerZh: "", highlightId: null })).toMatchObject({
-      ok: true,
-    });
-    expect(await storedCourse(id)).toMatchObject({ speakerZh: "", speakerEn: "", highlightId: null });
+    expect(await save({ kind: "course", id, parentId: session, nameZh: "研讀經文", speakerZh: "" })).toMatchObject({ ok: true });
+    expect(await storedCourse(id)).toMatchObject({ speakerZh: "", speakerEn: "" });
   });
 
-  it("分類只能選同一年度的大會特色", async () => {
-    const other = must(await admin.from("conferences").insert({ year: 2098, conference_date: "2098-05-15" }).select("id").single()).id;
-    try {
-      const oldHighlight = await highlight("去年的靈性課程", other);
-      const { session, course } = await venueWithCourse();
-
-      expect(await save({ kind: "course", id: course, parentId: session, nameZh: "家譜入門", highlightId: oldHighlight })).toEqual({
-        ok: false,
-        error: "highlight_invalid",
-      });
-      expect(await save({ kind: "course", parentId: session, nameZh: "新課", highlightId: oldHighlight })).toEqual({
-        ok: false,
-        error: "highlight_invalid",
-      });
-      expect(await save({ kind: "course", parentId: session, nameZh: "新課", highlightId: "不是編號" })).toEqual({
-        ok: false,
-        error: "highlight_invalid",
-      });
-      expect((await storedCourse(course)).highlightId).toBeNull();
-    } finally {
-      must(await admin.from("conferences").delete().eq("id", other));
-    }
-  });
-
-  it("報名開放後講師與分類都還能改", async () => {
-    const corner = await highlight("角落課程");
+  it("報名開放後講師還能改", async () => {
     const { session, course } = await venueWithCourse();
     await openRegistration();
 
-    expect(
-      await save({ kind: "course", id: course, parentId: session, nameZh: "家譜入門", capacity: "20", speakerZh: "陳姊妹", highlightId: corner }),
-    ).toMatchObject({ ok: true });
-    expect(await storedCourse(course)).toMatchObject({ speakerZh: "陳姊妹", highlightId: corner });
+    expect(await save({ kind: "course", id: course, parentId: session, nameZh: "家譜入門", capacity: "20", speakerZh: "陳姊妹" })).toMatchObject({
+      ok: true,
+    });
+    expect(await storedCourse(course)).toMatchObject({ speakerZh: "陳姊妹" });
   });
 
-  it("刪除大會特色後，原本分到它的課程變成沒有分類；刪除前後台知道有幾門課", async () => {
-    const service = await highlight("公益服務");
+  it("存課程時不動舊首頁用的分類（資料留著）；新增的課程沒有分類", async () => {
+    const service = must(await admin.from("highlights").insert({ conference_id: conferenceId, name_zh: "公益服務" }).select("id").single()).id;
     const { session, course } = await venueWithCourse();
-    await saved({ kind: "course", id: course, parentId: session, nameZh: "家譜入門", highlightId: service });
-    await saved({ kind: "course", parentId: session, nameZh: "包巾", highlightId: service });
+    must(await admin.from("courses").update({ highlight_id: service }).eq("id", course));
 
-    expect((await getContentEditor(headAdmin))!.highlights).toMatchObject([{ id: service, courseCount: 2 }]);
-    expect(await deleteHomeItem(headAdmin, "highlight", service)).toEqual({ ok: true });
+    expect(await save({ kind: "course", id: course, parentId: session, nameZh: "家譜入門（改）" })).toMatchObject({ ok: true });
+    const added = await saved({ kind: "course", parentId: session, nameZh: "包巾" });
 
-    expect((await storedCourse(course)).highlightId).toBeNull();
-    expect((await getProgramme(headAdmin))!.venues[0].sessions[0].courses).toHaveLength(2);
+    const stored = must(await admin.from("courses").select("id, title_zh, highlight_id").in("id", [course, added]));
+    expect(stored).toHaveLength(2);
+    expect(stored).toEqual(
+      expect.arrayContaining([
+        { id: added, title_zh: "包巾", highlight_id: null },
+        { id: course, title_zh: "家譜入門（改）", highlight_id: service },
+      ]),
+    );
   });
 
   it("報名表的課程顯示講師，英文沒填時顯示中文；前台訪客讀得到講師", async () => {
