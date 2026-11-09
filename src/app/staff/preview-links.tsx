@@ -5,7 +5,7 @@ export function PreviewLinks() {
   return (
     <p className="flex flex-wrap gap-x-6 gap-y-2">
       <Link href="/preview" target="_blank" className="font-semibold underline">
-        預覽首頁
+        預覽報名首頁
       </Link>
       <Link href="/preview/register" target="_blank" className="font-semibold underline">
         預覽報名表

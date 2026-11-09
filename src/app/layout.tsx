@@ -15,17 +15,18 @@ const geistMono = Geist_Mono({
 });
 
 // 分享預覽圖是同一資料夾的 opengraph-image.png；網址的網域在 Vercel 上由 Next.js 自動帶入。
+// 這個網站只做報名（ADR 0012），分頁與分享的標題寫「報名」。
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getLocale();
   const t = await getMessages();
   return {
-    title: t.site.title,
+    title: t.site.shareTitle,
     description: t.site.description,
     openGraph: {
       type: "website",
-      title: t.site.title,
+      title: t.site.shareTitle,
       description: t.site.description,
-      siteName: t.site.title,
+      siteName: t.site.shareTitle,
       locale: ogLocales[locale],
     },
     twitter: { card: "summary_large_image" },

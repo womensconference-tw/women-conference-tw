@@ -134,7 +134,7 @@ export function RegistrationForm({
   locale: Locale;
   options: RegistrationOptions;
   edit?: EditTarget;
-  /** 從首頁「幫家人或朋友報名」進來。 */
+  /** 從報名入口頁「幫家人或朋友報名」進來。 */
   forOthers?: boolean;
   /** 後台的預覽報名表：不能送出。 */
   preview?: boolean;

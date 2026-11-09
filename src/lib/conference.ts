@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * 時程階段。首頁與報名服務都用這裡的判斷，不各自計算。
+ * 時程階段。報名入口頁與報名服務都用這裡的判斷，不各自計算。
  * - unannounced：公告上線前
  * - upcoming：報名前（公告上線 ≤ 現在 < 報名開放）
  * - open：報名中（報名開放 ≤ 現在 < 報名截止）
@@ -20,6 +20,9 @@ export type CurrentConference = Schedule & {
   year: number;
   /** 大會當天，格式 YYYY-MM-DD（台灣日期）。 */
   conferenceDate: string;
+  /** 大會開始與結束的時間，HH:MM（台灣時間）；沒填是 null。 */
+  startTime: string | null;
+  endTime: string | null;
   phase: SchedulePhase;
 };
 
@@ -30,7 +33,7 @@ export async function getCurrentConference(
 ): Promise<CurrentConference | null> {
   const { data, error } = await supabase
     .from("conferences")
-    .select("year, conference_date, announce_at, registration_opens_at, registration_closes_at")
+    .select("year, conference_date, start_time, end_time, announce_at, registration_opens_at, registration_closes_at")
     .eq("is_current", true)
     .maybeSingle();
   if (error) throw error;
@@ -44,13 +47,16 @@ export async function getCurrentConference(
   return {
     year: data.year,
     conferenceDate: data.conference_date,
+    // 資料庫的 time 欄位讀出來是 "09:00:00"。
+    startTime: data.start_time?.slice(0, 5) ?? null,
+    endTime: data.end_time?.slice(0, 5) ?? null,
     ...schedule,
     phase: schedulePhase(schedule, now),
   };
 }
 
 /**
- * 首頁要照哪個階段顯示；null 表示只顯示「大會資訊即將公布」（還沒有目前年度，或公告上線前）。
+ * 報名入口頁要照哪個階段顯示；null 表示只顯示「大會資訊即將公布」（還沒有目前年度，或公告上線前）。
  * 預覽時公告上線前也照報名前的樣子顯示完整內容，讓工作人員先看看；公告上線之後和前台一樣。
  */
 export function homePhase(

@@ -21,8 +21,10 @@ export default async function StaffHomePage() {
         {scope && `，負責${scope}`}。
       </p>
       <section className="mt-4 flex flex-col gap-2">
-        <h2 className="text-xl font-bold">分享首頁到 LINE 群組</h2>
-        <p>貼到支會 LINE 群組請用這個網址，姐妹點開時會改用手機的瀏覽器，報名比較順。</p>
+        <h2 className="text-xl font-bold">分享報名網站到 LINE 群組</h2>
+        <p>
+          貼到支會 LINE 群組請用這個網址，姐妹打開就是報名首頁，可以報名、幫家人朋友報名或查詢；點開時會改用手機的瀏覽器，報名比較順。
+        </p>
         <CopyUrl path="/" />
       </section>
     </main>

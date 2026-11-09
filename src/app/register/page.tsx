@@ -16,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /**
  * 報名頁。只有報名中才顯示表單；送出時資料庫會再確認一次是否報名中。
- * 從首頁「幫家人或朋友報名」進來（?for=others）時，表單第一步多一句代報的說明。
+ * 從報名入口頁「幫家人或朋友報名」進來（?for=others）時，表單第一步多一句代報的說明。
  */
 export default async function RegisterPage({ searchParams }: PageProps<"/register">) {
   const locale = await getLocale();

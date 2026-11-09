@@ -8,7 +8,6 @@ import { messages } from "@/lib/i18n/messages";
 import { adminClient, anonClient, must } from "../../test/supabase";
 import { HighlightPage } from "./highlight-page";
 import { HighlightVenues } from "./highlight-venues";
-import { HomePage } from "./home-page";
 import { PersonPage } from "./person-page";
 import { VenuePage } from "./venue-page";
 
@@ -233,18 +232,6 @@ describe("介紹頁的教堂分頁", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "台中大雅教堂" }));
     expect(screen.getByText("手作展示")).toBeTruthy();
-  });
-
-  it("首頁卡片：只有教堂分頁的大會特色也能點", async () => {
-    await arrangeVenues();
-
-    await renderPage(HomePage({ preview: false }));
-
-    const section = screen.getByRole("heading", { name: messages.zh.home.highlightsHeading }).closest("section")!;
-    expect(within(section).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
-      `/highlights/${choirId}`,
-      `/highlights/${exhibitionId}`,
-    ]);
   });
 });
 
@@ -531,13 +518,11 @@ describe("介紹頁的人物版型", () => {
     expect(screen.getByRole("link", { name: /回到向貴賓致敬/ }).getAttribute("href")).toBe(`/preview/highlights/${id}`);
   });
 
-  it("選了版型、沒有人物也沒有介紹內容時找不到，首頁卡片不能點", async () => {
+  it("選了版型、沒有人物也沒有介紹內容時找不到", async () => {
     await arrange(true);
     const id = await templatePage({ name_zh: "向貴賓致敬", page_template: "honor", subtitle_zh: "只有副標" }, []);
 
     await expect(renderPage(HighlightPage({ id, preview: false }))).rejects.toThrow("not found");
-    await renderPage(HomePage({ preview: false }));
-    expect(screen.queryByRole("link", { name: /向貴賓致敬/ })).toBeNull();
   });
 });
 
@@ -676,29 +661,5 @@ describe("圖文型介紹頁與各教堂頁", () => {
 
     await expect(renderPage(VenuePage({ highlightId: id, venueId: daya, preview: false }))).rejects.toThrow("not found");
     await expect(renderPage(VenuePage({ highlightId: choirId, venueId: jinhua, preview: false }))).rejects.toThrow("not found");
-  });
-});
-
-describe("首頁的大會有什麼", () => {
-  it("寫了介紹內容的卡片連到介紹頁，沒寫的不能點", async () => {
-    await arrange(true);
-
-    await renderPage(HomePage({ preview: false }));
-
-    const section = screen.getByRole("heading", { name: messages.zh.home.highlightsHeading }).closest("section")!;
-    const links = within(section).getAllByRole("link");
-    expect(links.map((link) => link.getAttribute("href"))).toEqual([`/highlights/${choirId}`]);
-    expect(links[0].textContent).toContain("跟著影片練唱");
-    const exhibition = within(section).getByRole("heading", { name: "靜態展示" });
-    expect(exhibition.closest("a")).toBeNull();
-  });
-
-  it("預覽首頁的卡片連到預覽版的介紹頁", async () => {
-    await arrange(false);
-
-    await renderPage(HomePage({ preview: true }));
-
-    const section = screen.getByRole("heading", { name: messages.zh.home.highlightsHeading }).closest("section")!;
-    expect(within(section).getByRole("link").getAttribute("href")).toBe(`/preview/highlights/${choirId}`);
   });
 });
