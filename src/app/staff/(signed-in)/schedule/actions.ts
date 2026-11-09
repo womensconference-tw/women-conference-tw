@@ -5,8 +5,8 @@ import { saveConferenceDetails, saveSchedule, type ScheduleResult } from "@/lib/
 import { createClient } from "@/lib/supabase/server";
 
 /*
- * 大會時程頁的儲存。是不是總管理員、時程對不對，都由資料庫判斷（src/lib/schedule.ts）。
- * 做完回到大會時程頁。
+ * 報名時間頁的儲存。是不是總管理員、時程對不對，都由資料庫判斷（src/lib/schedule.ts）。
+ * 做完回到報名時間頁。
  */
 
 export async function saveScheduleDetails(formData: FormData) {

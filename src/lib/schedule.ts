@@ -2,7 +2,7 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { trimBlank, UUID_PATTERN } from "./registration";
 
 /*
- * 後台「大會時程」：目前年度的大會日期、開始與結束時間，以及公告上線、報名開放、報名截止三個時間點。
+ * 後台「報名時間」：目前年度的大會日期、開始與結束時間，以及公告上線、報名開放、報名截止三個時間點。
  * 只有總管理員能寫入，由資料庫的權限規則強制（ADR 0004）；這裡先確認一次，好在畫面上說明。
  * 時程的先後順序、報名開放後不能改開放時間，都由資料庫擋下，這裡把錯誤轉成代碼。
  * 報名入口頁每次都向資料庫讀，存檔後立即反映。
@@ -195,11 +195,11 @@ function failure(error: PostgrestError): { ok: false; error: ScheduleError } {
     case error.code === "42501":
       return { ok: false, error: "not_admin" };
   }
-  console.error("編輯大會時程失敗", error);
+  console.error("編輯報名時間失敗", error);
   return { ok: false, error: "unavailable" };
 }
 
-/** 後台「大會時程」頁要的目前年度資料。 */
+/** 後台「報名時間」頁要的目前年度資料。 */
 export type ScheduleEditor = {
   conferenceId: string;
   year: number;

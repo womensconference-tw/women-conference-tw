@@ -14,7 +14,7 @@ import { SubmitButton } from "../../submit-button";
 import { buttonClass, formatTime, inputClass } from "../../ui";
 import { saveScheduleDetails, saveScheduleTimes } from "./actions";
 
-export const metadata: Metadata = { title: "大會時程" };
+export const metadata: Metadata = { title: "報名時間" };
 
 const cardClass = "flex flex-col gap-3 rounded-lg border-2 border-card-outline p-4";
 const submitClass = cn(buttonVariants(), buttonClass, "self-start font-bold");
@@ -25,7 +25,7 @@ const DONE: Record<string, string> = {
 };
 
 const ERRORS: Record<ScheduleError, string> = {
-  not_admin: "只有總管理員能編輯大會時程。",
+  not_admin: "只有總管理員能編輯報名時間。",
   date_invalid: "請填大會日期。",
   time_invalid: "時間格式不對；只填結束時間不行，結束要比開始晚。",
   schedule_invalid: "時間格式不對，請重新選擇。",
@@ -44,7 +44,8 @@ const PHASE_LABELS: Record<SchedulePhase, string> = {
 };
 
 /**
- * 大會時程（只有總管理員）：目前年度的公告上線、報名開放、報名截止，以及大會日期與開始、結束時間。
+ * 報名時間（只有總管理員）：目前年度的公告上線、報名開放、報名截止，以及報名首頁顯示的大會日期與開始、結束時間。
+ * 大會當天的流程（大會程序）在大會網站，不在這裡。
  * 報名入口頁與報名表都依這些時間；存檔後立即反映。原本在「首頁內容」，首頁移到大會網站後只留這兩區（ADR 0012）。
  */
 export default async function SchedulePage({ searchParams }: PageProps<"/staff/schedule">) {
@@ -57,7 +58,7 @@ export default async function SchedulePage({ searchParams }: PageProps<"/staff/s
   if (!schedule) {
     return (
       <main className="flex flex-col gap-8">
-        <h1 className="text-2xl font-bold">大會時程</h1>
+        <h1 className="text-2xl font-bold">報名時間</h1>
         <p>
           還沒有目前年度，請先到
           <Link href="/staff/years" className="font-semibold underline">
@@ -82,13 +83,13 @@ export default async function SchedulePage({ searchParams }: PageProps<"/staff/s
 
   return (
     <main className="flex flex-col gap-8">
-      <h1 className="text-2xl font-bold">大會時程（{schedule.year} 年）</h1>
+      <h1 className="text-2xl font-bold">報名時間（{schedule.year} 年）</h1>
       <ResultMessage searchParams={searchParams} done={DONE} errors={ERRORS} />
       <p>存檔後報名首頁立即更新；公告上線前訪客還看不到，請用下面的「預覽報名首頁」。</p>
       <PreviewLinks />
 
       <section className={cardClass}>
-        <h2 className="text-xl font-bold">時程</h2>
+        <h2 className="text-xl font-bold">公告上線、報名開放與截止</h2>
         <p>
           報名首頁目前狀態：<strong>{PHASE_LABELS[phase]}</strong>。到了這三個時間會自動切換。時間都是台灣時間。
         </p>
@@ -127,14 +128,14 @@ export default async function SchedulePage({ searchParams }: PageProps<"/staff/s
       </section>
 
       <section className={cardClass}>
-        <h2 className="text-xl font-bold">大會日期與時間</h2>
+        <h2 className="text-xl font-bold">大會日期與時間（顯示在報名首頁）</h2>
         <form action={saveScheduleDetails} className="flex flex-col gap-4">
           <input type="hidden" name="conferenceId" value={conferenceId} />
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="大會日期" required>
               <input name="conferenceDate" type="date" defaultValue={schedule.conferenceDate} required className={inputClass} />
             </Field>
-            <Field label="開始時間" hint="台灣時間；不填時報名首頁不顯示時間。">
+            <Field label="開始時間" hint="台灣時間，顯示在報名首頁；不填時不顯示時間。">
               <input name="startTime" type="time" defaultValue={schedule.startTime} className={inputClass} />
             </Field>
             <Field label="結束時間" hint="可以不填，只顯示開始時間。">

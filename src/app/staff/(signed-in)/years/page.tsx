@@ -25,7 +25,7 @@ const DONE: Record<string, string> = {
   copied_without_some_pairs:
     "已建立新年度，但有成對課程因為去年調過場次順序、兩個場次不再相鄰，沒有複製。請到「場地與課程」重新設定這些成對課程。設為目前年度之前，報名首頁還是顯示原本的年度。",
   switched:
-    "已設為目前年度，報名首頁改顯示這一年。公告上線前報名首頁只顯示「即將公布」，這段時間請到「場地與課程」「大會時程」準備新年度。",
+    "已設為目前年度，報名首頁改顯示這一年。公告上線前報名首頁只顯示「即將公布」，這段時間請到「場地與課程」「報名時間」準備新年度。",
 };
 
 const ERRORS: Record<YearError, string> = {
@@ -125,7 +125,7 @@ function FirstYearForm() {
     <section className={cardClass}>
       <h2 className="text-xl font-bold">建立第一個年度</h2>
       <p>
-        還沒有任何年度。先建立一個空白的年度（沒有場地、課程），之後在「場地與課程」「大會時程」準備；
+        還沒有任何年度。先建立一個空白的年度（沒有場地、課程），之後在「場地與課程」「報名時間」準備；
         公告上線、報名開放、報名截止三個時間空著，設為目前年度時再填。
       </p>
       <form action={createFirstYear} className="flex flex-col gap-3">
@@ -191,7 +191,7 @@ function YearCard({ year, current }: { year: ConferenceYear; current: Conference
             </p>
             {missing && (
               <>
-                <p>這個年度的時程還沒填，請一起填好（台灣時間）。已經填了的不會改，之後可以在「大會時程」修改。</p>
+                <p>這個年度的時程還沒填，請一起填好（台灣時間）。已經填了的不會改，之後可以在「報名時間」修改。</p>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {!year.announceAt && (
                     <DateTimeField name="announceAt" label="公告上線" value={null} hint="報名首頁開始顯示大會日期與報名狀態。" />
