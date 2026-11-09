@@ -1,5 +1,5 @@
-import { HomePage } from "./home-page";
+import { LandingPage } from "./landing-page";
 
 export default function Home() {
-  return <HomePage preview={false} />;
+  return <LandingPage preview={false} />;
 }

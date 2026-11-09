@@ -35,6 +35,7 @@ describe("介面文字對照檔", () => {
     "home.conferenceTime": ["SAMPLE_START", "SAMPLE_END"],
     "home.conferenceStartsAt": ["SAMPLE_START"],
     "home.simultaneous": ["SAMPLE_PLACES"],
+    "landing.title": [2099],
     "home.helpLineId": ["SAMPLE_LINE_ID"],
     "register.choirWithPart": ["SAMPLE_PART"],
     "register.pairedWith": ["SAMPLE_SESSION", "SAMPLE_COURSE"],

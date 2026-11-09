@@ -225,7 +225,7 @@ it("可以選過去的年度；還沒到的年度看不到，也不在選單裡"
   expect(screen.getByText("今年的大會簡介")).toBeTruthy();
 });
 
-it("選單：依序是七項，標出目前這一頁；看過去的年度時換頁帶著年度，大會網站連到前台首頁", () => {
+it("選單：依序是七項，標出目前這一頁；看過去的年度時換頁帶著年度，大會網站連到大會網站（www）", () => {
   navigation.pathname = `/committee/members/${"0".repeat(8)}`;
   navigation.search = "year=2001";
   render(<CommitteeNav />);
@@ -238,7 +238,7 @@ it("選單：依序是七項，標出目前這一頁；看過去的年度時換�
     ["工作團隊", "/committee/team?year=2001"],
     ["籌備委員", "/committee/members?year=2001"],
     ["執行計畫", "/committee/plan?year=2001"],
-    ["大會網站", "/"],
+    ["大會網站", "https://www.taiwanwomensconference.org/"],
   ]);
   expect(screen.getByRole("link", { current: "page" }).textContent).toBe("籌備委員");
 });

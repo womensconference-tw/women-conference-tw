@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { NavLink } from "@/app/staff/nav-link";
+import { CONFERENCE_SITE_URL } from "@/lib/conference-site";
 import { cn } from "@/lib/utils";
 import { COMMITTEE_PAGES } from "./committee-routes";
 
@@ -12,7 +13,7 @@ export type CommitteeNavItem = { label: string; href: string; current: boolean; 
 
 /**
  * 選單：標出目前這一頁（籌備委員的個人頁算在「籌備委員」底下）。看過去的年度時，換頁照樣停在那個年度。
- * 最後一項「大會網站」連到前台首頁。
+ * 最後一項「大會網站」連到大會網站（www，ADR 0012）。
  */
 export function CommitteeNav() {
   const pathname = usePathname();
@@ -51,7 +52,7 @@ function useYearQuery(): string {
 export function CommitteeNavList({ items }: { items: CommitteeNavItem[] }) {
   return (
     <nav aria-label="籌備委員會選單" className="flex flex-wrap gap-1">
-      {[...items, { label: "大會網站", href: "/", current: false }].map((item) => (
+      {[...items, { label: "大會網站", href: CONFERENCE_SITE_URL, current: false }].map((item) => (
         <NavLink
           key={item.href}
           href={item.href}

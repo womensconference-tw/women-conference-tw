@@ -8,19 +8,29 @@ import type { Locale } from "./locale";
 const zh = {
   site: {
     title: "台灣姐妹大會",
-    description: "台灣姐妹大會官方網站與報名系統",
+    // 分頁標題與分享到 LINE 的標題：這個網站只做報名（大會介紹在大會網站）。
+    shareTitle: "台灣姐妹大會報名",
+    description: "報名台灣姐妹大會，或查詢、修改自己的報名。",
   },
   // 切換按鈕顯示「要切換過去的那個語言」，用該語言自己的寫法。
   languageSwitch: "English",
   languageSwitching: "切換中，請稍候…",
-  // 後台的預覽首頁、預覽報名表：只有登入的工作人員看得到，最上方說明這是預覽。
+  // 後台的預覽報名首頁、預覽報名表：只有登入的工作人員看得到，最上方說明這是預覽。
   preview: {
     homeNotAnnounced: "預覽模式：訪客還看不到這些內容。",
-    homeAnnounced: "預覽模式：這是訪客現在看到的首頁。",
+    homeAnnounced: "預覽模式：這是訪客現在看到的報名首頁。",
     register: "預覽模式：這是報名表的樣子，不能送出，也不會寄信。",
     registerNoOptions: "還沒有場地或支聯會，報名表沒有東西可選。",
     submitDisabled: "預覽模式不能送出",
     highlight: "預覽模式：這是大會特色介紹頁的樣子；公告上線前訪客還看不到。",
+  },
+  // 報名入口頁（/，ADR 0012）。報名狀態的文字沿用 home。
+  landing: {
+    title: (year: number) => `${year} 台灣姐妹大會報名`,
+    registerButton: "我要報名",
+    proxyButton: "幫家人或朋友報名",
+    lookupButton: "查詢或修改報名",
+    conferenceSite: "到大會網站看大會介紹與程序",
   },
   home: {
     comingSoon: "大會資訊即將公布，請稍後再來看看。",
@@ -226,8 +236,8 @@ const zh = {
     submittingButton: "送出中，請稍候…",
     fixErrors: "有資料需要修改，請看紅字的說明。",
     notOpenHeading: "目前不在報名期間",
-    notOpenDescription: "報名開放與截止的時間請看首頁。",
-    homeButton: "回首頁",
+    notOpenDescription: "報名開放與截止的時間請看報名首頁。",
+    homeButton: "回報名首頁",
     errors: {
       nameRequired: "請填寫姓名。",
       nameTooLong: "姓名太長了，請填 50 個字以內。",
@@ -356,17 +366,25 @@ export type Messages = typeof zh;
 const en = {
   site: {
     title: "Taiwan Women's Conference",
-    description: "Official website and registration for the Taiwan Women's Conference",
+    shareTitle: "Taiwan Women's Conference registration",
+    description: "Register for the Taiwan Women's Conference, or look up and change your registration.",
   },
   languageSwitch: "中文",
   languageSwitching: "Switching, please wait…",
   preview: {
     homeNotAnnounced: "Preview mode: visitors can't see this yet.",
-    homeAnnounced: "Preview mode: this is the homepage visitors see now.",
+    homeAnnounced: "Preview mode: this is the registration home page visitors see now.",
     register: "Preview mode: this is how the registration form looks. It can't be submitted and sends no email.",
     registerNoOptions: "There are no venues or stakes yet, so the registration form has nothing to choose.",
     submitDisabled: "Can't submit in preview mode",
     highlight: "Preview mode: this is how the page looks. Visitors can't see it before the conference is announced.",
+  },
+  landing: {
+    title: (year: number) => `${year} Taiwan Women's Conference registration`,
+    registerButton: "Register now",
+    proxyButton: "Register a family member or friend",
+    lookupButton: "Look up or change a registration",
+    conferenceSite: "About the conference and programme: visit the conference website",
   },
   home: {
     comingSoon: "Conference details are coming soon. Please check back later.",
@@ -585,8 +603,8 @@ const en = {
     submittingButton: "Submitting, please wait…",
     fixErrors: "Some details need fixing. Please read the red messages.",
     notOpenHeading: "Registration is not open right now",
-    notOpenDescription: "See the homepage for when registration opens and closes.",
-    homeButton: "Back to the homepage",
+    notOpenDescription: "See the registration home page for when registration opens and closes.",
+    homeButton: "Back to the registration home page",
     errors: {
       nameRequired: "Please enter your name.",
       nameTooLong: "Your name is too long. Please use 50 characters or fewer.",

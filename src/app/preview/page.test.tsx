@@ -22,7 +22,7 @@ const admin = adminClient();
 let previousCurrentIds: string[] = [];
 let fixtureId: string | undefined;
 
-// 2099 年度大會設成目前年度，公告上線還沒到；有歡迎詞和一個場地。測完復原。
+// 2099 年度大會設成目前年度，公告上線還沒到。測完復原。
 beforeEach(async () => {
   const current = must(await admin.from("conferences").select("id").eq("is_current", true));
   previousCurrentIds = current.map((row) => row.id);
@@ -36,14 +36,12 @@ beforeEach(async () => {
         announce_at: "2099-03-01T09:00:00+08:00",
         registration_opens_at: "2099-04-01T09:00:00+08:00",
         registration_closes_at: "2099-05-01T00:00:00+08:00",
-        welcome_zh: "歡迎參加 2099 年姐妹大會",
         is_current: true,
       })
       .select("id")
       .single(),
   );
   fixtureId = fixture.id;
-  must(await admin.from("venues").insert({ conference_id: fixtureId, region: "north", name_zh: "台北金華教堂" }));
   getCurrentStaff.mockReset();
   redirect.mockClear();
 });
@@ -67,32 +65,30 @@ async function renderPage(page: ReactElement | Promise<ReactElement>) {
 }
 
 describe("公告上線前", () => {
-  it("前台首頁只顯示「大會資訊即將公布」，看不到內容，也沒有預覽提示", async () => {
+  it("前台報名首頁只顯示「大會資訊即將公布」，看不到大會資訊，也沒有預覽提示", async () => {
     await renderPage(Home());
 
     expect(screen.getByText(messages.zh.home.comingSoon)).toBeTruthy();
-    expect(screen.queryByText("歡迎參加 2099 年姐妹大會")).toBeNull();
-    expect(screen.queryByText("台北金華教堂")).toBeNull();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
     expect(screen.queryByText(/預覽模式/)).toBeNull();
   });
 
-  it("工作人員打開預覽首頁：最上方有預覽提示，照報名前的樣子顯示完整內容", async () => {
+  it("工作人員打開預覽報名首頁：最上方有預覽提示，照報名前的樣子顯示大會資訊與報名狀態", async () => {
     getCurrentStaff.mockResolvedValue({ role: "admin" });
 
     await renderPage(PreviewHomePage());
 
     expect(screen.getByRole("status").textContent).toBe("預覽模式：訪客還看不到這些內容。");
-    expect(screen.getByText("歡迎參加 2099 年姐妹大會")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "台北金華教堂" })).toBeTruthy();
-    expect(screen.getByText("4月1日（星期三）開放報名")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("2099 台灣姐妹大會報名");
+    expect(screen.getByText("開放報名：4月1日（星期三） 上午9:00")).toBeTruthy();
     expect(screen.queryByText(messages.zh.home.comingSoon)).toBeNull();
   });
 
-  it("不是工作人員打開預覽首頁：導到登入頁，看不到內容", async () => {
+  it("不是工作人員打開預覽報名首頁：導到登入頁，看不到內容", async () => {
     getCurrentStaff.mockResolvedValue(null);
 
     await expect(renderPage(PreviewHomePage())).rejects.toThrow("redirect /staff/login");
     expect(redirect).toHaveBeenCalledWith("/staff/login");
-    expect(screen.queryByText("歡迎參加 2099 年姐妹大會")).toBeNull();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
   });
 });
