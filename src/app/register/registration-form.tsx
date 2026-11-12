@@ -319,7 +319,11 @@ export function RegistrationForm({
       let result;
       try {
         if (edit) {
-          const changes = changesOf(input);
+          // 沒動身分類別就不送（null），保留資料庫裡現在的：她查詢之後，總管理員可能已經改了。
+          const changes = {
+            ...changesOf(input),
+            role: input.role === edit.registration.role ? null : input.role,
+          };
           result = await updateMine({
             registrationId: edit.registration.id,
             lookup: edit.lookup,

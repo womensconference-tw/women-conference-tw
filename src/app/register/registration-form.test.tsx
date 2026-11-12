@@ -456,6 +456,26 @@ describe("身分類別", () => {
       expect.objectContaining({ changes: expect.objectContaining({ role: "volunteer" }) }),
     );
   });
+
+  // 她查詢之後，總管理員可能改了她的身分類別；她沒動這一題，就不能用查詢時的舊值蓋回去。
+  it("修改報名時沒動身分類別（或改了又改回來），不送身分類別", async () => {
+    const user = userEvent.setup();
+    render(<RegistrationForm locale="zh" options={options} edit={edit} />);
+
+    await user.click(button("修改聯絡資料與身分類別"));
+    await user.click(radio("身分類別", "志工"));
+    await user.click(radio("身分類別", "與會姐妹"));
+    await user.type(screen.getByLabelText("Email（選填）"), "mei@example.com");
+    await user.click(button("改好了，回到確認頁"));
+    updateMine.mockResolvedValueOnce({ ok: true, registration: found });
+    await user.click(button("確認送出修改"));
+
+    expect(updateMine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: expect.objectContaining({ email: "mei@example.com", role: null }),
+      }),
+    );
+  });
 });
 
 describe("預覽報名表", () => {
