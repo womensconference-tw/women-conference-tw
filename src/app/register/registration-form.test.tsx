@@ -458,13 +458,11 @@ describe("身分類別", () => {
   });
 
   // 她查詢之後，總管理員可能改了她的身分類別；她沒動這一題，就不能用查詢時的舊值蓋回去。
-  it("修改報名時沒動身分類別（或改了又改回來），不送身分類別", async () => {
+  it("修改報名時沒動身分類別，不送身分類別", async () => {
     const user = userEvent.setup();
     render(<RegistrationForm locale="zh" options={options} edit={edit} />);
 
     await user.click(button("修改聯絡資料與身分類別"));
-    await user.click(radio("身分類別", "志工"));
-    await user.click(radio("身分類別", "與會姐妹"));
     await user.type(screen.getByLabelText("Email（選填）"), "mei@example.com");
     await user.click(button("改好了，回到確認頁"));
     updateMine.mockResolvedValueOnce({ ok: true, registration: found });
@@ -474,6 +472,29 @@ describe("身分類別", () => {
       expect.objectContaining({
         changes: expect.objectContaining({ email: "mei@example.com", role: null }),
       }),
+    );
+  });
+
+  // 第一次送出其實已經存成志工，只是回應沒回來；她再選回與會姐妹送出，要真的改回去。
+  it("修改報名時點過身分類別，就照她畫面上選的送出，即使和查詢時一樣", async () => {
+    const user = userEvent.setup();
+    render(<RegistrationForm locale="zh" options={options} edit={edit} />);
+
+    await user.click(button("修改聯絡資料與身分類別"));
+    await user.click(radio("身分類別", "志工"));
+    await user.click(button("改好了，回到確認頁"));
+    updateMine.mockRejectedValueOnce(new Error("連線中斷"));
+    await user.click(button("確認送出修改"));
+    await screen.findByText(/系統暫時出了問題/);
+
+    await user.click(button("修改聯絡資料與身分類別"));
+    await user.click(radio("身分類別", "與會姐妹"));
+    await user.click(button("改好了，回到確認頁"));
+    updateMine.mockResolvedValueOnce({ ok: true, registration: found });
+    await user.click(button("確認送出修改"));
+
+    expect(updateMine).toHaveBeenLastCalledWith(
+      expect.objectContaining({ changes: expect.objectContaining({ role: "attendee" }) }),
     );
   });
 });

@@ -158,6 +158,8 @@ export function RegistrationForm({
   const [extras, setExtrasState] = useState<ExtraChoices>(initial?.choices.extras ?? {});
   // 到過確認頁之後，回到前面修改時可以直接回確認頁，不必一步一步按「下一步」。
   const [reviewed, setReviewed] = useState(Boolean(edit));
+  // 修改報名時，她點過身分類別才送出身分類別；沒點過就保留資料庫裡現在的。
+  const [roleChosen, setRoleChosen] = useState(false);
   // 按了「再幫一位報名」：第一步說明哪些資料是從上一位帶過來的。
   const [another, setAnother] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -204,6 +206,7 @@ export function RegistrationForm({
   // 改了哪個欄位，就收起那個欄位的錯誤；整張表單的錯誤（例如不在報名期間）留著。
   function update(changes: Partial<RegistrationInput>) {
     setInput((prev) => ({ ...prev, ...changes }));
+    if (changes.role !== undefined) setRoleChosen(true);
     const touched = (Object.keys(changes) as (keyof RegistrationInput)[]).flatMap(
       (key) => inputFields[key],
     );
@@ -319,11 +322,9 @@ export function RegistrationForm({
       let result;
       try {
         if (edit) {
-          // 沒動身分類別就不送（null），保留資料庫裡現在的：她查詢之後，總管理員可能已經改了。
-          const changes = {
-            ...changesOf(input),
-            role: input.role === edit.registration.role ? null : input.role,
-          };
+          // 沒點過身分類別就不送（null），保留資料庫裡現在的：她查詢之後，總管理員可能已經改了。
+          // 點過就照她畫面上選的送，即使和查詢時一樣：上一次送出可能已經存了別的，只是回應沒回來。
+          const changes = { ...changesOf(input), role: roleChosen ? input.role : null };
           result = await updateMine({
             registrationId: edit.registration.id,
             lookup: edit.lookup,
