@@ -9,7 +9,8 @@ import { localized } from "./i18n/localized";
  * 查詢（lookupRegistration）是前台唯一能讀取報名的地方，由資料庫函式 lookup_registration 比對。
  * 修改（updateRegistration）由資料庫函式 update_registration 再比對一次姓名與電話（或報名編號），和送出走同一套名額檢查。
  * 取消（cancelRegistration）由資料庫函式 cancel_registration 同樣再比對一次，標記為已取消、不刪除。
- * 後台（staffSubmitRegistration 等）只有總管理員能用，不受報名期間限制，可設身分類別、確認後超收（#17、ADR 0004）；
+ * 後台（staffSubmitRegistration 等）只有總管理員能用，不受報名期間限制，可以超收（#17、ADR 0004）；
+ * 身分類別前台、後台都可以選（#132），後台一定要送。
  * 資料庫函式 staff_* 和前台的函式共用寫入與名額檢查的步驟，不另寫一套規則。
  */
 
@@ -23,6 +24,16 @@ export type ChoirPart = (typeof CHOIR_PARTS)[number];
  */
 export const SERVICES = ["setup", "translation", "reception", "cleanup"] as const;
 export type Service = (typeof SERVICES)[number];
+
+/**
+ * 身分類別（GLOSSARY）。與資料庫 registrations_role_valid 用同一組代碼；報名表依這個順序列出，預設是與會姐妹。
+ */
+export const REGISTRANT_ROLES = ["attendee", "committee", "speaker", "guest_leader", "team", "volunteer"] as const;
+export type RegistrantRole = (typeof REGISTRANT_ROLES)[number];
+
+export function isRegistrantRole(role: unknown): role is RegistrantRole {
+  return (REGISTRANT_ROLES as readonly unknown[]).includes(role);
+}
 
 /** 報名表送出的內容，都是使用者輸入的原樣，整理與檢查由報名服務負責。 */
 export type RegistrationInput = {
@@ -46,6 +57,11 @@ export type RegistrationInput = {
   /** 要不要領取紙本手冊；null 表示還沒選，送出時會被擋下。 */
   printedHandbook: boolean | null;
   portraitConsent: boolean;
+  /**
+   * 身分類別（REGISTRANT_ROLES）。null 是沒送來（還沒更新的舊版頁面）：
+   * 新增時當成與會姐妹，修改時保留原本的。
+   */
+  role: string | null;
 };
 
 /**
@@ -75,6 +91,7 @@ export type RegistrationField =
   | "services"
   | "printedHandbook"
   | "portraitConsent"
+  | "role"
   | "form";
 
 export type RegistrationError =
@@ -100,6 +117,7 @@ export type RegistrationError =
   | "servicesInvalid"
   | "printedHandbookRequired"
   | "portraitConsentRequired"
+  | "roleInvalid"
   | "notOpen"
   /** 修改時找不到這筆報名：姓名、電話不符，或剛被取消。 */
   | "notFound"
@@ -129,6 +147,7 @@ export type Registration = {
   choirPart: ChoirPart | null;
   services: Service[];
   printedHandbook: boolean;
+  role: RegistrantRole;
 };
 
 export type SubmitResult =
@@ -231,6 +250,8 @@ export function registrationInputFrom(input: unknown): RegistrationInput {
     // 不是 true 或 false 就當成還沒選，交給欄位檢查擋下，不默默當成不要。
     printedHandbook: typeof raw.printedHandbook === "boolean" ? raw.printedHandbook : null,
     portraitConsent: raw.portraitConsent === true,
+    // 沒送來是舊版頁面（見 RegistrationInput.role）；其他不是字串的換成空字串，交給欄位檢查擋下。
+    role: raw.role === undefined || raw.role === null ? null : text("role"),
   };
 }
 
@@ -300,6 +321,10 @@ function validateChanges(input: RegistrationChanges): RegistrationErrors {
   }
 
   if (input.printedHandbook === null) errors.printedHandbook = "printedHandbookRequired";
+
+  if (input.role !== null && !isRegistrantRole(input.role)) {
+    errors.role = "roleInvalid";
+  }
 
   return errors;
 }
@@ -457,6 +482,7 @@ export function nextRegistrationInput(previous: RegistrationInput): Registration
     services: [],
     printedHandbook: null,
     portraitConsent: false,
+    role: "attendee",
   };
 }
 
@@ -491,6 +517,7 @@ const constraintErrors: Record<string, RegistrationErrors> = {
   registrations_line_id_length: { lineId: "lineIdTooLong" },
   registrations_choir_part_valid: { services: "servicesInvalid" },
   registrations_services_valid: { services: "servicesInvalid" },
+  registrations_role_valid: { role: "roleInvalid" },
 };
 
 function violatedConstraint(message: string): string {
@@ -498,7 +525,7 @@ function violatedConstraint(message: string): string {
 }
 
 /**
- * 送出報名：檢查欄位，在報名中時寫入一筆與會姐妹的報名。locale 是送出當下的畫面語言，記為報名語言。
+ * 送出報名：檢查欄位，在報名中時寫入一筆報名。locale 是送出當下的畫面語言，記為報名語言。
  * submissionKey 是這次送出的送出編號（見 submissionKeyOf）：同一個編號再送一次，回傳上次存下的報名，不再新增。
  */
 export async function submitRegistration(
@@ -551,6 +578,7 @@ function newRegistrationParams(input: RegistrationInput) {
     p_services: input.services,
     p_printed_handbook: input.printedHandbook,
     p_portrait_consent: input.portraitConsent,
+    p_role: input.role,
   };
 }
 
@@ -601,6 +629,7 @@ function changeParams(changes: RegistrationChanges) {
     p_choir_part: changes.choirPart,
     p_services: changes.services,
     p_printed_handbook: changes.printedHandbook,
+    p_role: changes.role,
   };
 }
 
@@ -658,10 +687,7 @@ export async function cancelRegistration(
   return { ok: true };
 }
 
-/** 身分類別（GLOSSARY）。與資料庫 registrations_role_valid 用同一組代碼；前台報名一律是與會姐妹。 */
-export const REGISTRANT_ROLES = ["attendee", "committee", "speaker", "guest_leader", "team", "volunteer"] as const;
-export type RegistrantRole = (typeof REGISTRANT_ROLES)[number];
-
+/** 身分類別的中文名稱：報名表（messages）、後台與匯出共用這一份。 */
 export const REGISTRANT_ROLE_LABELS: Record<RegistrantRole, string> = {
   attendee: "與會姐妹",
   committee: "籌備委員",
@@ -671,23 +697,20 @@ export const REGISTRANT_ROLE_LABELS: Record<RegistrantRole, string> = {
   volunteer: "志工",
 };
 
-/** 後台新增報名的內容：報名表的內容加上身分類別（RegistrantRole，送來的原樣）。 */
+/** 後台新增報名的內容：和報名表相同，但身分類別一定要送（RegistrantRole，送來的原樣）。 */
 export type StaffRegistrationInput = RegistrationInput & { role: string };
 
-/** 後台修改報名時可以改的部分：和前台修改相同，加上身分類別。 */
+/** 後台修改報名時可以改的部分：和前台修改相同，但身分類別一定要送。 */
 export type StaffRegistrationChanges = RegistrationChanges & { role: string };
-
-export type StaffRegistrationField = RegistrationField | "role";
 
 export type StaffRegistrationError =
   | RegistrationError
-  | "roleInvalid"
   /** 不是總管理員（課務組、報報組只能看）。 */
   | "notAllowed"
   /** 這個年度已經清除個資（#26），不能再新增、修改、取消報名。 */
   | "personalDataCleared";
 
-export type StaffRegistrationErrors = Partial<Record<StaffRegistrationField, StaffRegistrationError>>;
+export type StaffRegistrationErrors = Partial<Record<RegistrationField, StaffRegistrationError>>;
 
 export type StaffSubmitResult =
   | { ok: true; registration: Registration }
@@ -707,16 +730,6 @@ const staffDatabaseErrors: Record<string, StaffRegistrationErrors> = {
   role_invalid: { role: "roleInvalid" },
   personal_data_cleared: { form: "personalDataCleared" },
 };
-
-/** 後台才會碰到的資料表限制（前台報名一律是與會姐妹）。 */
-const staffConstraintErrors: Record<string, StaffRegistrationErrors> = {
-  ...constraintErrors,
-  registrations_role_valid: { role: "roleInvalid" },
-};
-
-function validateRole(role: string): StaffRegistrationErrors {
-  return (REGISTRANT_ROLES as readonly string[]).includes(role) ? {} : { role: "roleInvalid" };
-}
 
 /** 額滿而被拒、還沒確認過時，標出需要確認。 */
 function withConfirmation(result: StaffSubmitResult, confirmFull: boolean): StaffSubmitResult {
@@ -738,7 +751,8 @@ export async function staffSubmitRegistration(
   input: StaffRegistrationInput,
   { confirmFull, locale = "zh", submissionKey }: { confirmFull: boolean; locale?: Locale; submissionKey?: string },
 ): Promise<StaffSubmitResult> {
-  const errors = { ...validateRegistration(input), ...validateRole(input.role) };
+  // 後台的身分類別一定是字串，沒送來是空字串，欄位檢查會擋下。
+  const errors = validateRegistration(input);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   const result = await saved(
@@ -748,14 +762,13 @@ export async function staffSubmitRegistration(
         .rpc("staff_submit_registration", {
           ...newRegistrationParams(input),
           p_locale: locale,
-          p_role: input.role,
           p_confirm_full: confirmFull,
           p_submission_key: submissionKeyOf(submissionKey),
         })
         .single<RegistrationRow>(),
     input,
     staffDatabaseErrors,
-    staffConstraintErrors,
+    constraintErrors,
   );
   return withConfirmation(result, confirmFull);
 }
@@ -776,7 +789,7 @@ export async function staffUpdateRegistration(
   supabase: SupabaseClient,
   { registrationId, changes, confirmFull, submissionKey }: StaffUpdateInput,
 ): Promise<StaffSubmitResult> {
-  const errors = { ...validateChanges(changes), ...validateRole(changes.role) };
+  const errors = validateChanges(changes);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   if (!UUID_PATTERN.test(registrationId)) return { ok: false, errors: { form: "notFound" } };
 
@@ -787,14 +800,13 @@ export async function staffUpdateRegistration(
         .rpc("staff_update_registration", {
           p_registration_id: registrationId,
           ...changeParams(changes),
-          p_role: changes.role,
           p_confirm_full: confirmFull,
           p_submission_key: submissionKeyOf(submissionKey),
         })
         .single<RegistrationRow>(),
     changes,
     staffDatabaseErrors,
-    staffConstraintErrors,
+    constraintErrors,
   );
   return withConfirmation(result, confirmFull);
 }
@@ -872,6 +884,7 @@ async function saved(
       choirPart: data.choir_part,
       services: data.services,
       printedHandbook: data.printed_handbook,
+      role: data.role,
     },
   };
 }
@@ -903,6 +916,7 @@ type RegistrationRow = {
   choir_part: ChoirPart | null;
   services: Service[];
   printed_handbook: boolean;
+  role: RegistrantRole;
 };
 
 /** 查詢報名的輸入：姓名，以及電話或報名編號（同一個欄位，6 碼是報名編號，其他當成電話）。 */
@@ -981,6 +995,7 @@ export async function lookupRegistration(
       choirPart: row.choir_part,
       services: row.services,
       printedHandbook: row.printed_handbook,
+      role: row.role,
       status: row.status,
       stakeName: localized(row, "stake_name", locale),
       wardName: localized(row, "ward_name", locale),

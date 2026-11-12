@@ -15,6 +15,7 @@ import {
   isRegistrationNumber,
   lookupRegistration,
   nextRegistrationInput,
+  registrationInputFrom,
   submitRegistration,
   updateRegistration,
   validateCourseChoices,
@@ -187,6 +188,7 @@ function validInput(overrides: Partial<RegistrationInput> = {}): RegistrationInp
     services: [],
     printedHandbook: false,
     portraitConsent: true,
+    role: "attendee",
     ...overrides,
   };
 }
@@ -214,6 +216,7 @@ describe("送出報名", () => {
             choirPart: null,
         services: [],
         printedHandbook: false,
+        role: "attendee",
       },
     });
   });
@@ -1526,6 +1529,57 @@ describe("直接呼叫資料庫的送出函式", () => {
   });
 });
 
+// 報名者自己選身分類別（#132）。
+describe("身分類別", () => {
+  async function storedRole(id: string) {
+    return must(await admin.from("registrations").select("role").eq("id", id).single()).role;
+  }
+
+  it("選了講師送出，存下的是講師", async () => {
+    const result = await submit(validInput({ role: "speaker" }));
+    if (!result.ok) throw new Error(JSON.stringify(result));
+
+    expect(result.registration.role).toBe("speaker");
+    expect(await storedRole(result.registration.id)).toBe("speaker");
+  });
+
+  it("還沒更新的舊版報名表沒送身分類別，存成與會姐妹", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { role, ...fromOldPage } = validInput();
+
+    const result = await submit(registrationInputFrom(fromOldPage));
+
+    expect(result.ok && result.registration.role).toBe("attendee");
+  });
+
+  it.each([
+    { what: "不認得的身分類別", role: "pastor" },
+    { what: "不是字串", role: 3 },
+  ])("$what被拒絕，標在身分類別旁", async ({ role }) => {
+    const result = await submit(registrationInputFrom({ ...validInput(), role }));
+
+    expect(result).toEqual({ ok: false, errors: { role: "roleInvalid" } });
+  });
+
+  it("直接呼叫資料庫送出不認得的身分類別時被拒絕", async () => {
+    await openRegistration();
+    const { error } = await anonClient().rpc("submit_registration", {
+      p_venue_id: venueId,
+      p_stake_id: taipeiStakeId,
+      p_ward_id: xindianWardId,
+      p_name: "王小美",
+      p_phone: "0912345678",
+      p_email: null,
+      p_line_id: null,
+      p_portrait_consent: true,
+      p_locale: "zh",
+      p_role: "pastor",
+    });
+
+    expect(error?.message).toMatch(/registrations_role_valid/);
+  });
+});
+
 describe("報名語言", () => {
   async function storedLocale(id: string) {
     return must(await admin.from("registrations").select("locale").eq("id", id).single()).locale;
@@ -1605,7 +1659,7 @@ describe("代報", () => {
     expect(row.submitted_phone).toBe("0912345678");
   });
 
-  it("再幫一位報名：帶入電話、Email、支聯會、支會、場地，其他清空", () => {
+  it("再幫一位報名：帶入電話、Email、支聯會、支會、場地，其他清空，身分類別回到與會姐妹", () => {
     const previous = validInput({
       name: "王媽媽",
       email: "mei@example.com",
@@ -1615,6 +1669,7 @@ describe("代報", () => {
       choirPart: "alto",
       services: ["reception"],
       printedHandbook: true,
+      role: "speaker",
     });
 
     expect(nextRegistrationInput(previous)).toEqual({
@@ -1632,6 +1687,7 @@ describe("代報", () => {
       services: [],
       printedHandbook: null,
       portraitConsent: false,
+      role: "attendee",
     });
   });
 
@@ -1980,6 +2036,41 @@ describe("修改報名", () => {
     );
     return { ...row, courseIds: courses.map((course) => course.course_id).toSorted() };
   }
+
+  it("可以把身分類別從與會姐妹改成志工，查詢時看到志工", async () => {
+    const before = await registered();
+
+    const result = await update(before.id, { role: "volunteer" });
+
+    expect(result.ok && result.registration.role).toBe("volunteer");
+    const found = await lookupRegistration(serverClient(), credentials, "zh");
+    expect(found.ok && found.registrations.map((registration) => registration.role)).toEqual(["volunteer"]);
+  });
+
+  it("還沒更新的舊版查詢頁送來的修改沒有身分類別，保留原本的", async () => {
+    const before = await registered({ role: "speaker" });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { role, ...fromOldPage } = changed({ email: "mei@example.com" });
+
+    const result = await updateRegistration(serverClient(), {
+      registrationId: before.id,
+      lookup: credentials,
+      changes: changesOf(registrationInputFrom(fromOldPage)),
+    });
+
+    expect(result.ok && [result.registration.email, result.registration.role]).toEqual([
+      "mei@example.com",
+      "speaker",
+    ]);
+  });
+
+  it("修改時身分類別不認得被拒絕，原報名不變", async () => {
+    const before = await registered();
+
+    const result = await update(before.id, { role: "pastor" });
+
+    expect(result).toEqual({ ok: false, errors: { role: "roleInvalid" } });
+  });
 
   it("可以修改場地以外的選擇與聯絡資料，回傳存下的資料", async () => {
     const lunch = await addLunch(null);

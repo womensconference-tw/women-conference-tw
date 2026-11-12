@@ -127,6 +127,7 @@ async function registered(overrides: Partial<RegistrationInput> = {}, locale: Lo
       services: [],
       printedHandbook: true,
       portraitConsent: true,
+      role: "attendee",
       ...overrides,
     },
     locale,
@@ -192,6 +193,18 @@ describe("寄確認信", () => {
     expect(sent[0].html).not.toContain("台北金華教堂");
   });
 
+  it.each([
+    { locale: "zh", line: "身分類別：講師" },
+    { locale: "en", line: "Role: Instructor" },
+  ] as const)("確認信列出她選的身分類別（$locale）", async ({ locale, line }) => {
+    const registration = await registered({ role: "speaker" }, locale);
+    const { sent, send } = fakeSender();
+
+    await sendConfirmationEmail(serverClient(), registration.id, "registered", send);
+
+    expect(sent[0].text).toContain(line);
+  });
+
   async function cancel(id: string) {
     must(
       await admin
@@ -252,6 +265,7 @@ describe("寄確認信", () => {
         choirPart: null,
         services: [],
         printedHandbook: true,
+        role: "attendee",
       },
       submissionKey: key,
     });
@@ -306,7 +320,7 @@ describe("寄確認信", () => {
     const input: RegistrationInput = {
       name: "王小美", phone: "0912345678", noPhone: false, email: "xiaomei@example.com", lineId: "",
       stakeId: stakeId!, wardId, venueId, courseIds: [courseId], lunchOptionId: null,
-      choirPart: null, services: [], printedHandbook: true, portraitConsent: true,
+      choirPart: null, services: [], printedHandbook: true, portraitConsent: true, role: "attendee",
     };
 
     for (let attempt = 0; attempt < 2; attempt++) {

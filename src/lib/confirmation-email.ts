@@ -195,6 +195,7 @@ type EmailRow = {
   choir_part: string | null;
   services: string[];
   printed_handbook: boolean;
+  role: string;
   locale: string;
   stake_name_zh: string;
   stake_name_en: string;
@@ -247,6 +248,7 @@ function detailsOf(row: EmailRow, locale: Locale): Details {
     choirPart: row.choir_part,
     services: row.services,
     printedHandbook: row.printed_handbook,
+    role: row.role,
     // 報名後支聯會、支會可能已停用，不在報名表的選項裡，所以名稱由資料庫給。
     stakeName: localized(row, "stake_name", locale),
     wardName: localized(row, "ward_name", locale),

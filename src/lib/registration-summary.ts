@@ -1,5 +1,5 @@
 import type { Messages } from "./i18n/messages";
-import { CHOIR_PARTS, SERVICES, type RegistrationInput } from "./registration";
+import { CHOIR_PARTS, isRegistrantRole, SERVICES, type RegistrationInput } from "./registration";
 
 export type Details = Pick<
   RegistrationInput,
@@ -16,6 +16,8 @@ export type Details = Pick<
   email: string | null;
   lineId: string | null;
   choirPart: string | null;
+  /** 身分類別（REGISTRANT_ROLES）；沒有時（舊版頁面）列成與會姐妹。 */
+  role: string | null;
   noPhone?: boolean;
   /** 查詢時由資料庫給的支聯會、支會名稱：報名後它們可能已停用，不在報名表的選項裡。 */
   stakeName?: string;
@@ -36,7 +38,7 @@ export type SummaryOptions = {
 };
 
 /**
- * 報名資料清單的內容，依報名表的步驟排列：聯絡資料與場地、每個場次的課程、午餐與服務。
+ * 報名資料清單的內容，依報名表的步驟排列：聯絡資料、身分類別與場地、每個場次的課程、午餐與服務。
  * 確認步驟、完成頁、查詢頁與確認信共用，列出的內容才會一致。
  * done（送出以後）時有報名編號就不列電話（編號另外顯示），沒填的 Email、LINE ID 不列。
  * 場地沒有午餐時不列那一列。
@@ -73,6 +75,7 @@ export function summarizeRegistration(
             ? t.register.wardWithStake(ward.name, stake.name)
             : "",
     },
+    { label: t.register.roleLabel, value: t.register.roleNames[isRegistrantRole(registration.role) ? registration.role : "attendee"] },
     { label: t.register.venueLabel, value: venue?.name ?? "" },
   ];
   // 與報名表的步驟同一個順序：課程之後才是午餐與服務。

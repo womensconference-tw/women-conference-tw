@@ -18,9 +18,9 @@ import {
   courseIdsOf,
   validateCourseChoices,
   type CourseChoices,
+  type RegistrationField,
   type StaffRegistrationError,
   type StaffRegistrationErrors,
-  type StaffRegistrationField,
   type StaffRegistrationInput,
 } from "@/lib/registration";
 import type { LimitedOption, RegistrationOptions } from "@/lib/registration-options";
@@ -197,7 +197,7 @@ export function RegistrationEditor({
     if (confirming) submit(confirming.sent, true);
   }
 
-  const errorList = Object.entries(errors) as [StaffRegistrationField, StaffRegistrationError][];
+  const errorList = Object.entries(errors) as [RegistrationField, StaffRegistrationError][];
 
   return (
     <form onSubmit={handleSubmit} noValidate className="flex max-w-2xl flex-col gap-6">

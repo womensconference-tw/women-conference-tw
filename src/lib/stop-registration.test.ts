@@ -147,6 +147,7 @@ function validInput(overrides: Partial<RegistrationInput> = {}): RegistrationInp
     services: [],
     printedHandbook: false,
     portraitConsent: true,
+    role: "attendee",
     ...overrides,
   };
 }
