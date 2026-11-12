@@ -792,6 +792,7 @@ describe("切換目前年度時有人正在報名", () => {
     services: [],
     printedHandbook: false,
     portraitConsent: true,
+    role: "attendee",
   });
   const lookup = { name: "已報名的", phoneOrNumber: "0911111111" };
 

@@ -528,11 +528,24 @@ describe("身分類別", () => {
     return (await stored(id)).role;
   }
 
-  it("前台報名一律是與會姐妹", async () => {
-    expect(await roleOf(await publicRegistration())).toBe("attendee");
+  // 報名者自己選身分類別（#132），總管理員之後照樣可以改。
+  it("前台報名存下她選的身分類別，總管理員可以再改", async () => {
+    const id = await publicRegistration({ courseIds: [], lunchOptionId: null, role: "committee" });
+    expect(await roleOf(id)).toBe("committee");
+
+    const head: SupabaseClient = await signedInClient("head@example.com");
+    const result = await staffUpdateRegistration(head, {
+      registrationId: id,
+      changes: changed({ role: "guest_leader" }),
+      confirmFull: false,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(await roleOf(id)).toBe("guest_leader");
   });
 
-  it("前台修改報名不會改掉總管理員設定的身分類別", async () => {
+  // 修改畫面帶出的是總管理員改過的身分類別；她沒改的話，送出的就是那一個。
+  it("總管理員改過身分類別後，前台修改只改 Email 時身分類別不變", async () => {
     const id = await publicRegistration({ courseIds: [], lunchOptionId: null });
     const head: SupabaseClient = await signedInClient("head@example.com");
     const staffResult = await staffUpdateRegistration(head, {
@@ -545,7 +558,7 @@ describe("身分類別", () => {
     const result = await updateRegistration(serverClient(), {
       registrationId: id,
       lookup: { name: "李大華", phoneOrNumber: "0912345678" },
-      changes: { ...changesOf(validInput()), email: "hua@example.com" },
+      changes: { ...changesOf(validInput()), email: "hua@example.com", role: "volunteer" },
     });
 
     expect(result.ok).toBe(true);

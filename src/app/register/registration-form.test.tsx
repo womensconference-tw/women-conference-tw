@@ -107,6 +107,7 @@ const found: FoundRegistration = {
   choirPart: null,
   services: [],
   printedHandbook: false,
+  role: "attendee",
   status: "registered",
   stakeName: "台北支聯會",
   wardName: "新店支會",
@@ -411,6 +412,90 @@ describe("頁面重新讀取選項", () => {
     // 課程的順序不影響報名。
     expect((register.mock.lastCall?.[0] as RegistrationInput).courseIds.toSorted()).toEqual([FLOWERS, SINGING]);
     expect(screen.getByRole("heading", { name: "報名完成" })).toBeTruthy();
+  });
+});
+
+// 報名者自己選身分類別（#132）。
+describe("身分類別", () => {
+  it("一打開就選好與會姐妹；改選講師後送出，送出的是講師", async () => {
+    const user = userEvent.setup();
+    render(<RegistrationForm locale="zh" options={options} />);
+
+    expect(radio("身分類別", "與會姐妹").checked).toBe(true);
+    await user.type(screen.getByLabelText("姓名"), "王小美");
+    await user.type(screen.getByLabelText("電話"), "0912345678");
+    await user.click(radio("支聯會", "台北支聯會"));
+    await user.click(radio("支會", "新店支會"));
+    await user.click(radio("身分類別", "講師"));
+    await user.click(button("下一步"));
+    await user.click(radio("場地", "高雄教堂"));
+    await user.click(button("下一步"));
+    await user.click(button("下一步"));
+    await user.click(radio("紙本手冊", "不需要紙本手冊"));
+    await user.click(button("下一步"));
+    expect(screen.getByText("身分類別").nextElementSibling?.textContent).toBe("講師");
+    await user.click(screen.getByRole("checkbox", { name: "我已閱讀並同意" }));
+    register.mockResolvedValueOnce({ ok: false, errors: { form: "notOpen" } });
+    await user.click(button("確認送出報名"));
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({ role: "speaker" }), expect.anything());
+  });
+
+  it("修改報名時帶出她原本的身分類別，改成志工後送出", async () => {
+    const user = userEvent.setup();
+    render(<RegistrationForm locale="zh" options={options} edit={edit} />);
+
+    await user.click(button("修改聯絡資料與身分類別"));
+    expect(radio("身分類別", "與會姐妹").checked).toBe(true);
+    await user.click(radio("身分類別", "志工"));
+    await user.click(button("改好了，回到確認頁"));
+    updateMine.mockResolvedValueOnce({ ok: true, registration: { ...found, role: "volunteer" } });
+    await user.click(button("確認送出修改"));
+
+    expect(updateMine).toHaveBeenCalledWith(
+      expect.objectContaining({ changes: expect.objectContaining({ role: "volunteer" }) }),
+    );
+  });
+
+  // 她查詢之後，總管理員可能改了她的身分類別；她沒動這一題，就不能用查詢時的舊值蓋回去。
+  it("修改報名時沒動身分類別，不送身分類別", async () => {
+    const user = userEvent.setup();
+    render(<RegistrationForm locale="zh" options={options} edit={edit} />);
+
+    await user.click(button("修改聯絡資料與身分類別"));
+    await user.type(screen.getByLabelText("Email（選填）"), "mei@example.com");
+    await user.click(button("改好了，回到確認頁"));
+    updateMine.mockResolvedValueOnce({ ok: true, registration: found });
+    await user.click(button("確認送出修改"));
+
+    expect(updateMine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: expect.objectContaining({ email: "mei@example.com", role: null }),
+      }),
+    );
+  });
+
+  // 第一次送出其實已經存成志工，只是回應沒回來；她再選回與會姐妹送出，要真的改回去。
+  it("修改報名時點過身分類別，就照她畫面上選的送出，即使和查詢時一樣", async () => {
+    const user = userEvent.setup();
+    render(<RegistrationForm locale="zh" options={options} edit={edit} />);
+
+    await user.click(button("修改聯絡資料與身分類別"));
+    await user.click(radio("身分類別", "志工"));
+    await user.click(button("改好了，回到確認頁"));
+    updateMine.mockRejectedValueOnce(new Error("連線中斷"));
+    await user.click(button("確認送出修改"));
+    await screen.findByText(/系統暫時出了問題/);
+
+    await user.click(button("修改聯絡資料與身分類別"));
+    await user.click(radio("身分類別", "與會姐妹"));
+    await user.click(button("改好了，回到確認頁"));
+    updateMine.mockResolvedValueOnce({ ok: true, registration: found });
+    await user.click(button("確認送出修改"));
+
+    expect(updateMine).toHaveBeenLastCalledWith(
+      expect.objectContaining({ changes: expect.objectContaining({ role: "attendee" }) }),
+    );
   });
 });
 

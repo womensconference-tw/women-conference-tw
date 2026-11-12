@@ -1,3 +1,4 @@
+import { REGISTRANT_ROLE_LABELS } from "../registration";
 import type { Locale } from "./locale";
 
 /*
@@ -68,6 +69,9 @@ const zh = {
     findWardLabel: "輸入支會名稱的一部分，例如「新店」",
     findWardNoMatch: "找不到符合的支會。請換個字試試，或從上面的支聯會找。",
     wardWithStake: (ward: string, stake: string) => `${ward}（${stake}）`,
+    roleLabel: "身分類別",
+    roleHint: "大多數姐妹請選「與會姐妹」。",
+    roleNames: REGISTRANT_ROLE_LABELS,
     venueLabel: "場地",
     venueHint: "任何一個場地都可以選，不限所屬的支聯會。",
     coursesHint: "每個場次請選一門課；這個時段不上課的話，請選「不選課」。標示「已額滿」的課程不能選。",
@@ -141,6 +145,7 @@ const zh = {
       servicesInvalid: "服務意願有無法辨識的選項，請重新勾選。",
       printedHandbookRequired: "請選擇是否需要紙本手冊。",
       portraitConsentRequired: "需要同意肖像權才能報名。如有疑問，請聯絡您所屬支會或分會的慈助會會長。",
+      roleInvalid: "請選擇身分類別。",
       notOpen: "目前不在報名期間，報名沒有送出。",
       notFound: "找不到這筆報名，可能已經取消了。請重新查詢。",
       cancelled: "這筆報名已經取消，不能修改。要參加的話，請重新報名。",
@@ -182,8 +187,8 @@ const zh = {
   // 修改報名：沿用報名表的步驟與確認頁，只有這些地方的文字不同。
   edit: {
     title: "修改報名",
-    stepTitles: ["聯絡資料", "選擇場地", "選擇課程", "午餐與服務", "確認修改"],
-    editButtons: ["修改聯絡資料", "修改場地", "修改課程", "修改午餐與服務"],
+    stepTitles: ["聯絡資料與身分類別", "選擇場地", "選擇課程", "午餐與服務", "確認修改"],
+    editButtons: ["修改聯絡資料與身分類別", "修改場地", "修改課程", "修改午餐與服務"],
     fixedDetailsHint: "姓名和支會不能在這裡修改。",
     reviewHeading: "請確認修改後的資料",
     submitButton: "確認送出修改",
@@ -313,6 +318,16 @@ const en = {
     findWardLabel: "Type part of your ward's name, for example \"Xindian\"",
     findWardNoMatch: "No ward matches. Try different words, or choose your stake above.",
     wardWithStake: (ward: string, stake: string) => `${ward} (${stake})`,
+    roleLabel: "Role",
+    roleHint: "Most sisters should choose \"Attendee\".",
+    roleNames: {
+      attendee: "Attendee",
+      committee: "Planning Committee Member",
+      speaker: "Instructor",
+      guest_leader: "Guest or Leader",
+      team: "Staff",
+      volunteer: "Volunteer",
+    },
     venueLabel: "Venue",
     venueHint: "You can choose any venue, whichever stake you belong to.",
     coursesHint:
@@ -398,6 +413,7 @@ const en = {
       printedHandbookRequired: "Please choose whether you need a printed handbook.",
       portraitConsentRequired:
         "You need to agree to the photo consent to register. If you have questions, please contact your ward or branch Relief Society president.",
+      roleInvalid: "Please choose your role.",
       notOpen: "Registration is not open right now. Your registration was not submitted.",
       notFound:
         "We couldn't find this registration. It may have been cancelled. Please look it up again.",
@@ -449,8 +465,8 @@ const en = {
   },
   edit: {
     title: "Change my registration",
-    stepTitles: ["Contact details", "Choose a venue", "Choose your classes", "Lunch and service", "Review changes"],
-    editButtons: ["Change contact details", "Change venue", "Change classes", "Change lunch and service"],
+    stepTitles: ["Contact details and role", "Choose a venue", "Choose your classes", "Lunch and service", "Review changes"],
+    editButtons: ["Change contact details and role", "Change venue", "Change classes", "Change lunch and service"],
     fixedDetailsHint:
       "Your name and ward can't be changed here.",
     reviewHeading: "Please check your changed details",

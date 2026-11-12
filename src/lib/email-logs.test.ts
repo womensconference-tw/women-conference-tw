@@ -119,6 +119,7 @@ async function registered(overrides: Partial<RegistrationInput> = {}, locale: "z
     services: [],
     printedHandbook: true,
     portraitConsent: true,
+    role: "attendee",
     ...overrides,
   };
   const result = await submitRegistration(anonClient(), input, locale);

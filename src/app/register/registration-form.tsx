@@ -10,6 +10,7 @@ import type { Locale } from "@/lib/i18n/locale";
 import { messages, type Messages } from "@/lib/i18n/messages";
 import {
   CHOIR_PARTS,
+  REGISTRANT_ROLES,
   SERVICES,
   changesOf,
   choicesAfterVenueChange,
@@ -46,7 +47,7 @@ import { register } from "./actions";
 
 // 每一步有哪些欄位：按「下一步」時只檢查這一步，送出失敗時跳回第一個有錯的那一步。
 const stepFields: RegistrationField[][] = [
-  ["name", "phone", "email", "lineId", "stake", "ward"],
+  ["name", "phone", "email", "lineId", "stake", "ward", "role"],
   ["venue"],
   ["courses"],
   ["lunch", "services", "printedHandbook"],
@@ -71,6 +72,7 @@ const inputFields: Record<keyof RegistrationInput, RegistrationField[]> = {
   services: ["services"],
   printedHandbook: ["printedHandbook"],
   portraitConsent: ["portraitConsent"],
+  role: ["role"],
 };
 
 const emptyInput: RegistrationInput = {
@@ -88,6 +90,7 @@ const emptyInput: RegistrationInput = {
   services: [],
   printedHandbook: null,
   portraitConsent: false,
+  role: "attendee",
 };
 
 const noExtras = { lunchOptions: [] };
@@ -114,6 +117,7 @@ const radioClass = "size-6 shrink-0 accent-primary";
 
 /**
  * 報名表：基本資料 → 選場地 → 選課程 → 午餐與服務 → 肖像權同意與確認 → 完成頁。
+ * 第一步的最後選身分類別，預設是與會姐妹。
  * 有 edit 時是修改報名：同樣的步驟與確認頁，一開始就停在確認頁、填好她原本的資料；
  * 姓名、支會不能改，不再問肖像權。她原本已佔的課程、午餐就算額滿也照樣可選。
  * 各步都在同一頁切換，回上一步不會清掉已填的資料；送出後在同一頁顯示完成頁。
@@ -154,6 +158,8 @@ export function RegistrationForm({
   const [extras, setExtrasState] = useState<ExtraChoices>(initial?.choices.extras ?? {});
   // 到過確認頁之後，回到前面修改時可以直接回確認頁，不必一步一步按「下一步」。
   const [reviewed, setReviewed] = useState(Boolean(edit));
+  // 修改報名時，她點過身分類別才送出身分類別；沒點過就保留資料庫裡現在的。
+  const [roleChosen, setRoleChosen] = useState(false);
   // 按了「再幫一位報名」：第一步說明哪些資料是從上一位帶過來的。
   const [another, setAnother] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -200,6 +206,7 @@ export function RegistrationForm({
   // 改了哪個欄位，就收起那個欄位的錯誤；整張表單的錯誤（例如不在報名期間）留著。
   function update(changes: Partial<RegistrationInput>) {
     setInput((prev) => ({ ...prev, ...changes }));
+    if (changes.role !== undefined) setRoleChosen(true);
     const touched = (Object.keys(changes) as (keyof RegistrationInput)[]).flatMap(
       (key) => inputFields[key],
     );
@@ -315,7 +322,9 @@ export function RegistrationForm({
       let result;
       try {
         if (edit) {
-          const changes = changesOf(input);
+          // 沒點過身分類別就不送（null），保留資料庫裡現在的：她查詢之後，總管理員可能已經改了。
+          // 點過就照她畫面上選的送，即使和查詢時一樣：上一次送出可能已經存了別的，只是回應沒回來。
+          const changes = { ...changesOf(input), role: roleChosen ? input.role : null };
           result = await updateMine({
             registrationId: edit.registration.id,
             lookup: edit.lookup,
@@ -988,12 +997,14 @@ function BasicDetails({ input, update, errors, options, t }: StepProps) {
           <FieldError field="ward" errors={errors} t={t} />
         </div>
       )}
+
+      <Role input={input} update={update} errors={errors} t={t} />
     </>
   );
 }
 
 /**
- * 修改報名的第一步：只能改聯絡資料。姓名、支會列出來但不能改；
+ * 修改報名的第一步：只能改聯絡資料與身分類別。姓名、支會列出來但不能改；
  * 沒有電話的人不問電話（報名編號列在確認頁），有電話的人不能改成沒有電話。
  */
 function ContactDetails({
@@ -1054,7 +1065,35 @@ function ContactDetails({
         errors={errors}
         t={t}
       />
+
+      <Role input={input} update={update} errors={errors} t={t} />
     </>
+  );
+}
+
+/** 身分類別：預設是與會姐妹，修改時是她原本選的。 */
+function Role({ input, update, errors, t }: Omit<StepProps, "options">) {
+  return (
+    <fieldset data-field="role" className="flex flex-col gap-3">
+      <legend className="mb-2 text-lead font-bold">{t.register.roleLabel}</legend>
+      <p id="role-hint">{t.register.roleHint}</p>
+      <FieldError field="role" errors={errors} t={t} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        {REGISTRANT_ROLES.map((role) => (
+          <label key={role} className={choiceClass}>
+            <input
+              type="radio"
+              name="role"
+              className={radioClass}
+              checked={input.role === role}
+              onChange={() => update({ role })}
+              {...errorAria("role", errors, "role-hint")}
+            />
+            {t.register.roleNames[role]}
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
@@ -1201,6 +1240,7 @@ function initialEditState(registration: FoundRegistration, options: Registration
     choirPart: registration.choirPart,
     services: registration.services,
     portraitConsent: true,
+    role: registration.role,
   };
   return { input, choices };
 }
